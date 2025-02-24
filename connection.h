@@ -1,0 +1,42 @@
+#pragma once
+
+#include <cstdint>
+#include <vector>
+
+class ConnectionPool {
+
+    public:
+    ConnectionPool();
+
+        /**
+         * @brief Add a connection to the pool
+         */
+        void add_connection(int fd);
+    
+    private:
+        std::vector<TCPConnection> connections;
+};
+
+enum class ConnectionType {
+    INGRESS,
+    EGRESS,
+};
+
+class TCPConnection {
+
+    public:
+        ///**
+        // * @brief Construct an egress connection
+        // */
+        //TCPConnection(uint16_t port, const std::string& ip);
+
+        /**
+         * @brief Construct an ingress connection
+         */
+        TCPConnection(int);
+        int get_fd() { return fd; }
+
+    private:
+        int fd; // local socket file descriptor
+
+};
