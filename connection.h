@@ -3,25 +3,6 @@
 #include <cstdint>
 #include <vector>
 
-class ConnectionPool {
-
-    public:
-    ConnectionPool();
-
-        /**
-         * @brief Add a connection to the pool
-         */
-        void add_connection(int fd);
-    
-    private:
-        std::vector<TCPConnection> connections;
-};
-
-enum class ConnectionType {
-    INGRESS,
-    EGRESS,
-};
-
 class TCPConnection {
 
     public:
@@ -39,4 +20,23 @@ class TCPConnection {
     private:
         int fd; // local socket file descriptor
 
+};
+
+class ConnectionPool {
+
+    public:
+    ConnectionPool();
+
+        /**
+         * @brief Add a connection to the pool
+         */
+        void add_connection(int fd);
+    
+    private:
+        std::vector<TCPConnection> connections;
+};
+
+enum class ConnectionType {
+    INGRESS,
+    EGRESS,
 };

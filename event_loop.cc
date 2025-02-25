@@ -3,6 +3,7 @@
 #include <buffer_manager.h>
 #include <ring_wrapper.h>
 #include <iostream>
+#include <memory>
 
 void EventLoop::run() {
     // Pointers to accept and identify completion events
@@ -10,7 +11,9 @@ void EventLoop::run() {
     struct UserData *ud;
 
     // Add accept submissions
-    ingress_listeners.listen_all(ring);
+    for (auto &listener : ingress_listeners.get_listeners()) {
+        ring.prepare_accept(*listener.second.get());
+    }
 
     // main event loop
     while(true) {
@@ -23,7 +26,7 @@ void EventLoop::run() {
             // Handle the event
             switch (ud->op)
             {
-            case ACCEPT:
+            case ACCEPT: {
                 // create connection
                 Listener& listener = reinterpret_cast<Listener&>(ud->data);
                 TCPConnection& conn = ingress_listeners.add_connection(
@@ -37,8 +40,9 @@ void EventLoop::run() {
                 // re-arm accept
                 ring.prepare_accept(listener);
                 break;
+            }
             
-            case READ:
+            case READ: {
                 // read the data
                 Buffer& buffer = reinterpret_cast<Buffer&>(ud->data);
                 // TODO: use a propper logger
@@ -55,6 +59,7 @@ void EventLoop::run() {
                     buffer.listener->get_fd()
                 );
                 break;
+            }
             
             default:
                 break;

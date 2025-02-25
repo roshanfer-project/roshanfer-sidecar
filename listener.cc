@@ -43,11 +43,6 @@ TCPConnection&Listener::add_connection(int fd) {
     return *connections.back();
 };
 
-void IngressListeners::listen_all(RingWrapper& ring) {
-    for (auto& listener : listeners) {
-        ring.prepare_accept(*listener.second.get());
-    }
-};
 
 TCPConnection& IngressListeners::add_connection(int fd, uint16_t port) {
     return listeners[port]->add_connection(fd);

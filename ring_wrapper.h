@@ -1,8 +1,9 @@
 #pragma once
 
 #include <liburing.h>
-#include <connection.h>
 #include <listener.h>
+#include <connection.h>
+#include <buffer_manager.h>
 #include <memory>
 
 enum Operation {
@@ -35,7 +36,7 @@ public:
      * @throws std::runtime_error if the submission fails
      * @todo make it multi-shot
      */
-    void prepare_read(const std::unique_ptr<Buffer>&, int);
+    void prepare_read(const std::unique_ptr<Buffer> &, int);
 
     void submit_and_wait();
 
