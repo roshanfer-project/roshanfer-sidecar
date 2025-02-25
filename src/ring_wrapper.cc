@@ -5,16 +5,19 @@
 #include <netinet/in.h>
 #include <memory>
 #include <buffer_manager.h>
+#include "glog/logging.h"
 
 RingWrapper::RingWrapper(int size)
 : size(size) {
     // Initialize the ring
-    // Note that here we are using the IORING_SETUP_SINGLE_ISSUER flag
+    // TODO: we should use the IORING_SETUP_SINGLE_ISSUER flag
     // which tells the kernel that only one thread will submit SQEs
-    int ret = io_uring_queue_init(size, &ring, IORING_SETUP_SINGLE_ISSUER);
+    // the installed iouring (2.1) does not support it.
+    int ret = io_uring_queue_init(size, &ring, 0);
     if (ret < 0) {
         throw std::runtime_error("Failed to initialize ring");
     }
+    DLOG(INFO) << "Ring initialized";
 }
 
 RingWrapper::~RingWrapper() {
@@ -22,11 +25,17 @@ RingWrapper::~RingWrapper() {
 }
 
 void RingWrapper::prepare_accept(Listener& listener) {
-    struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+    struct io_uring_sqe *sqe;
+    sqe = io_uring_get_sqe(&ring);
     if (!sqe) {
-        throw std::runtime_error("Failed to get SQE");
+        LOG(INFO) << "ring is full. Submitting...";
+        DLOG(INFO) << "submited number: " << io_uring_submit(&ring);
+        sqe = io_uring_get_sqe(&ring);
     }
-
+    if (!sqe) {
+        LOG(FATAL) << "Failed to get SQE";
+    }
+    
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(listener.get_port());
