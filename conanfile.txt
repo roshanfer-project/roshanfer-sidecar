@@ -1,0 +1,6 @@
+[requires]
+glog
+
+[generators]
+CMakeDeps
+CMakeToolchain

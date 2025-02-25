@@ -4,6 +4,8 @@
 #include <ring_wrapper.h>
 #include <iostream>
 #include <memory>
+#include <glog/logging.h>
+
 
 void EventLoop::run() {
     // Pointers to accept and identify completion events
@@ -11,6 +13,7 @@ void EventLoop::run() {
     struct UserData *ud;
 
     // Add accept submissions
+    DLOG(INFO) << "Add initial accept submissions for all listeners";
     for (auto &listener : ingress_listeners.get_listeners()) {
         ring.prepare_accept(*listener.second.get());
     }
@@ -27,6 +30,7 @@ void EventLoop::run() {
             switch (ud->op)
             {
             case ACCEPT: {
+                DLOG(INFO) << "Accept completion event";
                 // create connection
                 Listener& listener = reinterpret_cast<Listener&>(ud->data);
                 TCPConnection& conn = ingress_listeners.add_connection(
@@ -43,6 +47,7 @@ void EventLoop::run() {
             }
             
             case READ: {
+                DLOG(INFO) << "Read completion event";
                 // read the data
                 Buffer& buffer = reinterpret_cast<Buffer&>(ud->data);
                 // TODO: use a propper logger
