@@ -4,19 +4,6 @@
 #include <listener.h>
 #include <connection.h>
 #include <buffer_manager.h>
-#include <memory>
-
-enum Operation {
-    ACCEPT,
-    READ,
-    WRITE,
-    CONNECT
-};
-
-struct UserData {
-    void* data;
-    enum Operation op;
-};
 
 class RingWrapper {
 public:
@@ -29,20 +16,23 @@ public:
      * @throws std::runtime_error if the submission fails
      * @todo make it multi-shot
      */
-    void prepare_accept(Listener&);
+    void prepare_accept(Listener&, UserData*);
 
     /**
      * @brief Submits an SQE for reading data from the ring
      * @throws std::runtime_error if the submission fails
      * @todo make it multi-shot
      */
-    void prepare_read(const std::unique_ptr<Buffer> &, int);
+    void prepare_read(Buffer*, int, UserData*);
 
     void submit_and_wait();
 
     struct io_uring_cqe* peek_cqe();
     void seen_cqe(struct io_uring_cqe*);
     UserData* get_user_data(struct io_uring_cqe*);
+
+private:
+    struct io_uring_sqe* get_sqe();
 
 private:
     struct io_uring ring;

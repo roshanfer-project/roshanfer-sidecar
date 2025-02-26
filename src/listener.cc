@@ -5,6 +5,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <memory>
+#include <glog/logging.h>
 
 
 IngressListeners::IngressListeners()
@@ -27,6 +28,13 @@ Listener::Listener(uint16_t port, ConnectionType type)
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = INADDR_ANY;
+
+    int enable = 1;
+    if (setsockopt(fd,
+        SOL_SOCKET, SO_REUSEADDR,
+        &enable, sizeof(int)) < 0) {
+            LOG(FATAL) << "setsockopt(SO_REUSEADDR) failed";
+    }
     
     if (bind(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
         throw std::runtime_error("Failed to bind socket");
@@ -36,11 +44,13 @@ Listener::Listener(uint16_t port, ConnectionType type)
     if (listen(fd, 10) < 0) {
         throw std::runtime_error("Failed to listen on socket");
     }
+
+    DLOG(INFO) << "Listener created on port: " << port << " with fd: " << fd;
 };
 
-TCPConnection&Listener::add_connection(int fd) {
-    connections.push_back(std::make_unique<TCPConnection>(fd));
-    return *connections.back();
+TCPConnection& Listener::add_connection(int fd) {
+    connections[fd] = std::make_unique<TCPConnection>(fd);
+    return *connections[fd];
 };
 
 

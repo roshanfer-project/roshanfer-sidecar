@@ -5,6 +5,19 @@
 #include <connection.h>
 #include <listener.h>
 
+enum Operation {
+    ACCEPT,
+    READ,
+    WRITE,
+    CONNECT
+};
+
+struct UserData {
+    void* data;
+    enum Operation op;
+    int index;
+};
+
 class Buffer {
 
 public:
@@ -15,6 +28,7 @@ public:
     std::unique_ptr<char[]> data;
     int size;
     int index;
+    TCPConnection* conn;
     Listener* listener;
 };
 
@@ -22,12 +36,16 @@ class BufferManager {
 
 public:
     BufferManager(int, int);
-    const std::unique_ptr<Buffer>& get_buffer(Listener*);
+    Buffer* get_buffer(TCPConnection*, Listener*);
     void free_buffer(int);
+    UserData* get_user_data();
+    void free_user_data(int);
 
 private:
     int count;
     int size;
-    std::vector<std::unique_ptr<Buffer>> buffers;
-    std::vector<bool> used;
+    std::vector<Buffer*> buffers;
+    std::vector<UserData*> user_data_vec;
+    std::vector<bool> used_buffer;
+    std::vector<bool> used_user_data;
 };

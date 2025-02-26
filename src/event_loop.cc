@@ -1,3 +1,6 @@
+#include "listener.h"
+#include <cstdio>
+#include <cstdlib>
 #include <event_loop.h>
 #include <connection.h>
 #include <buffer_manager.h>
@@ -15,7 +18,7 @@ void EventLoop::run() {
     // Add accept submissions
     DLOG(INFO) << "Add initial accept submissions for all listeners";
     for (auto &listener : ingress_listeners.get_listeners()) {
-        ring.prepare_accept(*listener.second.get());
+        ring.prepare_accept(*listener.second.get(), buffer_manager.get_user_data());
     }
 
     // main event loop
@@ -23,6 +26,8 @@ void EventLoop::run() {
         ring.submit_and_wait();
 
         while((cqe = ring.peek_cqe())) {
+            DLOG(INFO) << "Processing completion event";
+
             // Identify the type of event
             ud = ring.get_user_data(cqe);
 
@@ -32,36 +37,55 @@ void EventLoop::run() {
             case ACCEPT: {
                 DLOG(INFO) << "Accept completion event";
                 // create connection
-                Listener& listener = reinterpret_cast<Listener&>(ud->data);
+                Listener* listener = reinterpret_cast<Listener*>(ud->data);
                 TCPConnection& conn = ingress_listeners.add_connection(
                     cqe->res,
-                    listener.get_port()
+                    listener->get_port()
                 );
+
+                DLOG(INFO) << "Accepted connection on fd: " << listener->get_fd();
+
                 // prepare read
-                ring.prepare_read(buffer_manager.get_buffer(std::addressof(listener)),
-                        conn.get_fd());
+                ring.prepare_read(
+                    buffer_manager.get_buffer(std::addressof(conn), listener),
+                    conn.get_fd(),
+                    buffer_manager.get_user_data()
+                );
 
                 // re-arm accept
-                ring.prepare_accept(listener);
+                ring.prepare_accept(*listener, buffer_manager.get_user_data());
                 break;
             }
             
             case READ: {
-                DLOG(INFO) << "Read completion event";
                 // read the data
-                Buffer& buffer = reinterpret_cast<Buffer&>(ud->data);
-                // TODO: use a propper logger
-                std::cout << "Read from buffer" << buffer.data << std::endl;
+                Buffer* buffer = reinterpret_cast<Buffer*>(ud->data);
+
+                DLOG(INFO) << "Read completion event, fd: " << buffer->conn->get_fd();
+
+                if (cqe->res < 0) {
+                    LOG(FATAL) << "Failed to read from fd: " << buffer->conn->get_fd();
+                } else if (cqe->res == 0) {
+                    LOG(INFO) << "Connection closed on fd: " << buffer->conn->get_fd();
+                    // free buffer
+                    buffer_manager.free_buffer(buffer->index);
+                    // remove connection
+                    buffer->listener->remove_connection(buffer->conn->get_fd());
+                    break;
+                }
+
+                DLOG(INFO) << "Read " << cqe->res << " bytes from buffer: " << buffer->data;
 
                 // free buffer
-                buffer_manager.free_buffer(buffer.index);
+                buffer_manager.free_buffer(buffer->index);
 
-                // TODO: prepare write
+                // TODO: prepare write (and potentially some routing)
 
                 // re-arm read
                 ring.prepare_read(
-                    buffer_manager.get_buffer(buffer.listener),
-                    buffer.listener->get_fd()
+                    buffer_manager.get_buffer(buffer->conn, buffer->listener),
+                    buffer->conn->get_fd(),
+                    buffer_manager.get_user_data()
                 );
                 break;
             }
@@ -69,6 +93,9 @@ void EventLoop::run() {
             default:
                 break;
             }
+
+            // free the user data
+            buffer_manager.free_user_data(ud->index);
 
             // Advance the ring
             ring.seen_cqe(cqe);
