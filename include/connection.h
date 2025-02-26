@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstdint>
 #include <vector>
 
 class TCPConnection {
@@ -15,6 +14,7 @@ class TCPConnection {
          * @brief Construct an ingress connection
          */
         TCPConnection(int);
+        ~TCPConnection();
         int get_fd() { return fd; }
 
     private:

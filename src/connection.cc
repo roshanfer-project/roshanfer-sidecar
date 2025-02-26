@@ -19,3 +19,7 @@ TCPConnection::TCPConnection(int fd) : fd(fd) {
         LOG(FATAL) << "Failed to set non-blocking for fd: " << fd;
     }
 };
+
+TCPConnection::~TCPConnection() {
+    close(fd);
+};
