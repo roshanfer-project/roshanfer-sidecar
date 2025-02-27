@@ -75,11 +75,34 @@ void EventLoop::run() {
                 }
 
                 DLOG(INFO) << "Read " << cqe->res << " bytes from buffer: " << buffer->data;
+                buffer->filled = cqe->res;
 
                 // free buffer
-                buffer_manager.free_buffer(buffer->index);
+                //buffer_manager.free_buffer(buffer->index);
 
-                // TODO: prepare write (and potentially some routing)
+                // simple routing (known and fixed destination)
+                // TODO: change routing
+                try {
+                    int dst_fd = state.route();
+                    DLOG(INFO) << "Routing to fd: " << dst_fd;
+                    
+                    // prepare write
+                    ring.prepare_write(
+                        dst_fd,
+                        buffer,
+                        buffer_manager.get_user_data()
+                    );
+
+                } catch (AddConnectionException& e) {
+                    // prepare connect
+                    ring.prepare_connect(
+                        e.conn,
+                        buffer_manager.get_user_data()
+                    );
+
+                    // pass buffer to the state
+                    state.add_buffer(buffer);
+                }
 
                 // re-arm read
                 ring.prepare_read(
@@ -87,6 +110,44 @@ void EventLoop::run() {
                     buffer->conn->get_fd(),
                     buffer_manager.get_user_data()
                 );
+                break;
+            }
+
+            case CONNECT: {
+                DLOG(INFO) << "Connect completion event";
+                
+                // update state machine
+                TCPConnection* conn = reinterpret_cast<TCPConnection*>(ud->data);
+
+                // get all buffers in the queue and write them to the connection
+                // This assumes no blocking of messages
+                // TODO: Ideally we want to route any individual buffer separately
+                int dst_fd = state.route();
+                std::unique_ptr<TCPConnection>& dst_conn = state.get_connection(dst_fd);
+                DLOG(INFO) << "Routing to fd: " << dst_fd;
+                while (state.has_buffer()) {
+                    // update connection in buffer
+                    Buffer* buffer = state.get_buffer();
+                    buffer->conn = dst_conn.get();
+
+                    // prepare write
+                    ring.prepare_write(
+                        dst_fd,
+                        buffer,
+                        buffer_manager.get_user_data()
+                    );
+                }
+                break;
+            }
+
+            case WRITE: {
+                DLOG(INFO) << "Write completion event";
+                Buffer* buffer = reinterpret_cast<Buffer*>(ud->data);
+
+                DLOG(INFO) << "Wrote " << cqe->res << " bytes to fd: " << buffer->conn->get_fd();
+
+                // free buffer
+                buffer_manager.free_buffer(buffer->index);
                 break;
             }
             
@@ -107,8 +168,9 @@ void EventLoop::run() {
 EventLoop::EventLoop(Config config)
 :   ring(config.ring_size),
     buffer_manager(config.buffer_count, config.buffer_size),
-    ingress_listeners() {
+    ingress_listeners(),
+    state(config) {
 
     // Add listeners
-    ingress_listeners.add_listener(config.listen_port);
+    ingress_listeners.add_listener(config.ingress_port);
 };

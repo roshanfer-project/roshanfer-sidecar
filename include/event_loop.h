@@ -5,6 +5,7 @@
 #include <ring_wrapper.h>
 #include <config.h>
 #include <listener.h>
+#include <state.h>
 
 class EventLoop {
 
@@ -17,4 +18,5 @@ private:
     RingWrapper ring;
     BufferManager buffer_manager;
     IngressListeners ingress_listeners;
+    State state;
 };

@@ -66,10 +66,11 @@ int main(int argc, char* argv[]) {
     google::InitGoogleLogging(argv[0]);
 
     Config config = {
-        1000, // ring size
-        100, // buffer count
-        4048, // buffer size
-        10000 // listen port
+        1000,
+        100,
+        4048,
+        10000,
+        10001
     };
 
     EventLoop event_loop(config);

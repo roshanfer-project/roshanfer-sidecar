@@ -27,6 +27,7 @@ public:
 public:
     std::unique_ptr<char[]> data;
     int size;
+    int filled;
     int index;
     TCPConnection* conn;
     Listener* listener;

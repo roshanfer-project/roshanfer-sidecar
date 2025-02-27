@@ -6,7 +6,12 @@
 #include <glog/logging.h>
 
 Buffer::Buffer(int size, int index)
- : size(size), data(std::make_unique<char[]>(size)), index(index) {
+ :  size(size),
+    data(std::make_unique<char[]>(size)),
+    index(index),
+    filled(0),
+    conn(nullptr),
+    listener(nullptr) {
 };
 
 BufferManager::BufferManager(int count, int size)
