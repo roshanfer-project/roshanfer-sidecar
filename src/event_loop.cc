@@ -110,7 +110,7 @@ void EventLoop::run() {
                 } else if (ud->req_res == ReqRes::RESPONSE) {
                     DLOG(INFO) << "Response received";
 
-                    // just return the response to one egress connection
+                    // just return the response to THE one egress connection
                     // TODO: if we have multiple egress connections, we need to route the response
                     // to the correct connection
 

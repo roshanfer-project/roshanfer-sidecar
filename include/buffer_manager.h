@@ -14,6 +14,8 @@ enum Operation {
 
 enum ReqRes {
     REQUEST,
+    // RESPONE basically means that this message should be just forwarded 
+    // back to the sneder without any routing
     RESPONSE
 };
 
