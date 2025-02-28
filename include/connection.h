@@ -20,12 +20,12 @@ class TCPConnection {
 
     public:
         /**
-         * @brief Construct an egress connection
+         * @brief Construct an endpoint connection
          */
         TCPConnection(std::string host, int port);
 
         /**
-         * @brief Construct an ingress connection
+         * @brief Construct an egress connection
          */
         TCPConnection(int fd); 
         ~TCPConnection();
