@@ -12,10 +12,16 @@ enum Operation {
     CONNECT
 };
 
+enum ReqRes {
+    REQUEST,
+    RESPONSE
+};
+
 struct UserData {
     void* data;
     enum Operation op;
     int index;
+    enum ReqRes req_res;
 };
 
 class Buffer {

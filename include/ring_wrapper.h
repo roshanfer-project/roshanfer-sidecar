@@ -23,7 +23,7 @@ public:
      * @throws std::runtime_error if the submission fails
      * @todo make it multi-shot
      */
-    void prepare_read(Buffer*, int, UserData*);
+    void prepare_read(Buffer*, int, UserData*, ReqRes req_res);
 
     void submit_and_wait();
 

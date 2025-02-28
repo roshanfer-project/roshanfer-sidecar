@@ -19,11 +19,16 @@ class State {
 
     public:
         State(Config);
-        int route();
+        /**
+        @brief Routing for *requests*
+        @note This should not be called for responses
+        */
+        int route(ConnectionType type);
         void add_buffer(Buffer* buffer);
         Buffer* get_buffer();
         bool has_buffer();
         std::unique_ptr<TCPConnection>& get_connection(int fd) { return pool->get_connection(fd); }
+        void remove_connection(int fd) { pool->remove_connection(fd); }
 
 
     private:

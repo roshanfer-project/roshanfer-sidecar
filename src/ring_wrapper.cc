@@ -48,11 +48,12 @@ void RingWrapper::prepare_accept(Listener& listener, UserData* ud) {
 }
 
 void RingWrapper::prepare_read(Buffer* buffer, int fd,
-    UserData* ud) {
+    UserData* ud, ReqRes req_res) {
     struct io_uring_sqe *sqe = get_sqe();
 
     ud->data = static_cast<void*>(buffer);
     ud->op = Operation::READ;
+    ud->req_res = req_res;
 
     io_uring_prep_read(
         sqe,

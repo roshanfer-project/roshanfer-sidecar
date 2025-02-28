@@ -5,6 +5,6 @@ struct Config
     int ring_size;
     int buffer_count;
     int buffer_size;
-    int ingress_port;
-    int egress_port;
+    int endpoint_port;
+    int egress_listener_port;
 };

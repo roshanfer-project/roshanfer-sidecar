@@ -69,8 +69,8 @@ int main(int argc, char* argv[]) {
         1000,
         100,
         4048,
-        10000,
-        10001
+        10001,
+        10000
     };
 
     EventLoop event_loop(config);

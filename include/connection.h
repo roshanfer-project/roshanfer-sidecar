@@ -53,6 +53,7 @@ class ConnectionPool {
         std::unique_ptr<TCPConnection>& get_connection(int fd) { return connections[fd]; }
         std::unique_ptr<TCPConnection>& get_any_connection();
         bool has_connection(int fd);
+        void remove_connection(int fd) { connections.erase(fd); }
     
     private:
         std::unordered_map<int, std::unique_ptr<TCPConnection>> connections; // fd: connection

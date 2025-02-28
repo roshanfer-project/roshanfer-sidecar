@@ -17,6 +17,7 @@ public:
 private:
     RingWrapper ring;
     BufferManager buffer_manager;
-    IngressListeners ingress_listeners;
+    //Listener ingress_listener;
+    Listener egress_listener;
     State state;
 };
