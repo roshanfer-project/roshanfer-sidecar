@@ -113,13 +113,21 @@ void EventLoop::run() {
                     // just return the response to THE one egress connection
                     // TODO: if we have multiple egress connections, we need to route the response
                     // to the correct connection
+                    
+                    // check if the local host is still connected
+                    if (egress_listener.no_connections()) {
+                        LOG(WARNING) << "No egress connection";
+                    } else {
+                        HTTPConnection* egress_conn = egress_listener.get_connections().begin()->second.get();
+                        buffer->prepare_write(egress_conn);
 
-                    buffer->conn = egress_listener.get_connections().begin()->second.get();
-                    ring.prepare_write(
-                        egress_listener.get_connections().begin()->second->get_fd(),
-                        buffer,
-                        buffer_manager.get_user_data()
-                    );
+                        // prepare write (to write the response)
+                        ring.prepare_write(
+                            egress_conn->get_fd(),
+                            buffer,
+                            buffer_manager.get_user_data()
+                        );
+                    }
                 }
                 
 
