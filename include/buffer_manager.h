@@ -31,13 +31,22 @@ class Buffer {
 public:
     Buffer(int, int);
     int get_size() { return size; }
+    int get_filled() { return filled; }
+    int get_index() { return index; }
+    HTTPConnection& get_conn() { return *conn; }
+    Listener& get_listener() { return *listener; }
+    void set_filled(int f) { filled = f; }
+    void prepare_read(HTTPConnection*, Listener*);
+    void prepare_write(HTTPConnection*);
 
 public:
     std::unique_ptr<char[]> data;
+
+private:
     int size;
     int filled;
     int index;
-    TCPConnection* conn;
+    HTTPConnection* conn;
     Listener* listener;
 };
 
@@ -45,10 +54,10 @@ class BufferManager {
 
 public:
     BufferManager(int, int);
-    Buffer* get_buffer(TCPConnection*, Listener*);
-    void free_buffer(int);
+    Buffer* get_buffer();
+    void free_buffer(Buffer*);
     UserData* get_user_data();
-    void free_user_data(int);
+    void free_user_data(UserData*);
 
 private:
     int count;

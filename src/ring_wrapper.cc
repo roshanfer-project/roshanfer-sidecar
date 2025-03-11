@@ -112,7 +112,7 @@ struct io_uring_sqe* RingWrapper::get_sqe() {
     return sqe;
 }
 
-void RingWrapper::prepare_connect(std::unique_ptr<TCPConnection>& conn, UserData* ud) {
+void RingWrapper::prepare_connect(std::unique_ptr<HTTPConnection>& conn, UserData* ud) {
     struct io_uring_sqe *sqe = get_sqe();
 
     io_uring_prep_connect(
@@ -131,18 +131,19 @@ void RingWrapper::prepare_connect(std::unique_ptr<TCPConnection>& conn, UserData
 }
 
 
-void RingWrapper::prepare_write(int fd, Buffer* buffer, UserData* ud) {
+void RingWrapper::prepare_write(int fd, Buffer* buffer, UserData* ud, ReqRes req_res) {
     struct io_uring_sqe *sqe = get_sqe();
     
     io_uring_prep_write(
         sqe,
         fd,
         buffer->data.get(),
-        buffer->filled,
+        buffer->get_filled(),
         0);
     
     ud->data = static_cast<void*>(buffer);
     ud->op = Operation::WRITE;
+    ud->req_res = req_res;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
     DLOG(INFO) << "Prepared write, fd: " << fd;
 }

@@ -49,8 +49,8 @@ Listener::Listener(uint16_t port, ConnectionType type)
     DLOG(INFO) << "Listener created on port: " << port << " with fd: " << fd;
 };
 
-TCPConnection& Listener::add_connection(int fd) {
-    connections[fd] = std::make_unique<TCPConnection>(fd);
+HTTPConnection& Listener::add_connection(int fd) {
+    connections[fd] = std::make_unique<HTTPConnection>(fd);
     return *connections[fd];
 };
 

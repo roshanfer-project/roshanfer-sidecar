@@ -19,7 +19,7 @@ int State::route(ConnectionType type) {
         return pool->get_any_connection()->get_fd();
     } catch (NoConnectionException& e) {
         LOG(INFO) << "No connection available. Starting a new connection.";
-        std::unique_ptr<TCPConnection>& conn = pool->add_connection("127.0.0.1", config.endpoint_port);
+        std::unique_ptr<HTTPConnection>& conn = pool->add_connection("127.0.0.1", config.endpoint_port);
         DLOG(INFO) << "New connection established on fd: " << conn->get_fd();
         throw AddConnectionException(conn);
     }

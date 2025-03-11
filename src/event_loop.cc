@@ -1,4 +1,5 @@
 #include "listener.h"
+#include <cassert>
 #include <cstdio>
 #include <cstdlib>
 #include <event_loop.h>
@@ -17,6 +18,7 @@ void EventLoop::run() {
 
     // Add accept submissions
     DLOG(INFO) << "Add initial accept submissions for egress listener";
+    Buffer* buffer = buffer_manager.get_buffer();
     ring.prepare_accept(egress_listener, buffer_manager.get_user_data());
 
     // main event loop
@@ -34,54 +36,69 @@ void EventLoop::run() {
             {
             case ACCEPT: {
                 DLOG(INFO) << "Accept completion event";
-                // create connection
+
+                // get the listener from the user data
                 Listener* listener = reinterpret_cast<Listener*>(ud->data);
-                TCPConnection& conn = listener->add_connection(cqe->res);
+
+                // add the connection to the listener
+                HTTPConnection& conn = listener->add_connection(cqe->res);
 
                 DLOG(INFO) << "Accepted connection on fd: " << listener->get_fd();
                 DLOG(INFO) << "New connection on fd: " << conn.get_fd();
 
-                // prepare read
+                // get buffer and prepare it
+                Buffer* buffer = buffer_manager.get_buffer();
+                buffer->prepare_read(std::addressof(conn), listener);
+
+                // prepare ring for read on the newly accepted connection
                 ring.prepare_read(
-                    buffer_manager.get_buffer(std::addressof(conn), listener),
+                    buffer,
                     conn.get_fd(),
                     buffer_manager.get_user_data(),
                     ReqRes::REQUEST
                 );
 
-                // re-arm accept
+                // re-arm accept on the listener
                 ring.prepare_accept(*listener, buffer_manager.get_user_data());
                 break;
             }
             
             case READ: {
-                // read the data
+                // get the buffer from the user data
                 Buffer* buffer = reinterpret_cast<Buffer*>(ud->data);
-                
-                auto* orig_conn = buffer->conn;
-                DLOG(INFO) << "Read completion event, fd: " << orig_conn->get_fd();
+
+                // get the original connection
+                auto& orig_conn = buffer->get_conn();
+                auto& orig_listener = buffer->get_listener();
+                DLOG(INFO) << "Read completion event, fd: " << orig_conn.get_fd();
 
                 if (cqe->res < 0) {
-                    LOG(FATAL) << "Failed to read from fd: " << buffer->conn->get_fd();
+                    LOG(FATAL) << "Failed to read from fd: " << orig_conn.get_fd();
                 } else if (cqe->res == 0) {
-                    LOG(INFO) << "Connection closed on fd: " << buffer->conn->get_fd();
+                    LOG(INFO) << "Connection closed on fd: " << orig_conn.get_fd();
+
                     // free buffer
-                    buffer_manager.free_buffer(buffer->index);
+                    buffer_manager.free_buffer(buffer);
+
+                    // remove connection from the appropriate object
                     if (ud->req_res == ReqRes::REQUEST) {
                         // remove connection from egress listener
-                        buffer->listener->remove_connection(buffer->conn->get_fd());
+                        orig_listener.remove_connection(orig_conn.get_fd());
                     } else if (ud->req_res == ReqRes::RESPONSE) {
-                        // remove connection
-                        state.remove_connection(buffer->conn->get_fd());
+                        // remove connection from connection pool
+                        state.remove_connection(orig_conn.get_fd());
                     }
                     break;
                 }
 
-                DLOG(INFO) << "Read " << cqe->res << " bytes from buffer: " << buffer->data;
-                buffer->filled = cqe->res;
+                DLOG(INFO) << "Read " << cqe->res << " bytes from buffer: " << buffer->data.get();
+                buffer->set_filled(cqe->res);
 
                 if (ud->req_res == ReqRes::REQUEST) {
                     DLOG(INFO) << "Request received";
+
+                    DLOG(INFO) << "starting to parse";
+                    orig_conn.parse(std::span<const char>(buffer->data.get(), buffer->get_filled()));
 
                     // simple routing (known and fixed destination)
                     // TODO: change routing
@@ -89,12 +106,15 @@ void EventLoop::run() {
                         int dst_fd = state.route(ConnectionType::EGRESS);
                         DLOG(INFO) << "Routing to fd: " << dst_fd;
                         
-                        // prepare write
-                        buffer->conn = state.get_connection(dst_fd).get();
+                        // prepare buffer for write
+                        buffer->prepare_write(state.get_connection(dst_fd).get());
+
+                        // prepare write (to write the request)
                         ring.prepare_write(
                             dst_fd,
                             buffer,
-                            buffer_manager.get_user_data()
+                            buffer_manager.get_user_data(),
+                            ReqRes::REQUEST
                         );
 
                     } catch (AddConnectionException& e) {
@@ -125,16 +145,21 @@ void EventLoop::run() {
                         ring.prepare_write(
                             egress_conn->get_fd(),
                             buffer,
-                            buffer_manager.get_user_data()
+                            buffer_manager.get_user_data(),
+                            ReqRes::RESPONSE
                         );
                     }
                 }
                 
 
+                // get a new buffer for read and prepare it
+                buffer = buffer_manager.get_buffer();
+                buffer->prepare_read(std::addressof(orig_conn), std::addressof(orig_listener));
+
                 // re-arm read
                 ring.prepare_read(
-                    buffer_manager.get_buffer(orig_conn, buffer->listener),
-                    orig_conn->get_fd(),
+                    buffer,
+                    orig_conn.get_fd(),
                     buffer_manager.get_user_data(),
                     ud->req_res
                 );
@@ -142,32 +167,41 @@ void EventLoop::run() {
             }
 
             case CONNECT: {
-                TCPConnection* conn = reinterpret_cast<TCPConnection*>(ud->data);
+                HTTPConnection* orig_conn = reinterpret_cast<HTTPConnection*>(ud->data);
 
-                DLOG(INFO) << "Connect completion event, fd: " << conn->get_fd();
+                DLOG(INFO) << "Connect completion event, fd: " << orig_conn->get_fd();
 
                 // get all buffers in the queue and write them to the connection
                 // This assumes no blocking of messages
                 // TODO: Ideally we want to route any individual buffer separately
                 int dst_fd = state.route(ConnectionType::EGRESS);
-                std::unique_ptr<TCPConnection>& dst_conn = state.get_connection(dst_fd);
+                std::unique_ptr<HTTPConnection>& dst_conn = state.get_connection(dst_fd);
                 DLOG(INFO) << "Routing to fd: " << dst_fd;
                 while (state.has_buffer()) {
                     // update connection in buffer
                     Buffer* buffer = state.get_buffer();
-                    buffer->conn = dst_conn.get();
+                    
+                    // preprare buffer for the write
+                    buffer->prepare_write(dst_conn.get());
 
                     // prepare write (to write the request)
                     ring.prepare_write(
                         dst_fd,
                         buffer,
-                        buffer_manager.get_user_data()
+                        buffer_manager.get_user_data(),
+                        ReqRes::REQUEST
                     );
 
-                    // prepare read (to read the response)
+                    // arm the first read for this newly connected connection
+                    Buffer* read_buffer = buffer_manager.get_buffer();
+                    // for RESPONSE reads we don't need the listener in the case
+                    // that we need to close the connection (we do it from connection pool)
+                    read_buffer->prepare_read(orig_conn, nullptr);
+
+                    // prepare read
                     ring.prepare_read(
-                        buffer_manager.get_buffer(dst_conn.get(), nullptr),
-                        dst_fd,
+                        read_buffer,
+                        orig_conn->get_fd(),
                         buffer_manager.get_user_data(),
                         ReqRes::RESPONSE
                     );
@@ -178,11 +212,12 @@ void EventLoop::run() {
             case WRITE: {
                 DLOG(INFO) << "Write completion event";
                 Buffer* buffer = reinterpret_cast<Buffer*>(ud->data);
+                HTTPConnection& conn = buffer->get_conn();
 
-                DLOG(INFO) << "Wrote " << cqe->res << " bytes to fd: " << buffer->conn->get_fd();
+                DLOG(INFO) << "Wrote " << cqe->res << " bytes to fd: " << conn.get_fd();
 
                 // free buffer
-                buffer_manager.free_buffer(buffer->index);
+                buffer_manager.free_buffer(buffer);
                 break;
             }
             
@@ -191,7 +226,7 @@ void EventLoop::run() {
             }
 
             // free the user data
-            buffer_manager.free_user_data(ud->index);
+            buffer_manager.free_user_data(ud);
 
             // Advance the ring
             ring.seen_cqe(cqe);
