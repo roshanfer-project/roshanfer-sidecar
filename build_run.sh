@@ -11,5 +11,10 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Run the sidecar
-GLOG_logtostderr=1 ./sidecar
+# Run the sidecar and pipe stderr to a log file
+# Check if -l flag is provided
+if [[ "$1" != "-l" ]]; then
+    GLOG_logtostderr=1 ./sidecar
+    exit 0
+fi
+GLOG_logtostderr=1 ./sidecar 2> sidecar.log
