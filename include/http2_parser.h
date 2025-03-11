@@ -15,13 +15,14 @@ enum class FRAMETYPE {
 typedef struct HTTP2Frame {
     uint32_t stream_id;
     FRAMETYPE type;
-    bool end;
+    uint8_t EOS;
+    uint8_t EOH;
     uint32_t offset;
     uint32_t length;
 
     public:
         std::string to_string() {
-            return "stream_id: " + std::to_string(stream_id) + ", type: " + type_to_string() + ", end: " + std::to_string(end) + ", offset: " + std::to_string(offset) + ", length: " + std::to_string(length);
+            return "stream_id: " + std::to_string(stream_id) + ", type: " + type_to_string() + ", EOS: " + std::to_string(EOS) + ", EOH: " + std::to_string(EOH) + ", offset: " + std::to_string(offset) + ", length: " + std::to_string(length);
         }
     private:
         std::string type_to_string() {

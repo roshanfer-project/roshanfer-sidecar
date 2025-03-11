@@ -94,11 +94,11 @@ void EventLoop::run() {
                 DLOG(INFO) << "Read " << cqe->res << " bytes from buffer: " << buffer->data.get();
                 buffer->set_filled(cqe->res);
 
+                DLOG(INFO) << "starting to parse";
+                orig_conn.parse(std::span<const char>(buffer->data.get(), buffer->get_filled()));
+
                 if (ud->req_res == ReqRes::REQUEST) {
                     DLOG(INFO) << "Request received";
-
-                    DLOG(INFO) << "starting to parse";
-                    orig_conn.parse(std::span<const char>(buffer->data.get(), buffer->get_filled()));
 
                     // simple routing (known and fixed destination)
                     // TODO: change routing

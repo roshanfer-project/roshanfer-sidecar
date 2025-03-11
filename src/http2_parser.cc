@@ -22,6 +22,7 @@ std::vector<HTTP2Frame> HTTP2Parser::parse(std::span<const char> input) {
                 frame.offset = 0;
                 results.push_back(frame);
                 i += 24;
+                DLOG(INFO) << frame.to_string();
                 continue;
             }
         }
@@ -30,7 +31,6 @@ std::vector<HTTP2Frame> HTTP2Parser::parse(std::span<const char> input) {
             LOG(FATAL) << "incomplete frame, i: " << i << ", size: " << input.size();
         }
         HTTP2Frame frame;
-        frame.end = false;
         frame.offset = i;
 
         // check the length of the payload (first three bytes)    
@@ -56,18 +56,9 @@ std::vector<HTTP2Frame> HTTP2Parser::parse(std::span<const char> input) {
         i += 1;
 
         // check the flags
-        if (frame.type == FRAMETYPE::DATA) {
-            if ((input[i] & 0x01) == 0x01) {
-                frame.end = true;
-            } else {
-                frame.end = false;
-            }
-        } else if (frame.type == FRAMETYPE::HEADERS) {
-            if ((input[i] & 0x04) == 0x04) {
-                frame.end = true;
-            } else {
-                frame.end = false;
-            }
+        if (frame.type == FRAMETYPE::DATA || frame.type == FRAMETYPE::HEADERS) {
+            frame.EOS = (input[i] & 0x01) == 0x01;
+            frame.EOH = (input[i] & 0x04) == 0x04;
         }
         i += 1;
         
