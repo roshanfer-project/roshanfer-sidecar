@@ -52,7 +52,7 @@ UserData* BufferManager::get_user_data() {
             return user_data_vec[i];
         }
     }
-    DLOG(FATAL) << "No free user data";
+    LOG(FATAL) << "No free user data";
 }
 
 void BufferManager::free_user_data(UserData* ud) {
