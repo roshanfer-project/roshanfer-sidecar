@@ -12,18 +12,10 @@ enum Operation {
     CONNECT
 };
 
-enum ReqRes {
-    REQUEST,
-    // RESPONE basically means that this message should be just forwarded 
-    // back to the sneder without any routing
-    RESPONSE
-};
-
 struct UserData {
     void* data;
     enum Operation op;
     int index;
-    enum ReqRes req_res;
 };
 
 class Buffer {

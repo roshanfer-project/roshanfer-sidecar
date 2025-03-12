@@ -1,4 +1,5 @@
 #include "listener.h"
+#include "state.h"
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
@@ -17,9 +18,10 @@ void EventLoop::run() {
     struct UserData *ud;
 
     // Add accept submissions
-    DLOG(INFO) << "Add initial accept submissions for egress listener";
-    Buffer* buffer = buffer_manager.get_buffer();
-    ring.prepare_accept(egress_listener, buffer_manager.get_user_data());
+    for (auto& listener : listeners) {
+        DLOG(INFO) << "Listening on " << listener.second.type_to_str() << " listener, port: " << listener.second.get_port();
+        ring.prepare_accept(listener.second, buffer_manager.get_user_data());
+    }
 
     // main event loop
     while(true) {
@@ -43,7 +45,8 @@ void EventLoop::run() {
                 // add the connection to the listener
                 HTTPConnection& conn = listener->add_connection(cqe->res);
 
-                DLOG(INFO) << "Accepted connection on fd: " << listener->get_fd();
+                DLOG(INFO) << "Accepted connection on " << listener->type_to_str() << " listener"
+                           << " fd: " << listener->get_fd();
                 DLOG(INFO) << "New connection on fd: " << conn.get_fd();
 
                 // get buffer and prepare it
@@ -54,8 +57,7 @@ void EventLoop::run() {
                 ring.prepare_read(
                     buffer,
                     conn.get_fd(),
-                    buffer_manager.get_user_data(),
-                    ReqRes::REQUEST
+                    buffer_manager.get_user_data()
                 );
 
                 // re-arm accept on the listener
@@ -66,12 +68,24 @@ void EventLoop::run() {
             case READ: {
                 // get the buffer from the user data
                 Buffer* buffer = reinterpret_cast<Buffer*>(ud->data);
+                buffer->set_filled(cqe->res);
 
-                // get the original connection
+                // get the original connection and listener
                 auto& orig_conn = buffer->get_conn();
                 auto& orig_listener = buffer->get_listener();
-                DLOG(INFO) << "Read completion event, fd: " << orig_conn.get_fd();
 
+                // log the read event
+                DLOG(INFO) << "Read completion event, fd: " << orig_conn.get_fd();
+                DLOG(INFO) << "Read " << cqe->res << " bytes from buffer: " << buffer->data.get();
+                DLOG(INFO) << "Connection type: " << orig_conn.type_to_str();
+                DLOG(INFO) << "Connection direction: " << orig_conn.direction_to_str();
+                if (orig_conn.direction == ConnectionDirection::UPSTREAM) {
+                    DLOG(INFO) << "Message type: Response";
+                } else if (orig_conn.direction == ConnectionDirection::DOWNSTREAM) {
+                    DLOG(INFO) << "Message type: Request";
+                }
+
+                // check corner cases (errors, closed connection)
                 if (cqe->res < 0) {
                     LOG(FATAL) << "Failed to read from fd: " << orig_conn.get_fd();
                 } else if (cqe->res == 0) {
@@ -81,43 +95,44 @@ void EventLoop::run() {
                     buffer_manager.free_buffer(buffer);
 
                     // remove connection from the appropriate object
-                    if (ud->req_res == ReqRes::REQUEST) {
-                        // remove connection from egress listener
-                        orig_listener.remove_connection(orig_conn.get_fd());
-                    } else if (ud->req_res == ReqRes::RESPONSE) {
-                        // remove connection from connection pool
-                        state.remove_connection(orig_conn.get_fd());
+                    switch (orig_conn.direction) {
+                        case ConnectionDirection::UPSTREAM:
+                            // for upstream connections, pools (inside state) hold the connection
+                            state.remove_connection(orig_conn.get_fd(), orig_conn.type);
+                            break;
+                        case ConnectionDirection::DOWNSTREAM:
+                            // for downstream connections, listeners hold the connection
+                            orig_listener.remove_connection(orig_conn.get_fd());
+                            break;
+                        default:
+                            LOG(FATAL) << "Unknown connection direction";
                     }
                     break;
                 }
-
-                DLOG(INFO) << "Read " << cqe->res << " bytes from buffer: " << buffer->data.get();
-                buffer->set_filled(cqe->res);
-
+                
                 DLOG(INFO) << "starting to parse";
-                orig_conn.parse(std::span<const char>(buffer->data.get(), buffer->get_filled()));
+                orig_conn.parse(std::span<const char>(buffer->data.get(),
+                    buffer->get_filled()));
 
-                if (ud->req_res == ReqRes::REQUEST) {
-                    DLOG(INFO) << "Request received";
+                if (orig_conn.direction == ConnectionDirection::DOWNSTREAM) {
 
-                    // simple routing (known and fixed destination)
-                    // TODO: change routing
+                    // pick (or create) an upstream connection
                     try {
-                        int dst_fd = state.route(ConnectionType::EGRESS);
+                        int dst_fd = state.route(orig_conn.type);
                         DLOG(INFO) << "Routing to fd: " << dst_fd;
                         
                         // prepare buffer for write
-                        buffer->prepare_write(state.get_connection(dst_fd).get());
+                        buffer->prepare_write(state.get_connection(dst_fd, orig_conn.type).get());
 
                         // prepare write (to write the request)
                         ring.prepare_write(
                             dst_fd,
                             buffer,
-                            buffer_manager.get_user_data(),
-                            ReqRes::REQUEST
+                            buffer_manager.get_user_data()
                         );
 
                     } catch (AddConnectionException& e) {
+                        DLOG(INFO) << "Connection not available. Waiting for connection to be UP";
                         // prepare connect
                         ring.prepare_connect(
                             e.conn,
@@ -125,28 +140,29 @@ void EventLoop::run() {
                         );
 
                         // pass buffer to the state
-                        state.add_buffer(buffer);
+                        state.add_buffer(buffer, orig_conn.type);
+                    } catch (ConnectionNotUPException& e) {
+                        DLOG(INFO) << "Connection not UP. Waiting for connection to be UP";
+                        // just queue the buffer in state
+                        state.add_buffer(buffer, orig_conn.type);
                     }
-                } else if (ud->req_res == ReqRes::RESPONSE) {
-                    DLOG(INFO) << "Response received";
-
-                    // just return the response to THE one egress connection
-                    // TODO: if we have multiple egress connections, we need to route the response
-                    // to the correct connection
+                } else if (orig_conn.direction == ConnectionDirection::UPSTREAM) {
+                    // TODO: if we have multiple downstream connections, we need to route
+                    // the response to the correct connection
                     
                     // check if the local host is still connected
-                    if (egress_listener.no_connections()) {
-                        LOG(WARNING) << "No egress connection";
+                    if (listeners.at(orig_conn.type).no_connections()) {
+                        LOG(WARNING) << "No " << listeners.at(orig_conn.type).type_to_str() << " connections available";
                     } else {
-                        HTTPConnection* egress_conn = egress_listener.get_connections().begin()->second.get();
+                        HTTPConnection* egress_conn = 
+                            listeners.at(orig_conn.type).get_connections().begin()->second.get();
                         buffer->prepare_write(egress_conn);
 
                         // prepare write (to write the response)
                         ring.prepare_write(
                             egress_conn->get_fd(),
                             buffer,
-                            buffer_manager.get_user_data(),
-                            ReqRes::RESPONSE
+                            buffer_manager.get_user_data()
                         );
                     }
                 }
@@ -160,50 +176,48 @@ void EventLoop::run() {
                 ring.prepare_read(
                     buffer,
                     orig_conn.get_fd(),
-                    buffer_manager.get_user_data(),
-                    ud->req_res
+                    buffer_manager.get_user_data()
                 );
                 break;
             }
 
             case CONNECT: {
                 HTTPConnection* orig_conn = reinterpret_cast<HTTPConnection*>(ud->data);
+                orig_conn->set_status(ConnectionStatus::UP);
 
                 DLOG(INFO) << "Connect completion event, fd: " << orig_conn->get_fd();
 
-                // get all buffers in the queue and write them to the connection
-                // This assumes no blocking of messages
-                // TODO: Ideally we want to route any individual buffer separately
-                int dst_fd = state.route(ConnectionType::EGRESS);
-                std::unique_ptr<HTTPConnection>& dst_conn = state.get_connection(dst_fd);
-                DLOG(INFO) << "Routing to fd: " << dst_fd;
-                while (state.has_buffer()) {
+                while (state.has_buffer(orig_conn->type)) {
                     // update connection in buffer
-                    Buffer* buffer = state.get_buffer();
+                    Buffer* buffer = state.get_buffer(orig_conn->type);
+
+                    DLOG(INFO) << "writing " << buffer->get_filled() 
+                        << " bytes to fd: " << orig_conn->get_fd();
                     
                     // preprare buffer for the write
-                    buffer->prepare_write(dst_conn.get());
+                    buffer->prepare_write(orig_conn);
 
                     // prepare write (to write the request)
                     ring.prepare_write(
-                        dst_fd,
+                        orig_conn->get_fd(),
                         buffer,
-                        buffer_manager.get_user_data(),
-                        ReqRes::REQUEST
+                        buffer_manager.get_user_data()
                     );
 
                     // arm the first read for this newly connected connection
                     Buffer* read_buffer = buffer_manager.get_buffer();
                     // for RESPONSE reads we don't need the listener in the case
                     // that we need to close the connection (we do it from connection pool)
-                    read_buffer->prepare_read(orig_conn, nullptr);
+                    read_buffer->prepare_read(
+                        orig_conn,
+                        std::addressof(listeners.at(orig_conn->type))
+                    );
 
                     // prepare read
                     ring.prepare_read(
                         read_buffer,
                         orig_conn->get_fd(),
-                        buffer_manager.get_user_data(),
-                        ReqRes::RESPONSE
+                        buffer_manager.get_user_data()
                     );
                 }
                 break;
@@ -237,6 +251,14 @@ void EventLoop::run() {
 EventLoop::EventLoop(Config config)
 :   ring(config.ring_size),
     buffer_manager(config.buffer_count, config.buffer_size),
-    egress_listener(config.egress_listener_port, ConnectionType::EGRESS),
-    //ingress_listener(config.ingress_port, ConnectionType::INGRESS),
-    state(config) {};
+    state(config),
+    listeners() {
+        listeners.emplace(
+            ConnectionType::EGRESS,
+            Listener(config.egress_listener_port, ConnectionType::EGRESS)
+        );
+        listeners.emplace(
+            ConnectionType::INGRESS,
+            Listener(config.ingress_listener_port, ConnectionType::INGRESS)
+        );
+    };

@@ -47,13 +47,11 @@ void RingWrapper::prepare_accept(Listener& listener, UserData* ud) {
     DLOG(INFO) << "Prepared accept, fd: " << listener.get_fd();
 }
 
-void RingWrapper::prepare_read(Buffer* buffer, int fd,
-    UserData* ud, ReqRes req_res) {
+void RingWrapper::prepare_read(Buffer* buffer, int fd, UserData* ud) {
     struct io_uring_sqe *sqe = get_sqe();
 
     ud->data = static_cast<void*>(buffer);
     ud->op = Operation::READ;
-    ud->req_res = req_res;
 
     io_uring_prep_read(
         sqe,
@@ -131,7 +129,7 @@ void RingWrapper::prepare_connect(std::unique_ptr<HTTPConnection>& conn, UserDat
 }
 
 
-void RingWrapper::prepare_write(int fd, Buffer* buffer, UserData* ud, ReqRes req_res) {
+void RingWrapper::prepare_write(int fd, Buffer* buffer, UserData* ud) {
     struct io_uring_sqe *sqe = get_sqe();
     
     io_uring_prep_write(
@@ -143,7 +141,6 @@ void RingWrapper::prepare_write(int fd, Buffer* buffer, UserData* ud, ReqRes req
     
     ud->data = static_cast<void*>(buffer);
     ud->op = Operation::WRITE;
-    ud->req_res = req_res;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
     DLOG(INFO) << "Prepared write, fd: " << fd;
 }

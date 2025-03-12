@@ -23,7 +23,7 @@ public:
      * @throws std::runtime_error if the submission fails
      * @todo make it multi-shot
      */
-    void prepare_read(Buffer*, int, UserData*, ReqRes req_res);
+    void prepare_read(Buffer*, int, UserData*);
 
     void submit_and_wait();
 
@@ -32,7 +32,7 @@ public:
     UserData* get_user_data(struct io_uring_cqe*);
 
     void prepare_connect(std::unique_ptr<HTTPConnection>&, UserData*);
-    void prepare_write(int, Buffer*, UserData*, ReqRes);
+    void prepare_write(int, Buffer*, UserData*);
 
 private:
     struct io_uring_sqe* get_sqe();

@@ -6,6 +6,7 @@
 #include <config.h>
 #include <listener.h>
 #include <state.h>
+#include <unordered_map>
 
 class EventLoop {
 
@@ -17,7 +18,6 @@ public:
 private:
     RingWrapper ring;
     BufferManager buffer_manager;
-    //Listener ingress_listener;
-    Listener egress_listener;
+    std::unordered_map<ConnectionType, Listener> listeners;
     State state;
 };

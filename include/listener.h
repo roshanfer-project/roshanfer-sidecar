@@ -13,6 +13,7 @@ class Listener {
         void remove_connection(int fd) { connections.erase(fd); }
         std::unordered_map<int, std::unique_ptr<HTTPConnection>>& get_connections() { return connections; }
         bool no_connections() { return connections.empty(); }
+        std::string type_to_str();
 
     
     private:

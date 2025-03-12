@@ -5,6 +5,7 @@
 #include "config.h"
 #include "connection.h"
 #include "buffer_manager.h"
+#include <unordered_map>
 
 class AddConnectionException : public std::runtime_error {
     public:
@@ -12,6 +13,15 @@ class AddConnectionException : public std::runtime_error {
          : std::runtime_error(""), conn(conn) {
         }
     
+        std::unique_ptr<HTTPConnection>& conn;
+};
+
+class ConnectionNotUPException: public std::runtime_error {
+    public:
+        ConnectionNotUPException(std::unique_ptr<HTTPConnection>& conn) 
+            : std::runtime_error(""), conn(conn) {}
+
+
         std::unique_ptr<HTTPConnection>& conn;
 };
 
@@ -23,17 +33,17 @@ class State {
         @brief Routing for *requests*
         @note This should not be called for responses
         */
-        int route(ConnectionType type);
-        void add_buffer(Buffer* buffer);
-        Buffer* get_buffer();
-        bool has_buffer();
-        std::unique_ptr<HTTPConnection>& get_connection(int fd) { return pool->get_connection(fd); }
-        void remove_connection(int fd) { pool->remove_connection(fd); }
+        int route(ConnectionType);
+        void add_buffer(Buffer*, ConnectionType);
+        Buffer* get_buffer(ConnectionType);
+        bool has_buffer(ConnectionType);
+        std::unique_ptr<HTTPConnection>& get_connection(int, ConnectionType);
+        void remove_connection(int, ConnectionType);
 
 
     private:
-        std::unique_ptr<ConnectionPool> pool;
-        std::vector<Buffer*> queue;
+        std::unordered_map<ConnectionType, ConnectionPool> pools;
+        std::unordered_map<ConnectionType, std::vector<Buffer*>> queues;
         Config config;
 
 };
