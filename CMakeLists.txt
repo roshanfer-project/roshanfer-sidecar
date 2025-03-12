@@ -14,6 +14,16 @@ find_package (glog 0.7.1 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBURING REQUIRED liburing)
 
+# include yaml-cpp
+include(FetchContent)
+
+FetchContent_Declare(
+  yaml-cpp
+  GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+  GIT_TAG 0.8.0
+)
+FetchContent_MakeAvailable(yaml-cpp)
+
 include_directories(include)
 
 file(GLOB_RECURSE SOURCES src/*.cc)
@@ -23,3 +33,5 @@ add_executable(sidecar ${SOURCES})
 target_link_libraries (sidecar glog::glog)
 # link liburing
 target_link_libraries(sidecar ${LIBURING_LIBRARIES})
+# link yaml-cpp
+target_link_libraries(sidecar yaml-cpp::yaml-cpp)

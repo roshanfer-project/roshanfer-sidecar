@@ -11,10 +11,15 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Run the sidecar and pipe stderr to a log file
-# Check if -l flag is provided
-if [[ "$1" != "-l" ]]; then
-    GLOG_logtostderr=1 ./sidecar
+# check if config file is provided
+if [ -z "$1" ]; then
+    echo "Config file not provided"
+    exit 1
+fi
+
+# check if the '-l' flag is provided
+if [[ "$2" != "-l" ]]; then
+    GLOG_logtostderr=1 ./sidecar $1
     exit 0
 fi
-GLOG_logtostderr=1 ./sidecar 2> sidecar.log
+GLOG_logtostderr=1 ./sidecar $1 2> sidecar.log
