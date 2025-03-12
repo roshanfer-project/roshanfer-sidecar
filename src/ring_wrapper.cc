@@ -78,7 +78,7 @@ struct io_uring_cqe* RingWrapper::peek_cqe() {
     struct io_uring_cqe *cqe;
     int ret = io_uring_peek_cqe(&ring, &cqe);
     if(ret == -EAGAIN) {
-        LOG(WARNING) << "No completion event.";
+        DLOG(WARNING) << "No completion event.";
         seen_cqe(cqe);
         return nullptr;
     }
