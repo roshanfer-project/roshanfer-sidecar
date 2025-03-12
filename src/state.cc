@@ -3,6 +3,7 @@
 #include "config.h"
 #include "connection.h"
 #include "glog/logging.h"
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -63,6 +64,14 @@ Buffer* State::get_buffer(ConnectionType type) {
 
 std::unique_ptr<HTTPConnection>& State::get_connection(int fd, ConnectionType type) {
     return  pools.at(type).get_connection(fd);
+}
+
+void State::remove_one_connection(ConnectionType type) {
+    pools.at(type).remove_connection(pools.at(type).get_any_connection()->get_fd());
+}
+
+HTTPConnection& State::get_one_connection(ConnectionType type) {
+    return *pools.at(type).get_any_connection().get();
 }
 
 void State::remove_connection(int fd, ConnectionType type) {

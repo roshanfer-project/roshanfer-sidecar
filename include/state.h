@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
+#include <sys/types.h>
 #include <vector>
 #include "config.h"
 #include "connection.h"
@@ -39,6 +41,8 @@ class State {
         bool has_buffer(ConnectionType);
         std::unique_ptr<HTTPConnection>& get_connection(int, ConnectionType);
         void remove_connection(int, ConnectionType);
+        void remove_one_connection(ConnectionType);
+        HTTPConnection& get_one_connection(ConnectionType);
 
 
     private:

@@ -80,7 +80,7 @@ sockaddr* HTTPConnection::get_addr() {
 }
 
 HTTPConnection::~HTTPConnection() {
-    DLOG(INFO) << "Closing connection on fd: " << fd;
+    DLOG(INFO) << "HTTPConnection deconstructor on fd: " << fd;
     close(fd);
 };
 

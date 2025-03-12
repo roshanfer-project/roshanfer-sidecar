@@ -9,7 +9,8 @@ enum Operation {
     ACCEPT,
     READ,
     WRITE,
-    CONNECT
+    CONNECT,
+    CANCEL
 };
 
 struct UserData {

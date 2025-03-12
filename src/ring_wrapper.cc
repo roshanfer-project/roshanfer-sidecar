@@ -144,3 +144,15 @@ void RingWrapper::prepare_write(int fd, Buffer* buffer, UserData* ud) {
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
     DLOG(INFO) << "Prepared write, fd: " << fd;
 }
+
+void RingWrapper::prepare_cancel(HTTPConnection& conn, UserData* ud) {
+    struct io_uring_sqe *sqe = get_sqe();
+    
+    io_uring_prep_close(sqe, conn.get_fd());
+
+    ud->data = static_cast<void*>(&conn);
+    ud->op = Operation::CANCEL;
+    io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
+
+    DLOG(INFO) << "Prepared cancel, fd: " << conn.get_fd();
+}

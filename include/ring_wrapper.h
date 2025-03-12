@@ -33,6 +33,7 @@ public:
 
     void prepare_connect(std::unique_ptr<HTTPConnection>&, UserData*);
     void prepare_write(int, Buffer*, UserData*);
+    void prepare_cancel(HTTPConnection&, UserData*);
 
 private:
     struct io_uring_sqe* get_sqe();

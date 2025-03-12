@@ -89,24 +89,19 @@ void EventLoop::run() {
                 if (cqe->res < 0) {
                     LOG(FATAL) << "Failed to read from fd: " << orig_conn.get_fd();
                 } else if (cqe->res == 0) {
-                    LOG(INFO) << "Connection closed on fd: " << orig_conn.get_fd();
+                    LOG(INFO) << "Closing connection on fd: " << orig_conn.get_fd();
+
+                    // update connection status
+                    orig_conn.set_status(ConnectionStatus::TEARDOWN);
 
                     // free buffer
                     buffer_manager.free_buffer(buffer);
 
-                    // remove connection from the appropriate object
-                    switch (orig_conn.direction) {
-                        case ConnectionDirection::UPSTREAM:
-                            // for upstream connections, pools (inside state) hold the connection
-                            state.remove_connection(orig_conn.get_fd(), orig_conn.type);
-                            break;
-                        case ConnectionDirection::DOWNSTREAM:
-                            // for downstream connections, listeners hold the connection
-                            orig_listener.remove_connection(orig_conn.get_fd());
-                            break;
-                        default:
-                            LOG(FATAL) << "Unknown connection direction";
-                    }
+                    // prepare cancel
+                    ring.prepare_cancel(
+                        orig_conn,
+                        buffer_manager.get_user_data()
+                    );
                     break;
                 }
                 
@@ -149,21 +144,31 @@ void EventLoop::run() {
                 } else if (orig_conn.direction == ConnectionDirection::UPSTREAM) {
                     // TODO: if we have multiple downstream connections, we need to route
                     // the response to the correct connection
-                    
-                    // check if the local host is still connected
+
                     if (listeners.at(orig_conn.type).no_connections()) {
                         LOG(WARNING) << "No " << listeners.at(orig_conn.type).type_to_str() << " connections available";
+                        // free buffer
+                        buffer_manager.free_buffer(buffer);
+                        break;
                     } else {
-                        HTTPConnection* egress_conn = 
+                        HTTPConnection* downstream_conn = 
                             listeners.at(orig_conn.type).get_connections().begin()->second.get();
-                        buffer->prepare_write(egress_conn);
 
-                        // prepare write (to write the response)
-                        ring.prepare_write(
-                            egress_conn->get_fd(),
-                            buffer,
-                            buffer_manager.get_user_data()
-                        );
+                        if (downstream_conn->get_status() == ConnectionStatus::TEARDOWN) {
+                            LOG(WARNING) << "target DOWNSTREAM connection is closed";
+                            // free buffer
+                            buffer_manager.free_buffer(buffer);
+                            break;
+                        } else {
+                            buffer->prepare_write(downstream_conn);
+
+                            // prepare write (to write the response)
+                            ring.prepare_write(
+                                downstream_conn->get_fd(),
+                                buffer,
+                                buffer_manager.get_user_data()
+                            );
+                        }
                     }
                 }
                 
@@ -232,6 +237,32 @@ void EventLoop::run() {
 
                 // free buffer
                 buffer_manager.free_buffer(buffer);
+                break;
+            }
+
+            case CANCEL: {
+                HTTPConnection& conn = *reinterpret_cast<HTTPConnection*>(ud->data);
+                DLOG(INFO) << "Cancel completion event, fd: " << conn.get_fd();
+
+                switch (conn.direction) {
+                    case ConnectionDirection::UPSTREAM:
+                        // for upstream connections, pools (inside state) hold the connection
+                        state.remove_connection(conn.get_fd(), conn.type);
+                        break;
+                    case ConnectionDirection::DOWNSTREAM:
+                        // also remove the corresponsing connection from state becasue,
+                        // we don't need to route the response to this connection
+                        ring.prepare_cancel(
+                            state.get_one_connection(conn.type),
+                            buffer_manager.get_user_data()
+                        );
+                        // remove the object of the connection from the listener
+                        listeners.at(conn.type).remove_connection(conn.get_fd());
+                        break;
+                    default:
+                        LOG(FATAL) << "Unknown connection direction";
+                }
+
                 break;
             }
             

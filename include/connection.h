@@ -21,7 +21,7 @@ enum class ConnectionDirection {
 };
 
 enum class ConnectionStatus {
-    UP, DOWN
+    UP, DOWN, TEARDOWN
 };
 
 class NoConnectionException : public std::runtime_error {
