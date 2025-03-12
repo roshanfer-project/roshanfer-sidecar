@@ -15,8 +15,8 @@ enum class FRAMETYPE {
 typedef struct HTTP2Frame {
     uint32_t stream_id;
     FRAMETYPE type;
-    uint8_t EOS;
-    uint8_t EOH;
+    bool EOS;
+    bool EOH;
     uint32_t offset;
     uint32_t length;
 
