@@ -15,14 +15,12 @@ std::vector<HTTP2Frame> HTTP2Parser::parse(std::span<const char> input) {
         // accout for preface
         if (i == 0 && input.size() >= 24) {
             if (std::strncmp(input.data() + i, HTTP2_PREFACE, 24) == 0) {
-                DLOG(INFO) << "Found preface";
                 HTTP2Frame frame;
                 frame.type = FRAMETYPE::PREFACE;
                 frame.length = 24;
                 frame.offset = 0;
                 results.push_back(frame);
                 i += 24;
-                DLOG(INFO) << frame.to_string();
                 continue;
             }
         }
