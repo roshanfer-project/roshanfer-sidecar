@@ -105,9 +105,7 @@ void EventLoop::run() {
                     break;
                 }
                 
-                DLOG(INFO) << "starting to parse";
-                orig_conn.parse(std::span<const char>(buffer->data.get(),
-                    buffer->get_filled()));
+                state.update_state(orig_conn, buffer);
 
                 if (orig_conn.direction == ConnectionDirection::DOWNSTREAM) {
 

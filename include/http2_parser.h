@@ -48,8 +48,6 @@ typedef struct HTTP2Frame {
 
 } HTTP2Frame;
 
-
-
 class HTTP2Parser{
     public:
         HTTP2Parser();
