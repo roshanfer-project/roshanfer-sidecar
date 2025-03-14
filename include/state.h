@@ -46,11 +46,19 @@ class RPCMessage {
 class Metrics {
     public:
         Metrics();
-        void add_resp_out(uint8_t);
-        uint8_t get_resp_out();
+        void add_resp_out(int);
+        int get_resp_out();
 
     private:
-        uint8_t resp_out;
+        int resp_out;
+};
+
+class PPMState  {
+    public:
+        PPMState();
+    
+    public:
+        int sent_credits; 
 };
 
 class State {
@@ -74,10 +82,12 @@ class State {
         PPM client logic will be here and the Buffer can be modified.
         */
         void update_state(HTTPConnection&, Buffer*);
+        void queue_multiplexer(Buffer*, Buffer*);
 
     private:
         std::tuple<std::unordered_map<uint32_t, RPCMessage>, std::vector<HTTP2Frame>>
             analyze_messages(std::vector<HTTP2Frame>&, bool);
+        void ppm_client();
 
 
     private:
@@ -87,5 +97,6 @@ class State {
     
     public:
         Metrics metrics;
+        PPMState ppm_state;
 
 };

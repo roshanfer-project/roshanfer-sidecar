@@ -3,7 +3,6 @@
 #include "config.h"
 #include "connection.h"
 #include "glog/logging.h"
-#include "http2_parser.h"
 #include <cstdint>
 #include <memory>
 #include <tuple>
@@ -14,7 +13,8 @@ State::State(Config config)
 :   config(config),
     queues(),
     pools(),
-    metrics() {
+    metrics(),
+    ppm_state() {
         pools.emplace(ConnectionType::EGRESS, ConnectionPool(ConnectionType::EGRESS));
         pools.emplace(ConnectionType::INGRESS, ConnectionPool(ConnectionType::INGRESS));
         queues.emplace(ConnectionType::EGRESS, std::vector<Buffer*>());
@@ -90,8 +90,7 @@ void State::update_state(HTTPConnection& conn, Buffer* buffer) {
     and for responses we need to update Metrics.
     */
 
-    if (conn.direction == ConnectionDirection::DOWNSTREAM
-        && conn.type == ConnectionType::EGRESS) {
+    if (conn.type == ConnectionType::EGRESS) {
         // analyze the frames and buffer incomplete requests
         auto [complete_messages, incomplete_frames] = analyze_messages(frames, true);
         DLOG(INFO) << "Complete messages: " << complete_messages.size();
@@ -102,12 +101,11 @@ void State::update_state(HTTPConnection& conn, Buffer* buffer) {
             LOG(FATAL) << "Incomplete requests found. "
                 << "You have not implemented memory management for incomplete requests.";
         }
+        // run the PPM client logic
+        
 
-        // send full messages to PPM client
-        // based on PPM client logic, update the Buffer
-    }
-    else if (conn.direction == ConnectionDirection::UPSTREAM
-        && conn.type == ConnectionType::INGRESS) {
+    } else if (conn.type == ConnectionType::INGRESS
+        && conn.direction == ConnectionDirection::UPSTREAM) {
         // analyze the frames but DO NOT buffer incomplete resppnses
         auto [complete_messages, incomplete_frames] = analyze_messages(frames, false);
         DLOG(INFO) << "Complete messages: " << complete_messages.size();
@@ -121,8 +119,6 @@ void State::update_state(HTTPConnection& conn, Buffer* buffer) {
         // update metrics only based on complete responses
         metrics.add_resp_out(complete_messages.size());
     }
-
-
 }
 
 std::tuple<std::unordered_map<uint32_t, RPCMessage>, std::vector<HTTP2Frame>> 
@@ -284,11 +280,11 @@ State::analyze_messages(std::vector<HTTP2Frame>& frames, bool request) {
 
 Metrics::Metrics(): resp_out(0) {}
 
-void Metrics::add_resp_out(uint8_t inc) {
+void Metrics::add_resp_out(int inc) {
     resp_out += inc;
 }
 
-uint8_t Metrics::get_resp_out() {
+int Metrics::get_resp_out() {
     return resp_out;
 }
 
@@ -300,5 +296,38 @@ bool RPCMessage::add_frame(HTTP2Frame& frame) {
         return  frames.size() == 2;
     } else {
         return frames.size() == 3;
+    }
+}
+
+PPMState::PPMState(): sent_credits(0) {}
+
+inline static void write_dn_response(int result, Buffer* resp) {
+    resp->data.get()[0] = 0x01;
+    resp->data.get()[1] = 0x01;
+    resp->data.get()[2] = result;
+    resp->set_filled(3);
+}
+
+void State::queue_multiplexer(Buffer* req, Buffer* resp) {
+    // read the request
+    if (req->data.get()[0] == 0x01) {
+        // we have demand notification
+
+        // check if it's a request
+        if (req->data.get()[1] != 0x00) {
+            LOG(FATAL) << "QM only handles DN requests";
+        }
+
+        // produce the response
+        uint8_t result = 0;
+        if (config.ppm_limit > ppm_state.sent_credits - metrics.get_resp_out()) {
+            result = 1;
+            ppm_state.sent_credits++;
+        }
+
+        // write the response
+        write_dn_response(result, resp);
+    } else {
+        LOG(FATAL) << "Unknown message type";
     }
 }

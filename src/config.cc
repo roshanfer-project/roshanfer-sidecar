@@ -15,5 +15,6 @@ Config load_config(const std::string &filename) {
     config.ingress_listener_port= node["ingress_listener_port"].as<int>();
     config.ingress_upstream_host= node["ingress_upstream_host"].as<std::string>();
     config.ingress_upstream_port= node["ingress_upstream_port"].as<int>();
+    config.ppm_limit             = node["ppm_limit"].as<int>();
     return config;
 }

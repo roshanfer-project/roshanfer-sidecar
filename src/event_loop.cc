@@ -11,7 +11,6 @@
 #include <iostream>
 #include <memory>
 #include <glog/logging.h>
-#include <string>
 
 
 void EventLoop::run() {
@@ -284,15 +283,8 @@ void EventLoop::run() {
                 DLOG(INFO) << "Queue Multiplxer logic";
 
                 // get the new buffer from QM
-                DLOG(INFO) << "dummy buffer from QM";
                 Buffer* new_buffer = buffer_manager.get_buffer();
-
-                // copy the dummy response to the buffer
-                std::string dummy_resp("Dummy response");
-                std::memcpy(new_buffer->data.get(), dummy_resp.data(), dummy_resp.size());
-                new_buffer->set_filled(dummy_resp.size());
-
-                DLOG(INFO) << "Preprard dummy response: " << new_buffer->data.get();
+                state.queue_multiplexer(old_buffer, new_buffer);
 
                 // prepare the new buffer for sendmsg
                 ring.prepare_sendmsg(
