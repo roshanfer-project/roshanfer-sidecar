@@ -1,9 +1,9 @@
-#include "queue_multiplxer.h"
+#include "udp_listener.h"
 #include "glog/logging.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-QueueMultiplxer::QueueMultiplxer(uint16_t port) {
+UDPListner::UDPListner(uint16_t port) {
     // create a socket
     fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd < 0) {

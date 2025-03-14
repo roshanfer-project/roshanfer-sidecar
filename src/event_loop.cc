@@ -1,4 +1,5 @@
 #include "listener.h"
+#include "udp_listener.h"
 #include "state.h"
 #include <cassert>
 #include <cstdio>
@@ -26,7 +27,7 @@ void EventLoop::run() {
 
     // Add recvmsg submission
     ring.prepare_rcvmsg(
-        queue_multiplxer.get_fd(),
+        udp_listener.get_fd(),
         buffer_manager.get_buffer(),
         buffer_manager.get_user_data()
     );
@@ -295,7 +296,7 @@ void EventLoop::run() {
 
                 // prepare the new buffer for sendmsg
                 ring.prepare_sendmsg(
-                    queue_multiplxer.get_fd(),
+                    udp_listener.get_fd(),
                     old_buffer,
                     new_buffer,
                     buffer_manager.get_user_data()
@@ -306,7 +307,7 @@ void EventLoop::run() {
 
                 // re-arm the recvmsg
                 ring.prepare_rcvmsg(
-                    queue_multiplxer.get_fd(),
+                    udp_listener.get_fd(),
                     buffer_manager.get_buffer(),
                     buffer_manager.get_user_data()
                 );
@@ -344,7 +345,7 @@ EventLoop::EventLoop(Config config)
     buffer_manager(config.buffer_count, config.buffer_size),
     state(config),
     listeners(),
-    queue_multiplxer(config.ingress_listener_port) {
+    udp_listener(config.ingress_listener_port) {
         listeners.emplace(
             ConnectionType::EGRESS,
             Listener(config.egress_listener_port, ConnectionType::EGRESS)

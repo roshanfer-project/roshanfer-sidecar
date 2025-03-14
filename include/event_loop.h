@@ -1,6 +1,6 @@
 #pragma once
 
-#include "queue_multiplxer.h"
+#include "udp_listener.h"
 #include <connection.h>
 #include <buffer_manager.h>
 #include <ring_wrapper.h>
@@ -21,5 +21,5 @@ private:
     BufferManager buffer_manager;
     std::unordered_map<ConnectionType, Listener> listeners;
     State state;
-    QueueMultiplxer queue_multiplxer;
+    UDPListner udp_listener;
 };

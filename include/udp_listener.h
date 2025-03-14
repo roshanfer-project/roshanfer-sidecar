@@ -2,9 +2,9 @@
 
 #include <cstdint>
 
-class QueueMultiplxer {
+class UDPListner {
     public:
-        QueueMultiplxer(uint16_t);
+        UDPListner(uint16_t);
         int get_fd() { return fd; }
 
     private:
