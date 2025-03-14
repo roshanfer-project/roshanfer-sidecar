@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <sys/socket.h>
 #include <vector>
 #include <connection.h>
 #include <listener.h>
@@ -10,7 +11,9 @@ enum Operation {
     READ,
     WRITE,
     CONNECT,
-    CANCEL
+    CANCEL,
+    RCVMSG,
+    SENDMSG
 };
 
 struct UserData {
@@ -31,6 +34,10 @@ public:
     void set_filled(int f) { filled = f; }
     void prepare_read(HTTPConnection*, Listener*);
     void prepare_write(HTTPConnection*);
+    void prepare_recvmsg();
+    std::unique_ptr<struct msghdr>& get_msg() { return msg; }
+    void prepare_sendmsg(Buffer* old_buffer);
+    void clear();
 
 public:
     std::unique_ptr<char[]> data;
@@ -41,6 +48,9 @@ private:
     int index;
     HTTPConnection* conn;
     Listener* listener;
+    std::unique_ptr<struct msghdr> msg;
+    std::unique_ptr<struct sockaddr_in> addr;
+    std::unique_ptr<struct iovec> iov;
 };
 
 class BufferManager {

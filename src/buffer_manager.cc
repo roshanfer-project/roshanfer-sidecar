@@ -11,7 +11,10 @@ Buffer::Buffer(int size, int index)
     index(index),
     filled(0),
     conn(nullptr),
-    listener(nullptr) {
+    listener(nullptr),
+    msg(nullptr),
+    addr(nullptr),
+    iov(nullptr) {
 };
 
 BufferManager::BufferManager(int count, int size)
@@ -39,8 +42,7 @@ Buffer* BufferManager::get_buffer() {
 
 void BufferManager::free_buffer(Buffer* buffer) {
     used_buffer[buffer->get_index()] = false;
-    std::memset(buffer->data.get(), 0, buffer->get_size());
-    buffer->set_filled(0);
+    buffer->clear();
     // Basically we are moving the buffer into this function (the c way!)
     buffer = nullptr;
 }
@@ -68,4 +70,41 @@ void Buffer::prepare_read(HTTPConnection* c, Listener* l) {
 
 void Buffer::prepare_write(HTTPConnection* c) {
     conn = c;
+}
+
+void Buffer::clear() {
+    std::memset(data.get(), 0, size);
+    conn = nullptr;
+    listener = nullptr;
+    msg = nullptr;
+    addr = nullptr;
+    iov = nullptr;
+    filled = 0;
+}
+
+void Buffer::prepare_recvmsg() {
+    iov = std::make_unique<struct iovec>();
+    iov->iov_base = data.get();
+    iov->iov_len = get_size();
+
+    addr = std::make_unique<struct sockaddr_in>();
+    msg = std::make_unique<struct msghdr>();
+
+    msg->msg_name = addr.get();
+    msg->msg_namelen = sizeof(struct sockaddr_in);
+    msg->msg_iov = iov.get();
+    msg->msg_iovlen = 1;
+}
+
+void Buffer::prepare_sendmsg(Buffer* old_buffer) {
+    iov = std::make_unique<struct iovec>();
+    iov->iov_base = data.get();
+    iov->iov_len = filled;
+
+    addr = std::move(old_buffer->addr);
+    msg = std::make_unique<struct msghdr>();
+    msg->msg_name = addr.get(); 
+    msg->msg_namelen = sizeof(struct sockaddr_in);
+    msg->msg_iov = iov.get();
+    msg->msg_iovlen = 1;
 }

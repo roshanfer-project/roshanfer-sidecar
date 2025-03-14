@@ -156,3 +156,41 @@ void RingWrapper::prepare_cancel(HTTPConnection& conn, UserData* ud) {
 
     DLOG(INFO) << "Prepared cancel, fd: " << conn.get_fd();
 }
+
+void RingWrapper::prepare_rcvmsg(int fd, Buffer* buffer, UserData* ud) {
+    struct io_uring_sqe *sqe = get_sqe();
+
+    buffer->prepare_recvmsg();
+
+    io_uring_prep_recvmsg(
+        sqe,
+        fd,
+        buffer->get_msg().get(),
+        0
+    );
+
+    //io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
+
+    ud->data = static_cast<void*>(buffer);
+    ud->op = Operation::RCVMSG;
+    io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
+
+    DLOG(INFO) << "Prepared rcvmsg, fd: " << fd;
+}
+
+void RingWrapper::prepare_sendmsg(int fd, Buffer* old_buffer,
+     Buffer* new_buffer, UserData* ud) {
+    struct io_uring_sqe *sqe = get_sqe();
+
+    new_buffer->prepare_sendmsg(old_buffer);
+
+    io_uring_prep_sendmsg(sqe, fd, new_buffer->get_msg().get(), 0);
+
+    //io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
+
+    ud->data = static_cast<void*>(new_buffer);
+    ud->op = Operation::SENDMSG;
+    io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
+
+    DLOG(INFO) << "Prepared sendmsg, fd: " << fd;
+}

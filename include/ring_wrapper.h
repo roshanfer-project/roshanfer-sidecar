@@ -35,6 +35,9 @@ public:
     void prepare_write(int, Buffer*, UserData*);
     void prepare_cancel(HTTPConnection&, UserData*);
 
+    void prepare_rcvmsg(int, Buffer*, UserData*);
+    void prepare_sendmsg(int, Buffer*, Buffer*, UserData*);
+
 private:
     struct io_uring_sqe* get_sqe();
 

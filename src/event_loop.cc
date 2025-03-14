@@ -10,6 +10,7 @@
 #include <iostream>
 #include <memory>
 #include <glog/logging.h>
+#include <string>
 
 
 void EventLoop::run() {
@@ -22,6 +23,13 @@ void EventLoop::run() {
         DLOG(INFO) << "Listening on " << listener.second.type_to_str() << " listener, port: " << listener.second.get_port();
         ring.prepare_accept(listener.second, buffer_manager.get_user_data());
     }
+
+    // Add recvmsg submission
+    ring.prepare_rcvmsg(
+        queue_multiplxer.get_fd(),
+        buffer_manager.get_buffer(),
+        buffer_manager.get_user_data()
+    );
 
     // main event loop
     while(true) {
@@ -263,6 +271,60 @@ void EventLoop::run() {
 
                 break;
             }
+
+            case RCVMSG: {
+                DLOG(INFO) << "Recvmsg completion event";
+
+                // get the buffer from the user data
+                Buffer* old_buffer = reinterpret_cast<Buffer*>(ud->data);
+                old_buffer->set_filled(cqe->res);
+
+                // run the Queue Multiplxer logic
+                DLOG(INFO) << "Queue Multiplxer logic";
+
+                // get the new buffer from QM
+                DLOG(INFO) << "dummy buffer from QM";
+                Buffer* new_buffer = buffer_manager.get_buffer();
+
+                // copy the dummy response to the buffer
+                std::string dummy_resp("Dummy response");
+                std::memcpy(new_buffer->data.get(), dummy_resp.data(), dummy_resp.size());
+                new_buffer->set_filled(dummy_resp.size());
+
+                DLOG(INFO) << "Preprard dummy response: " << new_buffer->data.get();
+
+                // prepare the new buffer for sendmsg
+                ring.prepare_sendmsg(
+                    queue_multiplxer.get_fd(),
+                    old_buffer,
+                    new_buffer,
+                    buffer_manager.get_user_data()
+                );
+
+                // free the old buffer
+                buffer_manager.free_buffer(old_buffer);
+
+                // re-arm the recvmsg
+                ring.prepare_rcvmsg(
+                    queue_multiplxer.get_fd(),
+                    buffer_manager.get_buffer(),
+                    buffer_manager.get_user_data()
+                );
+
+                break;
+            }
+
+            case SENDMSG: {
+                DLOG(INFO) << "Sendmsg completion event";
+
+                // get the buffer from the user data
+                Buffer* buffer = reinterpret_cast<Buffer*>(ud->data);
+
+                // free the buffer
+                buffer_manager.free_buffer(buffer);
+
+                break;
+            }
             
             default:
                 break;
@@ -281,7 +343,8 @@ EventLoop::EventLoop(Config config)
 :   ring(config.ring_size),
     buffer_manager(config.buffer_count, config.buffer_size),
     state(config),
-    listeners() {
+    listeners(),
+    queue_multiplxer(config.ingress_listener_port) {
         listeners.emplace(
             ConnectionType::EGRESS,
             Listener(config.egress_listener_port, ConnectionType::EGRESS)
