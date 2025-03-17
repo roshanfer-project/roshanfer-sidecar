@@ -91,8 +91,9 @@ void State::update_state(HTTPConnection& conn, Buffer* buffer) {
     */
 
     if (conn.type == ConnectionType::EGRESS) {
+        bool request = conn.direction == ConnectionDirection::DOWNSTREAM;
         // analyze the frames and buffer incomplete requests
-        auto [complete_messages, incomplete_frames] = analyze_messages(frames, true);
+        auto [complete_messages, incomplete_frames] = analyze_messages(frames, request);
         DLOG(INFO) << "Complete messages: " << complete_messages.size();
         DLOG(INFO) << "Incomplete frames: " << incomplete_frames.size();
 
