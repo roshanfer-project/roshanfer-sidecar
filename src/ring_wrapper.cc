@@ -157,7 +157,7 @@ void RingWrapper::prepare_cancel(HTTPConnection& conn, UserData* ud) {
     DLOG(INFO) << "Prepared cancel, fd: " << conn.get_fd();
 }
 
-void RingWrapper::prepare_rcvmsg(int fd, Buffer* buffer, UserData* ud) {
+void RingWrapper::prepare_rcvmsg(int fd, Buffer* buffer, UserData* ud, UDPType udp_type) {
     struct io_uring_sqe *sqe = get_sqe();
 
     buffer->prepare_recvmsg();
@@ -173,16 +173,22 @@ void RingWrapper::prepare_rcvmsg(int fd, Buffer* buffer, UserData* ud) {
 
     ud->data = static_cast<void*>(buffer);
     ud->op = Operation::RCVMSG;
+    ud->udp_type = udp_type;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
 
     DLOG(INFO) << "Prepared rcvmsg, fd: " << fd;
 }
 
-void RingWrapper::prepare_sendmsg(int fd, Buffer* old_buffer,
+/*
+    This a "reply" send message because it uses the server address structure
+    from the received message (old_buffer). In the case of a "request" send message, the
+    server address structure has to created manually.
+*/
+void RingWrapper::prepare_reply_sendmsg(int fd, Buffer* old_buffer,
      Buffer* new_buffer, UserData* ud) {
     struct io_uring_sqe *sqe = get_sqe();
 
-    new_buffer->prepare_sendmsg(old_buffer);
+    new_buffer->prepare_reply_sendmsg(old_buffer);
 
     io_uring_prep_sendmsg(sqe, fd, new_buffer->get_msg().get(), 0);
 
@@ -192,5 +198,20 @@ void RingWrapper::prepare_sendmsg(int fd, Buffer* old_buffer,
     ud->op = Operation::SENDMSG;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
 
-    DLOG(INFO) << "Prepared sendmsg, fd: " << fd;
+    DLOG(INFO) << "Prepared sendmsg (reply), fd: " << fd;
+}
+
+void RingWrapper::prepare_req_sendmsg(int fd, Buffer* buffer, UserData* ud,
+    struct sockaddr_in servaddr) {
+    struct io_uring_sqe *sqe = get_sqe();
+
+    buffer->prepare_req_sendmsg(servaddr);
+
+    io_uring_prep_sendmsg(sqe, fd, buffer->get_msg().get(), 0);
+
+    ud->data = static_cast<void*>(buffer);
+    ud->op = Operation::SENDMSG;
+    io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
+
+    DLOG(INFO) << "Prepared sendmsg (req), fd: " << fd;
 }

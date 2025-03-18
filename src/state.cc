@@ -3,22 +3,32 @@
 #include "config.h"
 #include "connection.h"
 #include "glog/logging.h"
+#include "ring_wrapper.h"
+#include <arpa/inet.h>
 #include <cstdint>
+#include <cstring>
 #include <memory>
-#include <tuple>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
-State::State(Config config)
+State::State(Config config, RingWrapper& ring, BufferManager& buffer_manager)
 :   config(config),
     queues(),
     pools(),
-    metrics(),
-    ppm_state() {
+    stats(),
+    ppm_state(),
+    buffer_manager(buffer_manager),
+    ring(ring) {
         pools.emplace(ConnectionType::EGRESS, ConnectionPool(ConnectionType::EGRESS));
         pools.emplace(ConnectionType::INGRESS, ConnectionPool(ConnectionType::INGRESS));
         queues.emplace(ConnectionType::EGRESS, std::vector<Buffer*>());
         queues.emplace(ConnectionType::INGRESS, std::vector<Buffer*>());
+
+        sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+        if (sockfd < 0) {
+            LOG(FATAL) << "Failed to create socket";
+        }
 }
 
 
@@ -81,232 +91,98 @@ void State::remove_connection(int fd, ConnectionType type) {
     pools.at(type).remove_connection(fd);
 }
 
-void State::update_state(HTTPConnection& conn, Buffer* buffer) {
-    auto frames = conn.parse(std::span<const char>(buffer->data.get(), buffer->get_filled()));
+void State::update_state(HTTPConnection& conn) {
+    ppm_client(false, nullptr);
+}
 
-    /*
-    check if we need to even do anything (we only care about requests or responses
-    coming out of local app). In the case of requests, we need to run PPM client logic
-    and for responses we need to update Metrics.
-    */
+bool State::valid_credit(const char* data) {
+    if (data[0] != 0x01) {
+        LOG(FATAL) << "Invalid message type";
+    }
 
-    if (conn.type == ConnectionType::EGRESS) {
-        bool request = conn.direction == ConnectionDirection::DOWNSTREAM;
-        // analyze the frames and buffer incomplete requests
-        auto [complete_messages, incomplete_frames] = analyze_messages(frames, request);
-        DLOG(INFO) << "Complete messages: " << complete_messages.size();
-        DLOG(INFO) << "Incomplete frames: " << incomplete_frames.size();
+    if (data[1] != 0x01) {
+        LOG(FATAL) << "Expected a response";
+    }
 
-        // remove incomplete requests from the Buffer
-        if (incomplete_frames.size() > 0) {
-            LOG(FATAL) << "Incomplete requests found. "
-                << "You have not implemented memory management for incomplete requests.";
-        }
-        // run the PPM client logic
-        
+    ppm_state.received_dns++;
 
-    } else if (conn.type == ConnectionType::INGRESS
-        && conn.direction == ConnectionDirection::UPSTREAM) {
-        // analyze the frames but DO NOT buffer incomplete resppnses
-        auto [complete_messages, incomplete_frames] = analyze_messages(frames, false);
-        DLOG(INFO) << "Complete messages: " << complete_messages.size();
-        DLOG(INFO) << "Incomplete frames: " << incomplete_frames.size();
+    return data[2] == 0x01;
+}
 
-        if (incomplete_frames.size() > 0) {
-            LOG(FATAL) << "Incomplete requests found. "
-                << "You have not implemented memory management for incomplete requests.";
-        }
 
-        // update metrics only based on complete responses
-        metrics.add_resp_out(complete_messages.size());
+void State::send_from_ppm_queue() {
+    if (ppm_queue.size() > 0) {
+        DLOG(INFO) << "Send a request from PPM queue";
+
+        // send one queued request (from the end of queue)
+        Buffer* req = ppm_queue.back();
+        ppm_queue.pop_back();
+
+        // send the request using io-uring
+        // Note that we don't need to do any routing here
+        auto& conn = pools.at(ConnectionType::EGRESS).get_any_connection();
+        req->prepare_write(conn.get());
+
+        ring.prepare_write(
+            conn->get_fd(),
+            req,
+            buffer_manager.get_user_data()
+        );
+    } else {
+        LOG(FATAL) << "Received credit but no queued request";
     }
 }
 
-std::tuple<std::unordered_map<uint32_t, RPCMessage>, std::vector<HTTP2Frame>> 
-State::analyze_messages(std::vector<HTTP2Frame>& frames, bool request) {
-
-    // temporary representation for incomplete streams
-    std::unordered_map<uint32_t, uint8_t> inc_stream_map;
-    // temporary representation for complete streams
-    std::unordered_map<uint32_t, uint8_t> c_stream_map;
-
-    std::unordered_map<uint32_t, RPCMessage> complete_messages;
-    std::vector<HTTP2Frame> incomplete_frames;
-
-    /*
-        Go over frames and fill two maps for incomplete and complete messages.
-    */
-    for (auto& frame : frames) {
-        if (request) {
-            // we are looking for requests
-            if (frame.type == FRAMETYPE::HEADERS) {
-                if (frame.EOH == 0) {
-                    LOG(FATAL) << "Multi-frame HEADERS are not supported for requests";
-                }
-                // check if stream is present
-                if (inc_stream_map.find(frame.stream_id) != inc_stream_map.end()) {
-                    LOG(FATAL) << "HEADERS frame already present";
-                }
-                inc_stream_map[frame.stream_id] = 1;
-            } else if (frame.type == FRAMETYPE::DATA) {
-                if (frame.EOS == 0) {
-                    LOG(FATAL) << "Multi-frame DATA are not supported for requests";
-                }
-                
-                // check if the corresponding HEADERS frame is present
-                if (inc_stream_map.find(frame.stream_id) == inc_stream_map.end()) {
-                    LOG(FATAL) << "DATA frame without HEADERS frame";
-                } else if (inc_stream_map[frame.stream_id] == 1) {
-                    // remove the stream from the incomplete map
-                    inc_stream_map.erase(frame.stream_id);
-                    // add to the complete map
-                    c_stream_map[frame.stream_id] = 1;
-                    DLOG(INFO) << "Complete message with stream_id: " << frame.stream_id;
-                }
-            }
-        } 
-        else {
-            if (frame.type == FRAMETYPE::HEADERS) {
-                if (frame.EOH == 0) {
-                    LOG(FATAL) << "Multi-frame HEADERS are not supported for responses";
-                }
-
-                if (frame.EOS == 0) {
-                    // check if stream is present
-                    if (inc_stream_map.find(frame.stream_id) != inc_stream_map.end()) {
-                        LOG(FATAL) << "Out of order HEADERS frame";
-                    }
-                    inc_stream_map[frame.stream_id] = 1;
-                } else if (frame.EOS == 1) {
-                    if (inc_stream_map[frame.stream_id] < 2) {
-                        LOG(FATAL) << "Out of order tailers HEADERS frame";
-                    } else if (inc_stream_map[frame.stream_id] > 2) {
-                        LOG(FATAL) << "Mutli-frame DATA are not supported for responses";
-                    }
-                    inc_stream_map.erase(frame.stream_id);
-                    c_stream_map[frame.stream_id] = 1;
-                    DLOG(INFO) << "Complete message with stream_id: " << frame.stream_id;
-                }
-            } else if (frame.type == FRAMETYPE::DATA) {
-                if (inc_stream_map.find(frame.stream_id) == inc_stream_map.end()) {
-                    LOG(FATAL) << "DATA frame without HEADERS frame";
-                } else if (inc_stream_map[frame.stream_id] == 1) {
-                    inc_stream_map[frame.stream_id] = 2;
-                } else {
-                    LOG(FATAL) << "Out of order DATA frame";
-                }
-            }
-        }
-    }
-
-    /*
-        Based on two maps produced above, do these:
-        1. Add incomplete messages to the `inc_request_buffer`
-        2. If doing step 1 completes any messages, add them to `complete_messages`
-        3. If there are any incomplete messages, add them to `incomplete_frames`
-    */
-    if (request) {
-        /////// update the internal buffer with incomplete messages
-
-        // check if we have any incomplete messages
-        if (inc_stream_map.size() > 0) {
-            LOG(FATAL) << "Incomplete messages found. "
-                << "You have not implemented memory management for incomplete messages.";
-            /*
-            TODO: Suppose that you have a Buffer that has some incomplete messages.
-            If these incomplete messages remain incomplete after this function, it's fine
-            because the higher level function will just remove them from the Buffer and
-            store it internally. However, if they get completed in this function, you
-            need a more expressive way of returning to the higher level function because some
-            part of the complete message exissts in the Buffer but some part not!
-            */
-            
-            /* for (auto& frame : frames) {
-                if (inc_stream_map.find(frame.stream_id) != inc_stream_map.end()) {
-                    // add the frame to the buffer
-                    if (inc_request_buffer.find(frame.stream_id) == inc_request_buffer.end()) {
-                        inc_request_buffer.emplace(frame.stream_id, RPCMessage(GRPCMESSAGE::REQUEST));
-                    }
-                    if (inc_request_buffer.at(frame.stream_id).add_frame(frame)) {
-                        // we have a complete message
-                        complete_messages.emplace(frame.stream_id, inc_request_buffer[frame.stream_id]);
-                        inc_request_buffer.erase(frame.stream_id);
-
-                        inc_stream_map.erase(frame.stream_id);
-                    }
-                }
-            } */
-        }
-
-        // preprae a list of newly completed messages and new incomplete messages
-        if (inc_stream_map.size() > 0) {
-            LOG(FATAL) << "Incomplete messages found. "
-                << "You have not implemented memory management for incomplete messages.";
-            /* for (auto& frame : frames) {
-                if (inc_stream_map.find(frame.stream_id) != inc_stream_map.end()) {
-                    incomplete_frames.push_back(frame);
-                }
-            } */
-        }
-
-        if (c_stream_map.size() > 0) {
-            for (auto& frame : frames) {
-                if (c_stream_map.find(frame.stream_id) != c_stream_map.end()) {
-                    if (complete_messages.find(frame.stream_id) == complete_messages.end()) {
-                        complete_messages.emplace(frame.stream_id, RPCMessage(GRPCMESSAGE::REQUEST));
-                    }
-                    complete_messages.at(frame.stream_id).add_frame(frame);
-                }
-            }
+void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
+    if (dn_resp) {
+        if (valid_credit(dn_resp_buffer->data.get())) {
+            // we have received a credit
+            DLOG(INFO) << "Received a credit";
+            send_from_ppm_queue();
         }
     } else {
-        if (inc_stream_map.size() > 0) {
-            LOG(FATAL) << "Logic for incomplete responses not implemented";
+        if (stats.sidecar_resp_in) {
+            // we have received a response from the remote server
+            // send a DN
+            if (ppm_queue.size() - ppm_state.sent_dns + ppm_state.received_dns > 0) {
+                DLOG(INFO) << "Send DN after receiving a response";
+                send_dn();
+            }
         }
 
-        if (c_stream_map.size() > 0) {
-            for (auto& frame : frames) {
-                if (c_stream_map.find(frame.stream_id) != c_stream_map.end()) {
-                    if (complete_messages.find(frame.stream_id) == complete_messages.end()) {
-                        complete_messages.emplace(frame.stream_id, RPCMessage(GRPCMESSAGE::RESPONSE));
-                    }
-                    complete_messages.at(frame.stream_id).add_frame(frame);
-                }
+        // This part assumes no failures
+        int new_dns = ppm_queue.size() - ppm_state.sent_dns + ppm_state.received_dns;
+        if (new_dns > 0) {
+            // we have at least one request to send
+            for (int i = 0; i < new_dns; i++) {
+                // send DN
+                DLOG(INFO) << "Send DN for new requests";
+                send_dn();
             }
         }
     }
-
-    return std::make_tuple(complete_messages, incomplete_frames);
-};
-
-Metrics::Metrics(): resp_out(0) {}
-
-void Metrics::add_resp_out(int inc) {
-    resp_out += inc;
+    
 }
 
-int Metrics::get_resp_out() {
-    return resp_out;
+void State::send_dn() {
+    // send a demand notification
+    char msg[] = {0x01, 0x00, 0x01};
+    udp_send(msg, config.endpoint_host, config.endpoint_port);
+    ppm_state.sent_dns++;
+    DLOG(INFO) << "Sent demand notification";
 }
 
-RPCMessage::RPCMessage(GRPCMESSAGE type): frames(), type(type) {}
-
-bool RPCMessage::add_frame(HTTP2Frame& frame) {
-    frames.push_back(frame);
-    if (type == GRPCMESSAGE::REQUEST) {
-        return  frames.size() == 2;
-    } else {
-        return frames.size() == 3;
-    }
-}
-
-PPMState::PPMState(): sent_credits(0) {}
+PPMState::PPMState()
+:   sent_credits(0),
+    sent_dns(0),
+    received_dns(0) {}
 
 inline static void write_dn_response(int result, Buffer* resp) {
-    resp->data.get()[0] = 0x01;
-    resp->data.get()[1] = 0x01;
+    resp->data.get()[0] = 0x01; // demand notification
+    resp->data.get()[1] = 0x01; // response
     resp->data.get()[2] = result;
     resp->set_filled(3);
+    DLOG(INFO) << "Wrote a DN response";
 }
 
 void State::queue_multiplexer(Buffer* req, Buffer* resp) {
@@ -321,7 +197,7 @@ void State::queue_multiplexer(Buffer* req, Buffer* resp) {
 
         // produce the response
         uint8_t result = 0;
-        if (config.ppm_limit > ppm_state.sent_credits - metrics.get_resp_out()) {
+        if (config.ppm_limit > ppm_state.sent_credits - stats.app_resp_out) {
             result = 1;
             ppm_state.sent_credits++;
         }
@@ -331,4 +207,37 @@ void State::queue_multiplexer(Buffer* req, Buffer* resp) {
     } else {
         LOG(FATAL) << "Unknown message type";
     }
+}
+
+void State::udp_send(std::span<char> msg, std::string& host, uint16_t port) {
+    struct sockaddr_in servaddr;
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_port = htons(port);
+    servaddr.sin_addr.s_addr = inet_addr(host.c_str());
+
+    if (inet_pton(AF_INET, host.c_str(), &servaddr.sin_addr) <= 0) {
+        LOG(FATAL) << "Invalid server IP address";
+        return;
+    }
+
+    // write the message to a buffer
+    Buffer* buffer = buffer_manager.get_buffer();
+    std::memcpy(buffer->data.get(), msg.data(), msg.size());
+    buffer->set_filled(msg.size());
+    
+    // send the request using the ring
+    ring.prepare_req_sendmsg(
+        sockfd,
+        buffer,
+        buffer_manager.get_user_data(),
+        servaddr
+    );
+
+    // preprae rcvmsg for the response
+    ring.prepare_rcvmsg(
+        sockfd,
+        buffer_manager.get_buffer(),
+        buffer_manager.get_user_data(),
+        UDPType::RESPONSE
+    );
 }

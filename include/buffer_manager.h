@@ -16,10 +16,16 @@ enum Operation {
     SENDMSG
 };
 
+enum class UDPType {
+    REQUEST,
+    RESPONSE
+};
+
 struct UserData {
     void* data;
     enum Operation op;
     int index;
+    UDPType udp_type;
 };
 
 class Buffer {
@@ -36,7 +42,8 @@ public:
     void prepare_write(HTTPConnection*);
     void prepare_recvmsg();
     std::unique_ptr<struct msghdr>& get_msg() { return msg; }
-    void prepare_sendmsg(Buffer* old_buffer);
+    void prepare_reply_sendmsg(Buffer* old_buffer);
+    void prepare_req_sendmsg(struct sockaddr_in);
     void clear();
 
 public:

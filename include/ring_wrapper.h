@@ -35,8 +35,9 @@ public:
     void prepare_write(int, Buffer*, UserData*);
     void prepare_cancel(HTTPConnection&, UserData*);
 
-    void prepare_rcvmsg(int, Buffer*, UserData*);
-    void prepare_sendmsg(int, Buffer*, Buffer*, UserData*);
+    void prepare_rcvmsg(int, Buffer*, UserData*, UDPType);
+    void prepare_reply_sendmsg(int, Buffer*, Buffer*, UserData*);
+    void prepare_req_sendmsg(int, Buffer*, UserData*, struct sockaddr_in);
 
 private:
     struct io_uring_sqe* get_sqe();

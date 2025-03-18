@@ -1,6 +1,7 @@
 #include "connection.h"
 #include <buffer_manager.h>
 #include <memory>
+#include <netinet/in.h>
 #include <vector>
 #include <listener.h>
 #include <glog/logging.h>
@@ -96,12 +97,25 @@ void Buffer::prepare_recvmsg() {
     msg->msg_iovlen = 1;
 }
 
-void Buffer::prepare_sendmsg(Buffer* old_buffer) {
+void Buffer::prepare_reply_sendmsg(Buffer* old_buffer) {
     iov = std::make_unique<struct iovec>();
     iov->iov_base = data.get();
     iov->iov_len = filled;
 
     addr = std::move(old_buffer->addr);
+    msg = std::make_unique<struct msghdr>();
+    msg->msg_name = addr.get(); 
+    msg->msg_namelen = sizeof(struct sockaddr_in);
+    msg->msg_iov = iov.get();
+    msg->msg_iovlen = 1;
+}
+
+void Buffer::prepare_req_sendmsg(struct sockaddr_in servaddr) {
+    iov = std::make_unique<struct iovec>();
+    iov->iov_base = data.get();
+    iov->iov_len = filled;
+
+    addr = std::make_unique<struct sockaddr_in>(servaddr);
     msg = std::make_unique<struct msghdr>();
     msg->msg_name = addr.get(); 
     msg->msg_namelen = sizeof(struct sockaddr_in);

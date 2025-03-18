@@ -28,7 +28,8 @@ void EventLoop::run() {
     ring.prepare_rcvmsg(
         udp_listener.get_fd(),
         buffer_manager.get_buffer(),
-        buffer_manager.get_user_data()
+        buffer_manager.get_user_data(),
+        UDPType::REQUEST
     );
 
     // main event loop
@@ -113,71 +114,79 @@ void EventLoop::run() {
                     break;
                 }
                 
-                state.update_state(orig_conn, buffer);
+                grpc_parser.parse(orig_conn, *buffer);
 
-                if (orig_conn.direction == ConnectionDirection::DOWNSTREAM) {
+                state.update_state(orig_conn);
 
-                    // pick (or create) an upstream connection
-                    try {
-                        int dst_fd = state.route(orig_conn.type);
-                        DLOG(INFO) << "Routing to fd: " << dst_fd;
-                        
-                        // prepare buffer for write
-                        buffer->prepare_write(state.get_connection(dst_fd, orig_conn.type).get());
+                // if the filled field of the buffer is 0, it means that the buffer
+                // is empty and we can free it
+                if (buffer->get_filled() == 0) {
+                    buffer_manager.free_buffer(buffer);
+                    DLOG(INFO) << "Buffer is empty. Freeing buffer";
+                } else {
+                    if (orig_conn.direction == ConnectionDirection::DOWNSTREAM) {
 
-                        // prepare write (to write the request)
-                        ring.prepare_write(
-                            dst_fd,
-                            buffer,
-                            buffer_manager.get_user_data()
-                        );
-
-                    } catch (AddConnectionException& e) {
-                        DLOG(INFO) << "Connection not available. Waiting for connection to be UP";
-                        // prepare connect
-                        ring.prepare_connect(
-                            e.conn,
-                            buffer_manager.get_user_data()
-                        );
-
-                        // pass buffer to the state
-                        state.add_buffer(buffer, orig_conn.type);
-                    } catch (ConnectionNotUPException& e) {
-                        DLOG(INFO) << "Connection not UP. Waiting for connection to be UP";
-                        // just queue the buffer in state
-                        state.add_buffer(buffer, orig_conn.type);
-                    }
-                } else if (orig_conn.direction == ConnectionDirection::UPSTREAM) {
-                    // TODO: if we have multiple downstream connections, we need to route
-                    // the response to the correct connection
-
-                    if (listeners.at(orig_conn.type).no_connections()) {
-                        LOG(WARNING) << "No " << listeners.at(orig_conn.type).type_to_str() << " connections available";
-                        // free buffer
-                        buffer_manager.free_buffer(buffer);
-                        break;
-                    } else {
-                        HTTPConnection* downstream_conn = 
-                            listeners.at(orig_conn.type).get_connections().begin()->second.get();
-
-                        if (downstream_conn->get_status() == ConnectionStatus::TEARDOWN) {
-                            LOG(WARNING) << "target DOWNSTREAM connection is closed";
+                        // pick (or create) an upstream connection
+                        try {
+                            int dst_fd = state.route(orig_conn.type);
+                            DLOG(INFO) << "Routing to fd: " << dst_fd;
+                            
+                            // prepare buffer for write
+                            buffer->prepare_write(state.get_connection(dst_fd, orig_conn.type).get());
+    
+                            // prepare write (to write the request)
+                            ring.prepare_write(
+                                dst_fd,
+                                buffer,
+                                buffer_manager.get_user_data()
+                            );
+    
+                        } catch (AddConnectionException& e) {
+                            DLOG(INFO) << "Connection not available. Waiting for connection to be UP";
+                            // prepare connect
+                            ring.prepare_connect(
+                                e.conn,
+                                buffer_manager.get_user_data()
+                            );
+    
+                            // pass buffer to the state
+                            state.add_buffer(buffer, orig_conn.type);
+                        } catch (ConnectionNotUPException& e) {
+                            DLOG(INFO) << "Connection not UP. Waiting for connection to be UP";
+                            // just queue the buffer in state
+                            state.add_buffer(buffer, orig_conn.type);
+                        }
+                    } else if (orig_conn.direction == ConnectionDirection::UPSTREAM) {
+                        // TODO: if we have multiple downstream connections, we need to route
+                        // the response to the correct connection
+    
+                        if (listeners.at(orig_conn.type).no_connections()) {
+                            LOG(WARNING) << "No " << listeners.at(orig_conn.type).type_to_str() << " connections available";
                             // free buffer
                             buffer_manager.free_buffer(buffer);
                             break;
                         } else {
-                            buffer->prepare_write(downstream_conn);
-
-                            // prepare write (to write the response)
-                            ring.prepare_write(
-                                downstream_conn->get_fd(),
-                                buffer,
-                                buffer_manager.get_user_data()
-                            );
+                            HTTPConnection* downstream_conn = 
+                                listeners.at(orig_conn.type).get_connections().begin()->second.get();
+    
+                            if (downstream_conn->get_status() == ConnectionStatus::TEARDOWN) {
+                                LOG(WARNING) << "target DOWNSTREAM connection is closed";
+                                // free buffer
+                                buffer_manager.free_buffer(buffer);
+                                break;
+                            } else {
+                                buffer->prepare_write(downstream_conn);
+    
+                                // prepare write (to write the response)
+                                ring.prepare_write(
+                                    downstream_conn->get_fd(),
+                                    buffer,
+                                    buffer_manager.get_user_data()
+                                );
+                            }
                         }
                     }
                 }
-                
 
                 // get a new buffer for read and prepare it
                 buffer = buffer_manager.get_buffer();
@@ -249,6 +258,7 @@ void EventLoop::run() {
             case CANCEL: {
                 HTTPConnection& conn = *reinterpret_cast<HTTPConnection*>(ud->data);
                 DLOG(INFO) << "Cancel completion event, fd: " << conn.get_fd();
+                grpc_parser.clear(conn.get_fd());
 
                 switch (conn.direction) {
                     case ConnectionDirection::UPSTREAM:
@@ -257,7 +267,7 @@ void EventLoop::run() {
                         break;
                     case ConnectionDirection::DOWNSTREAM:
                         // also remove the corresponsing connection from state becasue,
-                        // we don't need to route the response to this connection
+                        // we don't need to route the response to/from this connection
                         ring.prepare_cancel(
                             state.get_one_connection(conn.type),
                             buffer_manager.get_user_data()
@@ -277,33 +287,60 @@ void EventLoop::run() {
 
                 // get the buffer from the user data
                 Buffer* old_buffer = reinterpret_cast<Buffer*>(ud->data);
+                auto udp_type = ud->udp_type;
                 old_buffer->set_filled(cqe->res);
 
-                // run the Queue Multiplxer logic
-                DLOG(INFO) << "Queue Multiplxer logic";
+                // TODO: check if the received message is a request for QM,
+                // or is a response for DN (In the second case, there is no need
+                // for replying back).
 
-                // get the new buffer from QM
-                Buffer* new_buffer = buffer_manager.get_buffer();
-                state.queue_multiplexer(old_buffer, new_buffer);
+                switch (udp_type) {
+                    case UDPType::REQUEST: {
+                        DLOG(INFO) << "Request for Queue Multiplxer";
 
-                // prepare the new buffer for sendmsg
-                ring.prepare_sendmsg(
-                    udp_listener.get_fd(),
-                    old_buffer,
-                    new_buffer,
-                    buffer_manager.get_user_data()
-                );
+                        // get the new buffer from QM
+                        Buffer* new_buffer = buffer_manager.get_buffer();
+                        state.queue_multiplexer(old_buffer, new_buffer);
 
-                // free the old buffer
-                buffer_manager.free_buffer(old_buffer);
+                        // prepare the new buffer for sendmsg
+                        ring.prepare_reply_sendmsg(
+                            udp_listener.get_fd(),
+                            old_buffer,
+                            new_buffer,
+                            buffer_manager.get_user_data()
+                        );
 
-                // re-arm the recvmsg
-                ring.prepare_rcvmsg(
-                    udp_listener.get_fd(),
-                    buffer_manager.get_buffer(),
-                    buffer_manager.get_user_data()
-                );
+                        // free the old buffer
+                        buffer_manager.free_buffer(old_buffer);
 
+                        // re-arm the recvmsg
+                        ring.prepare_rcvmsg(
+                            udp_listener.get_fd(),
+                            buffer_manager.get_buffer(),
+                            buffer_manager.get_user_data(),
+                            UDPType::REQUEST
+                        );
+
+                        break;
+                    }
+
+                    case UDPType::RESPONSE: {
+                        DLOG(INFO) << "Response for DN";
+
+                        Buffer* buffer = reinterpret_cast<Buffer*>(ud->data);
+
+                        // We have a response for DN (potentially a request unblock)
+
+                        state.ppm_client(true, buffer);
+
+                        // free the buffer
+                        buffer_manager.free_buffer(buffer);
+
+                        // Note that there is no need to re-arm this operation becase
+                        // everytime we send a DN request we also post a recvmsg sqe
+                        break;
+                    }
+                }
                 break;
             }
 
@@ -335,9 +372,11 @@ void EventLoop::run() {
 EventLoop::EventLoop(Config config)
 :   ring(config.ring_size),
     buffer_manager(config.buffer_count, config.buffer_size),
-    state(config),
+    state(config, ring, buffer_manager),
     listeners(),
-    udp_listener(config.ingress_listener_port) {
+    udp_listener(config.ingress_listener_port),
+    grpc_parser(state.ppm_queue, buffer_manager, state.stats) 
+    {
         listeners.emplace(
             ConnectionType::EGRESS,
             Listener(config.egress_listener_port, ConnectionType::EGRESS)

@@ -7,7 +7,8 @@
 #include "config.h"
 #include "connection.h"
 #include "buffer_manager.h"
-#include "http2_parser.h"
+#include "ring_wrapper.h"
+#include "stats.h"
 #include <unordered_map>
 
 class AddConnectionException : public std::runtime_error {
@@ -28,43 +29,20 @@ class ConnectionNotUPException: public std::runtime_error {
         std::unique_ptr<HTTPConnection>& conn;
 };
 
-enum class GRPCMESSAGE {
-    REQUEST, RESPONSE
-};
-
-class RPCMessage {
-
-    public:
-        RPCMessage(GRPCMESSAGE);
-        bool add_frame(HTTP2Frame&);
-
-    private:
-        std::vector<HTTP2Frame> frames;
-        GRPCMESSAGE type;
-};
-
-class Metrics {
-    public:
-        Metrics();
-        void add_resp_out(int);
-        int get_resp_out();
-
-    private:
-        int resp_out;
-};
-
 class PPMState  {
     public:
         PPMState();
     
     public:
-        int sent_credits; 
+        int sent_credits;
+        int sent_dns;
+        int received_dns;
 };
 
 class State {
 
     public:
-        State(Config);
+        State(Config, RingWrapper&, BufferManager&);
         /**
         @brief Routing for *requests*
         @note This should not be called for responses
@@ -77,26 +55,32 @@ class State {
         void remove_connection(int, ConnectionType);
         void remove_one_connection(ConnectionType);
         HTTPConnection& get_one_connection(ConnectionType);
-        /**
-        based on the connection, update stats, buffer incomplete messages.
-        PPM client logic will be here and the Buffer can be modified.
-        */
-        void update_state(HTTPConnection&, Buffer*);
+
+        // PPM-related functions
+        void update_state(HTTPConnection&);
         void queue_multiplexer(Buffer*, Buffer*);
+        void ppm_client(bool, Buffer*);
 
     private:
-        std::tuple<std::unordered_map<uint32_t, RPCMessage>, std::vector<HTTP2Frame>>
-            analyze_messages(std::vector<HTTP2Frame>&, bool);
-        void ppm_client();
+        void udp_send(std::span<char>, std::string&, uint16_t);
+
+        // PPM-related functions
+        void send_dn();
+        bool valid_credit(const char*);
+        void send_from_ppm_queue();
 
 
     private:
         std::unordered_map<ConnectionType, ConnectionPool> pools;
         std::unordered_map<ConnectionType, std::vector<Buffer*>> queues;
         Config config;
+        RingWrapper& ring;
+        BufferManager& buffer_manager;
+        int sockfd;
     
     public:
-        Metrics metrics;
+        std::vector<Buffer*> ppm_queue;
+        Stats stats;
         PPMState ppm_state;
 
 };
