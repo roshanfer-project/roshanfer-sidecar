@@ -1,5 +1,6 @@
 #pragma once
 
+#include "grpc_parser.h"
 #include "udp_listener.h"
 #include <connection.h>
 #include <buffer_manager.h>
@@ -22,4 +23,5 @@ private:
     std::unordered_map<ConnectionType, Listener> listeners;
     State state;
     UDPListner udp_listener;
+    gRPCParser grpc_parser;
 };
