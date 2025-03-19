@@ -1,7 +1,11 @@
 #include "listener.h"
 #include "udp_listener.h"
 #include "state.h"
+#include "ring_helper.h"
+#include "grpc_parser.h"
+#include "buffer.h"
 #include <cassert>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <event_loop.h>
@@ -12,6 +16,30 @@
 #include <memory>
 #include <glog/logging.h>
 
+
+void EventLoop::empty_ingress_queue() {
+    while (!state.ingress_req_queue.empty()) {
+        auto& msg = state.ingress_req_queue.back();
+        auto buffer = msg->get_buffer();
+
+        // get the upstream connection
+        auto& conn = state.get_one_connection(ConnectionType::INGRESS);
+
+        buffer->prepare_write(&conn);
+
+        // add rpc message to the user data
+        auto ud = buffer_manager.get_user_data();
+        ud->rpc_message = std::move(msg);
+        state.ingress_req_queue.pop_back();
+
+        // prepare write (to write the request)
+        ring.prepare_write(
+            conn.get_fd(),
+            buffer,
+            ud
+        );
+    }
+}
 
 void EventLoop::run() {
     // Pointers to accept and identify completion events
@@ -45,7 +73,7 @@ void EventLoop::run() {
             // Handle the event
             switch (ud->op)
             {
-            case ACCEPT: {
+            case Operation::ACCEPT: {
                 DLOG(INFO) << "Accept completion event";
 
                 // get the listener from the user data
@@ -74,7 +102,7 @@ void EventLoop::run() {
                 break;
             }
             
-            case READ: {
+            case Operation::READ: {
                 // get the buffer from the user data
                 Buffer* buffer = reinterpret_cast<Buffer*>(ud->data);
                 buffer->set_filled(cqe->res);
@@ -117,6 +145,8 @@ void EventLoop::run() {
                 grpc_parser.parse(orig_conn, *buffer);
 
                 state.update_state(orig_conn);
+
+                empty_ingress_queue();
 
                 // if the filled field of the buffer is 0, it means that the buffer
                 // is empty and we can free it
@@ -201,7 +231,7 @@ void EventLoop::run() {
                 break;
             }
 
-            case CONNECT: {
+            case Operation::CONNECT: {
                 HTTPConnection* orig_conn = reinterpret_cast<HTTPConnection*>(ud->data);
                 orig_conn->set_status(ConnectionStatus::UP);
 
@@ -243,7 +273,7 @@ void EventLoop::run() {
                 break;
             }
 
-            case WRITE: {
+            case Operation::WRITE: {
                 DLOG(INFO) << "Write completion event";
                 Buffer* buffer = reinterpret_cast<Buffer*>(ud->data);
                 HTTPConnection& conn = buffer->get_conn();
@@ -252,10 +282,21 @@ void EventLoop::run() {
 
                 // free buffer
                 buffer_manager.free_buffer(buffer);
+
+                // check if we wrote a request
+                if (ud->rpc_message) {
+                    // calculate the duration
+                    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::system_clock::now() - ud->rpc_message->get_rcv_time()
+                    );
+
+                    LOG(INFO) << "Request sent in " << duration.count() << " us";
+                }
+
                 break;
             }
 
-            case CANCEL: {
+            case Operation::CANCEL: {
                 HTTPConnection& conn = *reinterpret_cast<HTTPConnection*>(ud->data);
                 DLOG(INFO) << "Cancel completion event, fd: " << conn.get_fd();
                 grpc_parser.clear(conn.get_fd());
@@ -282,7 +323,7 @@ void EventLoop::run() {
                 break;
             }
 
-            case RCVMSG: {
+            case Operation::RCVMSG: {
                 DLOG(INFO) << "Recvmsg completion event";
 
                 // get the buffer from the user data
@@ -344,7 +385,7 @@ void EventLoop::run() {
                 break;
             }
 
-            case SENDMSG: {
+            case Operation::SENDMSG: {
                 DLOG(INFO) << "Sendmsg completion event";
 
                 // get the buffer from the user data
@@ -375,7 +416,7 @@ EventLoop::EventLoop(Config config)
     state(config, ring, buffer_manager),
     listeners(),
     udp_listener(config.ingress_listener_port),
-    grpc_parser(state.ppm_queue, buffer_manager, state.stats) 
+    grpc_parser(state.ppm_queue, buffer_manager, state.stats, state.ingress_req_queue) 
     {
         listeners.emplace(
             ConnectionType::EGRESS,

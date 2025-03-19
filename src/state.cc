@@ -115,18 +115,20 @@ void State::send_from_ppm_queue() {
         DLOG(INFO) << "Send a request from PPM queue";
 
         // send one queued request (from the end of queue)
-        Buffer* req = ppm_queue.back();
-        ppm_queue.pop_back();
+        auto& msg = ppm_queue.back();
 
         // send the request using io-uring
         // Note that we don't need to do any routing here
         auto& conn = pools.at(ConnectionType::EGRESS).get_any_connection();
-        req->prepare_write(conn.get());
+        msg->get_buffer()->prepare_write(conn.get());
+        auto ud = buffer_manager.get_user_data();
+        ud->rpc_message = std::move(msg);
+        ppm_queue.pop_back();
 
         ring.prepare_write(
             conn->get_fd(),
-            req,
-            buffer_manager.get_user_data()
+            ud->rpc_message->get_buffer(),
+            ud
         );
     } else {
         LOG(FATAL) << "Received credit but no queued request";

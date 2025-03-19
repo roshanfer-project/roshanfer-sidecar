@@ -18,6 +18,9 @@ public:
     void add_accept_submissions();
 
 private:
+    void empty_ingress_queue();
+
+private:
     RingWrapper ring;
     BufferManager buffer_manager;
     std::unordered_map<ConnectionType, Listener> listeners;

@@ -2,6 +2,7 @@
 #include "connection.h"
 #include "http2_parser.h"
 #include "glog/logging.h"
+#include <memory>
 
 LocalgRPCParser::LocalgRPCParser(bool request)
 : map(), request(request) {}
@@ -52,35 +53,13 @@ std::vector<HTTP2Frame*> LocalgRPCParser::get_all() {
     return result;
 };
 
-RPCMessage::RPCMessage(bool request, Buffer* buffer)
-    : frames(), request(request), buffer(buffer) {}
-
-
-bool RPCMessage::add_frame(HTTP2Frame frame, char data[]) {
-    frames.push_back(frame);
-    length += frame.length;
-
-    if (request) {
-        std::memcpy(
-            buffer->data.get() + buffer->get_filled(),
-            data,
-            frame.length
-        );
-        buffer->set_filled(buffer->get_filled() + frame.length);
-    }
-    
-    if (request) {
-        return frame.EOS == 1 && frame.type == FRAMETYPE::DATA
-        && frames.size() == 2;
-    } else {
-        return frame.EOS == 1 && frame.type == FRAMETYPE::HEADERS
-        && frames.size() == 3;
-    }
-}
-
-gRPCParser::gRPCParser(std::vector<Buffer*>& ppm_queue, BufferManager& buffer_manager,
-        Stats& stats)
-: ppm_queue(ppm_queue), buffer_manager(buffer_manager), stats(stats) {}
+gRPCParser::gRPCParser(std::vector<std::unique_ptr<RPCMessage>>& ppm_queue,
+    BufferManager& buffer_manager, Stats& stats,
+    std::vector<std::unique_ptr<RPCMessage>>& ingress_req_queue)
+:   ppm_queue(ppm_queue),
+    buffer_manager(buffer_manager),
+    stats(stats),
+    ingress_req_queue(ingress_req_queue) {}
 
 void gRPCParser::clear(int fd) {
     if (partial_messages.find(fd) != partial_messages.end()) {
@@ -89,16 +68,11 @@ void gRPCParser::clear(int fd) {
 }
 
 void gRPCParser::parse(HTTPConnection& conn, Buffer& buffer) {
-    if (conn.direction == ConnectionDirection::DOWNSTREAM
-    && conn.type == ConnectionType::INGRESS) {
-        // we are not interested in ingress downstream requests
-        return;
-    }
-
     DLOG(INFO) << "Start gRPC parsing...";
 
     auto frames = conn.parse(std::span<const char>(buffer.data.get(), buffer.get_filled()));
     bool request = conn.direction == ConnectionDirection::DOWNSTREAM;
+    bool ingress = conn.type == ConnectionType::INGRESS;
     auto local_parser = LocalgRPCParser(request);
 
     for (auto& frame : frames) {
@@ -111,7 +85,8 @@ void gRPCParser::parse(HTTPConnection& conn, Buffer& buffer) {
             // buffer contains a complete message
             if (request) {
                 auto req_frames = local_parser.get(frame.stream_id);
-                // copy the request from the buffer and store it in ppm queue
+
+                // copy the request into a new buffer
                 Buffer* req_buffer = buffer_manager.get_buffer();
                 int write_i = 0;
                 for (auto req_frame : req_frames) {
@@ -124,21 +99,27 @@ void gRPCParser::parse(HTTPConnection& conn, Buffer& buffer) {
                 }
                 req_buffer->set_filled(write_i);
 
-                // pushing the complete gRPC message to the ppm queue
-                ppm_queue.push_back(req_buffer);
-                DLOG(INFO) << "Complete message pushed to PPM queue";
+                // pushing the complete gRPC message to the right queue
+                if (ingress) {
+                    ingress_req_queue.push_back(std::make_unique<RPCMessage>(request, req_buffer));
+                    ingress_req_queue.back()->set_rcv_time();
+                    DLOG(INFO) << "Complete message pushed to ingress request queue";
+                } else {
+                    ppm_queue.push_back(std::make_unique<RPCMessage>(request, req_buffer));
+                    ppm_queue.back()->set_rcv_time();
+                    DLOG(INFO) << "Complete message pushed to PPM queue";
+                }
 
                 // remove the request frames from the buffer
                 int msg_start = req_frames.front()->offset;
                 int msg_end = req_frames.back()->offset + req_frames.back()->length;
-
-                // move the remaining data to the start of the buffer
                 std::memmove(
                     buffer.data.get() + msg_start,
                     buffer.data.get() + msg_end,
                     buffer.get_filled() - msg_end
                 );
                 buffer.set_filled(buffer.get_filled() - (msg_end - msg_start));
+
             } else {
                 local_parser.remove(frame.stream_id);
                 if (conn.type == ConnectionType::EGRESS) {
@@ -166,8 +147,14 @@ void gRPCParser::parse(HTTPConnection& conn, Buffer& buffer) {
             if (request) {
                 auto msg = inc_messages.at(frame->stream_id);
                 inc_messages.erase(frame->stream_id);
-                ppm_queue.push_back(msg.get_buffer());
-                DLOG(INFO) << "Complete message (assembled) pushed to PPM queue";
+                msg.set_rcv_time();
+                if (ingress) {
+                    ingress_req_queue.push_back(std::make_unique<RPCMessage>(msg));
+                    DLOG(INFO) << "Complete message (assembled) pushed to ingress request queue";
+                } else {
+                    ppm_queue.push_back(std::make_unique<RPCMessage>(msg));
+                    DLOG(INFO) << "Complete message (assembled) pushed to PPM queue";
+                }
             } else {
                 if (conn.type == ConnectionType::EGRESS) {
                     stats.sidecar_resp_in = true;

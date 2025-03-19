@@ -79,7 +79,8 @@ class State {
         int sockfd;
     
     public:
-        std::vector<Buffer*> ppm_queue;
+        std::vector<std::unique_ptr<RPCMessage>> ppm_queue;
+        std::vector<std::unique_ptr<RPCMessage>> ingress_req_queue;
         Stats stats;
         PPMState ppm_state;
 

@@ -5,6 +5,7 @@
 #include "http2_parser.h"
 #include "stats.h"
 #include <cstdint>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -21,32 +22,17 @@ class LocalgRPCParser {
         bool request;
 };
 
-class RPCMessage {
-
-    public:
-        RPCMessage(bool, Buffer*);
-        bool add_frame(HTTP2Frame, char[]);
-        std::vector<HTTP2Frame>& get_frames() { return frames; }
-        uint32_t get_length() { return length; }
-        Buffer* get_buffer() { return buffer; }
-
-    private:
-        std::vector<HTTP2Frame> frames;
-        bool request;
-        uint32_t length;
-        Buffer* buffer;
-};
-
 
 class gRPCParser {
     public:
-        gRPCParser(std::vector<Buffer*>&, BufferManager& buffer_manager,
-                Stats& stats);
+        gRPCParser(std::vector<std::unique_ptr<RPCMessage>>&, BufferManager&,
+                Stats&, std::vector<std::unique_ptr<RPCMessage>>&);
         void parse(HTTPConnection& conn, Buffer& buffer);
         void clear(int);
     
     private:
-        std::vector<Buffer*>& ppm_queue;
+        std::vector<std::unique_ptr<RPCMessage>>& ppm_queue;
+        std::vector<std::unique_ptr<RPCMessage>>& ingress_req_queue;
         BufferManager& buffer_manager;
         Stats& stats;
         
