@@ -19,7 +19,7 @@
 
 void EventLoop::empty_ingress_queue() {
     while (!state.ingress_req_queue.empty()) {
-        auto& msg = state.ingress_req_queue.back();
+        auto& msg = state.ingress_req_queue.front();
         auto buffer = msg->get_buffer();
 
         // get the upstream connection
@@ -30,7 +30,7 @@ void EventLoop::empty_ingress_queue() {
         // add rpc message to the user data
         auto ud = buffer_manager.get_user_data();
         ud->rpc_message = std::move(msg);
-        state.ingress_req_queue.pop_back();
+        state.ingress_req_queue.erase(state.ingress_req_queue.begin());
 
         // prepare write (to write the request)
         ring.prepare_write(

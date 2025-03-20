@@ -115,7 +115,7 @@ void State::send_from_ppm_queue() {
         DLOG(INFO) << "Send a request from PPM queue";
 
         // send one queued request (from the end of queue)
-        auto& msg = ppm_queue.back();
+        auto& msg = ppm_queue.front();
 
         // send the request using io-uring
         // Note that we don't need to do any routing here
@@ -123,7 +123,8 @@ void State::send_from_ppm_queue() {
         msg->get_buffer()->prepare_write(conn.get());
         auto ud = buffer_manager.get_user_data();
         ud->rpc_message = std::move(msg);
-        ppm_queue.pop_back();
+        // remove the first element from the queue
+        ppm_queue.erase(ppm_queue.begin());
 
         ring.prepare_write(
             conn->get_fd(),

@@ -1,4 +1,5 @@
 #include "grpc_parser.h"
+#include "buffer.h"
 #include "connection.h"
 #include "http2_parser.h"
 #include "glog/logging.h"
@@ -32,12 +33,6 @@ bool LocalgRPCParser::add_frame(HTTP2Frame& frame) {
 
 std::vector<HTTP2Frame*> LocalgRPCParser::get(uint32_t stream_id) {
     auto result = map.at(stream_id);
-    // check if the message is contigous
-    for (int i = 0; i < result.size() - 1; i++) {
-        if (result[i]->offset + result[i]->length != result[i + 1]->offset) {
-            LOG(FATAL) << "Only contiguous frames are supported";
-        }
-    }
     map.erase(stream_id);
     return result;
 };
@@ -64,6 +59,23 @@ gRPCParser::gRPCParser(std::vector<std::unique_ptr<RPCMessage>>& ppm_queue,
 void gRPCParser::clear(int fd) {
     if (partial_messages.find(fd) != partial_messages.end()) {
         partial_messages.at(fd).clear();
+    }
+}
+
+inline static void rem_frame_data(std::vector<HTTP2Frame>& frames, HTTP2Frame& frame, Buffer& buffer) {
+    int frame_end = frame.offset + frame.length;
+    std::memmove(
+        buffer.data.get() + frame.offset,
+        buffer.data.get() + frame_end,
+        buffer.get_filled() - frame_end
+    );
+    buffer.set_filled(buffer.get_filled() - frame.length);
+
+    // shift the offset of the the following frames
+    for (int i = frames.size() - 1; i >= 0; i--) {
+        if (frames[i].offset >= frame_end) {
+            frames[i].offset -= frame.length;
+        }
     }
 }
 
@@ -96,6 +108,7 @@ void gRPCParser::parse(HTTPConnection& conn, Buffer& buffer) {
                         req_frame->length
                     );
                     write_i += req_frame->length;
+                    rem_frame_data(frames, *req_frame, buffer);
                 }
                 req_buffer->set_filled(write_i);
 
@@ -109,16 +122,6 @@ void gRPCParser::parse(HTTPConnection& conn, Buffer& buffer) {
                     ppm_queue.back()->set_rcv_time();
                     DLOG(INFO) << "Complete message pushed to PPM queue";
                 }
-
-                // remove the request frames from the buffer
-                int msg_start = req_frames.front()->offset;
-                int msg_end = req_frames.back()->offset + req_frames.back()->length;
-                std::memmove(
-                    buffer.data.get() + msg_start,
-                    buffer.data.get() + msg_end,
-                    buffer.get_filled() - msg_end
-                );
-                buffer.set_filled(buffer.get_filled() - (msg_end - msg_start));
 
             } else {
                 local_parser.remove(frame.stream_id);
@@ -168,15 +171,7 @@ void gRPCParser::parse(HTTPConnection& conn, Buffer& buffer) {
 
         if (request) {
             DLOG(INFO) << "Remove from buffer: " << frame->to_string();
-            // remove the frame from the buffer
-            int frame_start = frame->offset;
-            int frame_end = frame_start + frame->length;
-            std::memmove(
-                buffer.data.get() + frame_start,
-                buffer.data.get() + frame_end,
-                buffer.get_filled() - frame_end
-            );
-            buffer.set_filled(buffer.get_filled() - (frame_end - frame_start));
+            rem_frame_data(frames, *frame, buffer);
         }
     }
 
