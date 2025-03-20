@@ -142,6 +142,8 @@ void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
             // we have received a credit
             DLOG(INFO) << "Received a credit";
             send_from_ppm_queue();
+        } else {
+            DLOG(INFO) << "Received a non-credit response";
         }
     } else {
         if (stats.sidecar_resp_in) {
