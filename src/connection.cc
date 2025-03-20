@@ -10,6 +10,7 @@
 #include <memory>
 #include <sys/types.h>
 #include <unordered_map>
+#include <netinet/tcp.h>
 
 
 
@@ -51,6 +52,11 @@ HTTPConnection::HTTPConnection(int fd, ConnectionType type)
     if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
         LOG(FATAL) << "Failed to set non-blocking for fd: " << fd;
     }
+
+    int flag = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) == -1) {
+        LOG(FATAL) << "Failed to set TCP_NODELAY";
+    }
 };
 
 HTTPConnection::HTTPConnection(std::string host, int port, ConnectionType type) 
@@ -72,6 +78,11 @@ HTTPConnection::HTTPConnection(std::string host, int port, ConnectionType type)
     if (inet_pton(AF_INET, host.c_str(), &addr.sin_addr) <= 0) {
         close(fd);
         LOG(FATAL) << "Invalid address: " << host;
+    }
+
+    int flag = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) == -1) {
+        LOG(FATAL) << "Failed to set TCP_NODELAY";
     }
 }
 
