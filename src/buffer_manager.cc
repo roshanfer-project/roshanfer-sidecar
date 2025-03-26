@@ -14,7 +14,13 @@ BufferManager::BufferManager(int count, int size)
         used_buffer.push_back(false);
         used_user_data.push_back(false);
         user_data_vec.push_back(new UserData(
-            nullptr, Operation::ACCEPT, i, UDPType::REQUEST, nullptr
+            nullptr,
+            nullptr,
+            nullptr,
+            Operation::ACCEPT,
+            i,
+            UDPType::REQUEST,
+            nullptr
         ));
     }
 };
@@ -48,7 +54,9 @@ UserData* BufferManager::get_user_data() {
 }
 
 void BufferManager::free_user_data(UserData* ud) {
-    ud->data = nullptr;
+    ud->buffer = nullptr;
+    ud->listener = nullptr;
+    ud->conn = nullptr;
     ud->rpc_message = nullptr;
     used_user_data[ud->index] = false;
     ud = nullptr;

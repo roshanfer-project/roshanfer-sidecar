@@ -1,6 +1,7 @@
 #pragma once
 
-#include "listener.h"
+//#include "listener.h"
+#include <memory>
 
 class Buffer {
 
@@ -9,11 +10,11 @@ class Buffer {
         int get_size() { return size; }
         int get_filled() { return filled; }
         int get_index() { return index; }
-        HTTPConnection& get_conn() { return *conn; }
-        Listener& get_listener() { return *listener; }
+        //HTTPConnection& get_conn() { return *conn; }
+        //Listener& get_listener() { return *listener; }
         void set_filled(int f) { filled = f; }
-        void prepare_read(HTTPConnection*, Listener*);
-        void prepare_write(HTTPConnection*);
+        //void prepare_read(HTTPConnection*, Listener*);
+        //void prepare_write(HTTPConnection*);
         void prepare_recvmsg();
         std::unique_ptr<struct msghdr>& get_msg() { return msg; }
         void prepare_reply_sendmsg(Buffer* old_buffer);
@@ -27,8 +28,8 @@ class Buffer {
         int size;
         int filled;
         int index;
-        HTTPConnection* conn;
-        Listener* listener;
+        //HTTPConnection* conn;
+        //Listener* listener;
         std::unique_ptr<struct msghdr> msg;
         std::unique_ptr<struct sockaddr_in> addr;
         std::unique_ptr<struct iovec> iov;

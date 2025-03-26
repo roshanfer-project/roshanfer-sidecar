@@ -2,77 +2,153 @@
 #include "buffer_manager.h"
 #include "config.h"
 #include "connection.h"
+#include "connection_enums.h"
 #include "glog/logging.h"
 #include "ring_wrapper.h"
+#include "rpc_mapper.h"
+#include "rpc_queue.h"
 #include <arpa/inet.h>
 #include <cstdint>
 #include <cstring>
 #include <memory>
-#include <span>
 #include <unordered_map>
-#include <vector>
 
-State::State(Config config, RingWrapper& ring, BufferManager& buffer_manager)
+State::State(Config config, RingWrapper& ring, BufferManager& buffer_manager,
+    RPCMapper& mapper, RPCQueue& queue, std::unordered_map<ConnectionType, Listener>& listeners)
 :   config(config),
-    queues(),
     pools(),
     stats(),
     ppm_state(),
     buffer_manager(buffer_manager),
-    ring(ring) {
-        pools.emplace(ConnectionType::EGRESS, ConnectionPool(ConnectionType::EGRESS));
-        pools.emplace(ConnectionType::INGRESS, ConnectionPool(ConnectionType::INGRESS));
-        queues.emplace(ConnectionType::EGRESS, std::vector<Buffer*>());
-        queues.emplace(ConnectionType::INGRESS, std::vector<Buffer*>());
+    ring(ring),
+    rpc_mapper(mapper),
+    rpc_queue(queue),
+    listeners(listeners)
+{
+    pools.emplace(ConnectionType::EGRESS, ConnectionPool(ConnectionType::EGRESS));
+    pools.emplace(ConnectionType::INGRESS, ConnectionPool(ConnectionType::INGRESS));
 
-        sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-        if (sockfd < 0) {
-            LOG(FATAL) << "Failed to create socket";
-        }
-}
-
-
-int State::route(ConnectionType type) {
-    try {
-        auto& conn = pools.at(type).get_any_connection();
-        if (conn->get_status() == ConnectionStatus::DOWN) {
-            throw ConnectionNotUPException(conn);
-        }
-        return conn->get_fd();
-    } catch (NoConnectionException& e) {
-        LOG(INFO) << "No connection available. Starting a new connection.";
-
-        std::string host;
-        int port;
-        if (type == ConnectionType::EGRESS) {
-            host = config.endpoint_host;
-            port = config.endpoint_port;
-        } else if (type == ConnectionType::INGRESS) {
-            host = config.ingress_upstream_host;
-            port = config.ingress_upstream_port;
-        } else {
-            LOG(FATAL) << "Unknown connection type";
-        }
-        std::unique_ptr<HTTPConnection>& conn = pools.at(type).add_connection(
-            host, port);
-        DLOG(INFO) << "New connection established on fd: " << conn->get_fd();
-        throw AddConnectionException(conn);
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) {
+        LOG(FATAL) << "Failed to create socket";
     }
 }
 
-void State::add_buffer(Buffer* buffer, ConnectionType type) {
-    queues[type].push_back(buffer);
+void State::write_http(HTTPConnection* conn) {
+    DLOG(INFO) << "Starting to write batch of HTTP/2 data on fd: " << conn->get_fd();
+
+    while (conn->want_write()) {
+        auto send_buffer = buffer_manager.get_buffer();
+        conn->http_write(send_buffer);
+
+        if (send_buffer->get_filled() == 0) {
+            buffer_manager.free_buffer(send_buffer);
+            break;
+        }
+
+        auto write_ud = buffer_manager.get_user_data();
+        prepare_write(write_ud, send_buffer, conn);
+
+        // prepare write (to write the request)
+        ring.prepare_write(
+            conn->get_fd(),
+            send_buffer,
+            write_ud
+        );
+    }
+
+    DLOG(INFO) << "Finished writing batch of HTTP/2 data written on fd: " << conn->get_fd();
 }
 
-bool State::has_buffer(ConnectionType type) {
-    return !queues[type].empty();
-}
 
-Buffer* State::get_buffer(ConnectionType type) {
-    Buffer* buffer;
-    buffer = queues[type].front();
-    queues[type].erase(queues[type].begin());
-    return buffer;
+void State::route(ConnectionType type, ConnectionDirection direction) {
+    DLOG(INFO) << "Starting routing on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
+
+    // check if we have any RPC message in the queue
+    while (!rpc_queue.empty(type, direction)) {
+        auto stream_id = rpc_queue.dequeue(type, direction);
+        DLOG(INFO) << "Routing message on stream " << stream_id << " of type " << type_to_str(type)
+                   << " and direction " << direction_to_str(direction);
+
+        if (direction == ConnectionDirection::DOWNSTREAM) {
+            // we are dealing with a request
+
+            // get the RPC message
+            auto& rpc = rpc_mapper.get_ds_rpc(type, stream_id);
+
+            // get an upstream connection
+            try {
+                auto& conn = pools.at(type).get_any_connection();
+
+                if (conn->get_status() == ConnectionStatus::TEARDOWN) {
+                    LOG(WARNING) << "Connection is in TEARDOWN state. Starting a new connection.";
+                    throw NoConnectionException();
+                }
+
+                // submit the request
+                rpc->us_stream_id = conn->submit_request(*rpc.get());
+                write_http(conn.get());
+
+                // update the mapping
+                rpc_mapper.route(type, rpc->ds_stream_id, rpc->us_stream_id);
+                DLOG(INFO) << "Submitted request on stream " << rpc->us_stream_id;
+
+            } catch (NoConnectionException& e) {
+                LOG(INFO) << "No connection available. Starting a new connection.";
+
+                std::string host;
+                int port;
+                if (type == ConnectionType::EGRESS) {
+                    host = config.endpoint_host;
+                    port = config.endpoint_port;
+                } else if (type == ConnectionType::INGRESS) {
+                    host = config.ingress_upstream_host;
+                    port = config.ingress_upstream_port;
+                } else {
+                    LOG(FATAL) << "Unknown connection type";
+                }
+                std::unique_ptr<HTTPConnection>& conn = pools.at(type).add_connection(
+                    host, port, &rpc_mapper, &rpc_queue);
+                DLOG(INFO) << "New connection established on fd: " << conn->get_fd();
+                
+                // prepare connect
+                ring.prepare_connect(conn, buffer_manager.get_user_data());
+
+                // put the RPC message back in the queue
+                rpc_queue.enqueue(type, direction, stream_id);
+
+                break;
+            }
+        }
+        else if (direction == ConnectionDirection::UPSTREAM) {
+            // we are dealing with a response
+
+            if (listeners.at(type).no_connections()) {
+                LOG(WARNING) << "No " << listeners.at(type).type_to_str() << " connections available";
+                return;
+            }
+
+            // get the RPC message
+            auto& rpc = rpc_mapper.get_us_rpc(type, stream_id);
+            try {
+                auto& conn = listeners.at(type).get_connections().at(rpc->ds_fd);
+                //auto conn = listeners.at(type).get_connections().begin()->second.get();
+
+                // submit the response
+                conn->submit_response(*rpc.get());
+                write_http(conn.get());
+
+                // remove the RPC message from memory
+                rpc_mapper.remove_rpc(type, rpc->ds_stream_id);
+                DLOG(INFO) << "Submitted response on stream " << rpc->ds_stream_id;
+            } catch (const std::out_of_range& e) {
+                LOG(FATAL) << "No connection found for fd: " << rpc->ds_fd;
+            }
+            
+        }
+    }
+
+    DLOG(INFO) << "Finished routing on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
 }
 
 std::unique_ptr<HTTPConnection>& State::get_connection(int fd, ConnectionType type) {
@@ -91,10 +167,6 @@ void State::remove_connection(int fd, ConnectionType type) {
     pools.at(type).remove_connection(fd);
 }
 
-void State::update_state(HTTPConnection& conn) {
-    ppm_client(false, nullptr);
-}
-
 bool State::valid_credit(const char* data) {
     if (data[0] != 0x01) {
         LOG(FATAL) << "Invalid message type";
@@ -110,7 +182,7 @@ bool State::valid_credit(const char* data) {
 }
 
 
-void State::send_from_ppm_queue() {
+/* void State::send_from_ppm_queue() {
     if (ppm_queue.size() > 0) {
         DLOG(INFO) << "Send a request from PPM queue";
 
@@ -134,9 +206,9 @@ void State::send_from_ppm_queue() {
     } else {
         LOG(FATAL) << "Received credit but no queued request";
     }
-}
+} */
 
-void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
+/* void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
     if (dn_resp) {
         if (valid_credit(dn_resp_buffer->data.get())) {
             // we have received a credit
@@ -167,7 +239,7 @@ void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
         }
     }
     
-}
+} */
 
 void State::send_dn() {
     // send a demand notification

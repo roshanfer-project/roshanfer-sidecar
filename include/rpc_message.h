@@ -1,25 +1,52 @@
 #pragma once
 
-#include "http2_parser.h"
-#include "buffer.h"
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <sys/types.h>
 #include <vector>
 #include <chrono>
+
+typedef struct HeaderField{
+    std::string name;
+    size_t name_len;
+    std::string value;
+    size_t value_len;
+} HeaderField;
+
+typedef struct DataReadStruct {
+    const uint8_t* data;
+    size_t len;
+} DataReadStruct;
 
 class RPCMessage {
 
     public:
-        RPCMessage(bool, Buffer*);
-        bool add_frame(HTTP2Frame, char[]);
-        std::vector<HTTP2Frame>& get_frames() { return frames; }
-        uint32_t get_length() { return length; }
-        Buffer* get_buffer() { return buffer; }
+        RPCMessage(uint32_t, int);
+        ~RPCMessage();
+        //bool add_frame(HTTP2Frame, char[]);
+        //std::vector<HTTP2Frame>& get_frames() { return frames; }
+        //uint32_t get_length() { return length; }
         void set_rcv_time();
         std::chrono::time_point<std::chrono::system_clock> get_rcv_time() { return rcv_time; }
+        void add_header_field(const uint8_t*, size_t, const uint8_t*, size_t, bool, bool);
+        void add_data(const uint8_t*, size_t, bool);
 
     private:
-        std::vector<HTTP2Frame> frames;
-        bool request;
-        uint32_t length;
-        Buffer* buffer;
+        //std::vector<HTTP2Frame> frames;
+        //uint32_t length;
         std::chrono::time_point<std::chrono::system_clock> rcv_time;
+    
+    public:
+        uint32_t ds_stream_id;
+        uint32_t us_stream_id;
+        DataReadStruct req_data;
+        DataReadStruct res_data;
+        bool have_req_data;
+        bool have_res_data;
+        int ds_fd;
+        std::vector<std::unique_ptr<HeaderField>> req_headers;
+        std::vector<std::unique_ptr<HeaderField>> res_headers;
+        std::vector<std::unique_ptr<HeaderField>> res_trailers;
 };

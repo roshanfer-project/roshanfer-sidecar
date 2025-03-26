@@ -3,13 +3,16 @@
 #include <cstdint>
 #include <memory>
 #include <sys/types.h>
-#include <vector>
 #include "config.h"
 #include "connection.h"
 #include "buffer_manager.h"
+#include "connection_enums.h"
 #include "ring_wrapper.h"
+#include "rpc_mapper.h"
+#include "rpc_queue.h"
 #include "stats.h"
 #include <unordered_map>
+#include <span>
 
 class AddConnectionException : public std::runtime_error {
     public:
@@ -42,24 +45,18 @@ class PPMState  {
 class State {
 
     public:
-        State(Config, RingWrapper&, BufferManager&);
-        /**
-        @brief Routing for *requests*
-        @note This should not be called for responses
-        */
-        int route(ConnectionType);
-        void add_buffer(Buffer*, ConnectionType);
-        Buffer* get_buffer(ConnectionType);
-        bool has_buffer(ConnectionType);
+        State(Config, RingWrapper&, BufferManager&, RPCMapper&, RPCQueue&,
+            std::unordered_map<ConnectionType, Listener>&);
+        void route(ConnectionType, ConnectionDirection);
         std::unique_ptr<HTTPConnection>& get_connection(int, ConnectionType);
         void remove_connection(int, ConnectionType);
         void remove_one_connection(ConnectionType);
         HTTPConnection& get_one_connection(ConnectionType);
 
         // PPM-related functions
-        void update_state(HTTPConnection&);
         void queue_multiplexer(Buffer*, Buffer*);
         void ppm_client(bool, Buffer*);
+        void write_http(HTTPConnection*);
 
     private:
         void udp_send(std::span<char>, std::string&, uint16_t);
@@ -72,15 +69,15 @@ class State {
 
     private:
         std::unordered_map<ConnectionType, ConnectionPool> pools;
-        std::unordered_map<ConnectionType, std::vector<Buffer*>> queues;
         Config config;
         RingWrapper& ring;
         BufferManager& buffer_manager;
-        int sockfd;
+        int sockfd; // UDP socket file descriptor
+        RPCMapper& rpc_mapper;
+        RPCQueue& rpc_queue;
+        std::unordered_map<ConnectionType, Listener>& listeners;
     
     public:
-        std::vector<std::unique_ptr<RPCMessage>> ppm_queue;
-        std::vector<std::unique_ptr<RPCMessage>> ingress_req_queue;
         Stats stats;
         PPMState ppm_state;
 

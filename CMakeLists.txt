@@ -24,6 +24,9 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(yaml-cpp)
 
+# find nghttp2
+pkg_check_modules(NGHTTP2 REQUIRED libnghttp2)
+
 include_directories(include)
 
 file(GLOB_RECURSE SOURCES src/*.cc)
@@ -35,3 +38,5 @@ target_link_libraries (sidecar glog::glog)
 target_link_libraries(sidecar ${LIBURING_LIBRARIES})
 # link yaml-cpp
 target_link_libraries(sidecar yaml-cpp::yaml-cpp)
+# link nghttp2
+target_link_libraries(sidecar ${NGHTTP2_LIBRARIES})

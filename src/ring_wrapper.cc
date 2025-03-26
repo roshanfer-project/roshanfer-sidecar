@@ -41,7 +41,7 @@ void RingWrapper::prepare_accept(Listener& listener, UserData* ud) {
         &server_addr_len, 
         0);
     
-    ud->data = static_cast<void*>(std::addressof(listener));
+    ud->listener = std::addressof(listener);
     ud->op = Operation::ACCEPT;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
     DLOG(INFO) << "Prepared accept, fd: " << listener.get_fd();
@@ -50,7 +50,7 @@ void RingWrapper::prepare_accept(Listener& listener, UserData* ud) {
 void RingWrapper::prepare_read(Buffer* buffer, int fd, UserData* ud) {
     struct io_uring_sqe *sqe = get_sqe();
 
-    ud->data = static_cast<void*>(buffer);
+    ud->buffer = buffer;
     ud->op = Operation::READ;
 
     io_uring_prep_read(
@@ -120,7 +120,7 @@ void RingWrapper::prepare_connect(std::unique_ptr<HTTPConnection>& conn, UserDat
         sizeof(*conn->get_addr())
     );
 
-    ud->data = static_cast<void*>(conn.get());
+    ud->conn = conn.get();
     ud->op = Operation::CONNECT;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
 
@@ -139,7 +139,7 @@ void RingWrapper::prepare_write(int fd, Buffer* buffer, UserData* ud) {
         buffer->get_filled(),
         0);
     
-    ud->data = static_cast<void*>(buffer);
+    ud->buffer = buffer;
     ud->op = Operation::WRITE;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
     DLOG(INFO) << "Prepared write, fd: " << fd;
@@ -150,7 +150,7 @@ void RingWrapper::prepare_cancel(HTTPConnection& conn, UserData* ud) {
     
     io_uring_prep_close(sqe, conn.get_fd());
 
-    ud->data = static_cast<void*>(&conn);
+    ud->conn = &conn;
     ud->op = Operation::CANCEL;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
 
@@ -171,7 +171,7 @@ void RingWrapper::prepare_rcvmsg(int fd, Buffer* buffer, UserData* ud, UDPType u
 
     //io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 
-    ud->data = static_cast<void*>(buffer);
+    ud->buffer = buffer;
     ud->op = Operation::RCVMSG;
     ud->udp_type = udp_type;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
@@ -194,7 +194,7 @@ void RingWrapper::prepare_reply_sendmsg(int fd, Buffer* old_buffer,
 
     //io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 
-    ud->data = static_cast<void*>(new_buffer);
+    ud->buffer = new_buffer;
     ud->op = Operation::SENDMSG;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
 
@@ -209,7 +209,7 @@ void RingWrapper::prepare_req_sendmsg(int fd, Buffer* buffer, UserData* ud,
 
     io_uring_prep_sendmsg(sqe, fd, buffer->get_msg().get(), 0);
 
-    ud->data = static_cast<void*>(buffer);
+    ud->buffer = buffer;
     ud->op = Operation::SENDMSG;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
 

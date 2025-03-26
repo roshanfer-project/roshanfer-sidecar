@@ -1,31 +1,21 @@
 #include "buffer.h"
+#include <bits/types/struct_iovec.h>
 #include <cstring>
+#include <memory>
+#include <netinet/in.h>
 
 Buffer::Buffer(int size, int index)
  :  size(size),
     data(std::make_unique<char[]>(size)),
     index(index),
     filled(0),
-    conn(nullptr),
-    listener(nullptr),
     msg(nullptr),
     addr(nullptr),
     iov(nullptr) {
 }
 
-void Buffer::prepare_read(HTTPConnection* c, Listener* l) {
-    conn = c;
-    listener = l;
-}
-
-void Buffer::prepare_write(HTTPConnection* c) {
-    conn = c;
-}
-
 void Buffer::clear() {
     std::memset(data.get(), 0, size);
-    conn = nullptr;
-    listener = nullptr;
     msg = nullptr;
     addr = nullptr;
     iov = nullptr;

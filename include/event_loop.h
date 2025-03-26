@@ -1,6 +1,7 @@
 #pragma once
 
-#include "grpc_parser.h"
+#include "rpc_mapper.h"
+#include "rpc_queue.h"
 #include "udp_listener.h"
 #include <connection.h>
 #include <buffer_manager.h>
@@ -15,16 +16,13 @@ class EventLoop {
 public:
     EventLoop(Config);
     void run();
-    void add_accept_submissions();
 
-private:
-    void empty_ingress_queue();
-
-private:
+public:
     RingWrapper ring;
     BufferManager buffer_manager;
     std::unordered_map<ConnectionType, Listener> listeners;
-    State state;
     UDPListner udp_listener;
-    gRPCParser grpc_parser;
+    RPCMapper rpc_mapper;
+    RPCQueue rpc_queue;
+    State state;
 };

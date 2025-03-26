@@ -2,8 +2,6 @@
 
 #include <sys/socket.h>
 #include <vector>
-#include <connection.h>
-#include <listener.h>
 #include "buffer.h"
 #include "ring_helper.h"
 
