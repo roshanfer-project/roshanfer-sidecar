@@ -60,6 +60,21 @@ void State::write_http(HTTPConnection* conn) {
     DLOG(INFO) << "Finished writing batch of HTTP/2 data written on fd: " << conn->get_fd();
 }
 
+void State::report_latency(RPCMessage& rpc, ConnectionType type) {
+    // calculate the duration
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now() - rpc.req_rcv_time);
+
+    LOG(INFO) << "E2E Latency: " << duration.count() << " us, " 
+            << " type: " << type_to_str(type);
+    
+    LOG(INFO) << "Request forward delay: " << std::chrono::duration_cast<std::chrono::microseconds>(
+        rpc.req_for_time - rpc.req_rcv_time).count() << " us";
+
+    LOG(INFO) << "Response forward delay: " << std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now() - rpc.res_rcv_time).count() << " us";
+}
+
 
 void State::route(ConnectionType type, ConnectionDirection direction) {
     DLOG(INFO) << "Starting routing on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
@@ -87,10 +102,16 @@ void State::route(ConnectionType type, ConnectionDirection direction) {
 
                 // submit the request
                 rpc->us_stream_id = conn->submit_request(*rpc.get());
-                write_http(conn.get());
 
                 // update the mapping
                 rpc_mapper.route(type, rpc->ds_stream_id, rpc->us_stream_id);
+
+                // write the request
+                write_http(conn.get());
+
+                // record the time
+                rpc->req_for_time = std::chrono::system_clock::now();
+                
                 DLOG(INFO) << "Submitted request on stream " << rpc->us_stream_id;
 
             } catch (NoConnectionException& e) {
@@ -137,10 +158,14 @@ void State::route(ConnectionType type, ConnectionDirection direction) {
                 // submit the response
                 conn->submit_response(*rpc.get());
                 write_http(conn.get());
+                DLOG(INFO) << "Submitted response on stream " << rpc->ds_stream_id;
+
+                // report latency
+                report_latency(*rpc.get(), type);
 
                 // remove the RPC message from memory
                 rpc_mapper.remove_rpc(type, rpc->ds_stream_id);
-                DLOG(INFO) << "Submitted response on stream " << rpc->ds_stream_id;
+                
             } catch (const std::out_of_range& e) {
                 LOG(FATAL) << "No connection found for fd: " << rpc->ds_fd;
             }

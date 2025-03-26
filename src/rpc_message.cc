@@ -65,10 +65,6 @@ void RPCMessage::add_data(const uint8_t* data, size_t len, bool request) {
     }
 }
 
-void RPCMessage::set_rcv_time() {
-    rcv_time = std::chrono::system_clock::now();
-}
-
 RPCMessage::~RPCMessage() {
     DLOG(INFO) << "RPCMessage deconstructor on ds_stream_id: " << ds_stream_id 
                 << " us_stream_id: " << us_stream_id;

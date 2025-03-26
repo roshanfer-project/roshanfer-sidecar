@@ -9,6 +9,7 @@
 #include "connection_enums.h"
 #include "ring_wrapper.h"
 #include "rpc_mapper.h"
+#include "rpc_message.h"
 #include "rpc_queue.h"
 #include "stats.h"
 #include <unordered_map>
@@ -60,6 +61,8 @@ class State {
 
     private:
         void udp_send(std::span<char>, std::string&, uint16_t);
+
+        void report_latency(RPCMessage&, ConnectionType);
 
         // PPM-related functions
         void send_dn();

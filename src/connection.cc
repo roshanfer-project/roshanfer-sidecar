@@ -80,12 +80,15 @@ int frame_recv_callback(nghttp2_session* session,
             data->queue->enqueue(data->type, data->direction, frame->hd.stream_id);
 
             // record receive time for the RPC
-            data->mapper->get_ds_rpc(data->type, frame->hd.stream_id)->set_rcv_time();
+            data->mapper->get_ds_rpc(data->type, frame->hd.stream_id)->req_rcv_time
+             = std::chrono::system_clock::now();
         }
         else if (frame->hd.type == NGHTTP2_HEADERS) {
             // we have a response
             DLOG(INFO) << "RPC response received on stream " << frame->hd.stream_id;
             data->queue->enqueue(data->type, data->direction, frame->hd.stream_id);
+            data->mapper->get_us_rpc(data->type, frame->hd.stream_id)->res_rcv_time
+             = std::chrono::system_clock::now();
         }
     }
     return 0;
@@ -186,7 +189,7 @@ int on_begin_headers_callback(nghttp2_session* session,
     return 0;
 }
 
-int on_stream_close_callback(nghttp2_session *session,
+/* int on_stream_close_callback(nghttp2_session *session,
                             int32_t stream_id,
                             uint32_t error_code,
                             void *user_data) {
@@ -206,13 +209,18 @@ int on_stream_close_callback(nghttp2_session *session,
     //data->mapper->remove_rpc(data->type, stream_id);
     DLOG(INFO) << "Stream " << stream_id << " closed on fd: " << data->fd;
     return 0;
-}
+} */
 
 int on_frame_send_callback(nghttp2_session *session,
                             const nghttp2_frame *frame,
                             void *user_data) {
     
     CallbackData* data = reinterpret_cast<CallbackData*>(user_data);
+
+    if (frame->headers.cat == NGHTTP2_HCAT_HEADERS
+        && data->direction == ConnectionDirection::DOWNSTREAM) {
+        DLOG(INFO) << "Returned response";
+    }
     
     DLOG(INFO) << "Frame type " << frame_type_to_str(frame->hd.type) << " sent on fd: " << data->fd;
     return 0;
@@ -225,7 +233,7 @@ ssize_t data_read_callback_request(nghttp2_session*,
                         uint32_t* data_flags,
                         nghttp2_data_source* source,
                         void* /*user_data*/) {
-    LOG(INFO) << "Data provider read callback";
+    DLOG(INFO) << "Data provider read callback";
     
     DataReadStruct* info = reinterpret_cast<DataReadStruct*>(source->ptr);
 
@@ -249,7 +257,7 @@ ssize_t data_read_callback_response(nghttp2_session* session,
                             uint32_t* data_flags,
                             nghttp2_data_source* source,
                             void* user_data) {
-    LOG(INFO) << "Data provider read callback";
+    DLOG(INFO) << "Data provider read callback";
 
     DataReadStruct* info = reinterpret_cast<DataReadStruct*>(source->ptr);
     CallbackData* callback_data = reinterpret_cast<CallbackData*>(user_data);
