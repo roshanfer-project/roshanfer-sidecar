@@ -17,9 +17,10 @@ if [ -z "$1" ]; then
     exit 1
 fi
 
-# check if the '-l' flag is provided
-if [[ "$2" != "-l" ]]; then
+# check if there is a second argument
+if [ -z "$2" ]; then
     GLOG_logtostderr=1 ./sidecar $1
     exit 0
 fi
-GLOG_logtostderr=1 ./sidecar $1 2> sidecar.log
+
+GLOG_logtostderr=1 ./sidecar $1 2> $2
