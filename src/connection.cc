@@ -112,7 +112,7 @@ int frame_recv_callback(nghttp2_session* session,
         DLOG(INFO) << "SETTINGS frame received on fd: " << data->fd;
         if (*data->status == ConnectionStatus::DOWN) {
             *data->status = ConnectionStatus::UP;
-            DLOG(INFO) << "Connection status changed to UP";
+            DLOG(INFO) << "Change status to UP, fd: " << data->fd;
         }
     } else {
         DLOG(INFO) << "Frame type " << frame_type_to_str(frame->hd.type) << " received on fd: " << data->fd;
@@ -243,11 +243,6 @@ int on_frame_send_callback(nghttp2_session *session,
     
     CallbackData* data = reinterpret_cast<CallbackData*>(user_data);
 
-    if (frame->headers.cat == NGHTTP2_HCAT_HEADERS
-        && data->direction == ConnectionDirection::DOWNSTREAM) {
-        DLOG(INFO) << "Returned response";
-    }
-    
     DLOG(INFO) << "Frame type " << frame_type_to_str(frame->hd.type) << " sent on fd: " << data->fd;
     return 0;
 }
