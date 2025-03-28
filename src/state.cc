@@ -98,6 +98,8 @@ void State::route(ConnectionType type, ConnectionDirection direction) {
                 if (conn->get_status() == ConnectionStatus::TEARDOWN) {
                     LOG(WARNING) << "Connection is in TEARDOWN state. Starting a new connection.";
                     throw NoConnectionException();
+                } else if (conn->get_status() == ConnectionStatus::DOWN) {
+                    LOG(FATAL) << "Connection is in DOWN state.";
                 }
 
                 // submit the request

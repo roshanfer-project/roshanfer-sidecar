@@ -65,6 +65,9 @@ void EventLoop::run() {
                            << " fd: " << listener->get_fd();
                 DLOG(INFO) << "New connection on fd: " << conn.get_fd();
 
+                // submit the first setting frame
+                conn.submit_settings();
+
                 // prepare the first read
                 Buffer* buffer = buffer_manager.get_buffer();
                 auto read_ud = buffer_manager.get_user_data();
@@ -124,6 +127,11 @@ void EventLoop::run() {
                 // handle req/res send buffers
                 state.route(orig_conn->type, orig_conn->direction);
 
+                if (orig_conn->direction == ConnectionDirection::UPSTREAM) {
+                    DLOG(INFO) << "Potentially send queued requests";
+                    state.route(orig_conn->type, ConnectionDirection::DOWNSTREAM);
+                }
+
                 // flush every HTTP2 frame out
                 state.write_http(orig_conn);
 
@@ -154,8 +162,6 @@ void EventLoop::run() {
                 orig_conn->submit_settings();
                 DLOG(INFO) << "conn type: " << orig_conn->type_to_str();
                 DLOG(INFO) << "conn direction: " << orig_conn->direction_to_str();
-                // handle req/res send queues
-                state.route(orig_conn->type, ConnectionDirection::DOWNSTREAM);
 
                 // write http frames
                 state.write_http(orig_conn);

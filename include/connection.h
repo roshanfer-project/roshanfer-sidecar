@@ -26,6 +26,7 @@ typedef struct CallbackData {
     int fd;
     RPCQueue* queue;
     RPCMapper* mapper;
+    ConnectionStatus* status;
 } CallbackData;
 
 class HTTPConnection {

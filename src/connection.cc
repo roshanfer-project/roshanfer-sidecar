@@ -64,6 +64,24 @@ std::string frame_type_to_str(uint8_t type) {
     }
 };
 
+int error_callback(nghttp2_session *session,
+                    int lib_error_code,
+                    const char *msg,
+                    size_t len,
+                    void *user_data) {
+    LOG(FATAL) << "nghttp2 error (" << lib_error_code << "): " 
+              << std::string(msg, len);
+    return 0;
+}
+
+int invalid_frame_callback(nghttp2_session *session,
+                            const nghttp2_frame *frame,
+                            int lib_error_code,
+                            void *user_data) {
+    LOG(WARNING) << "Invalid frame received: " << frame_type_to_str(frame->hd.type);
+    return 0;
+}
+
 // This callback is used to detect EOS flag for a stream
 int frame_recv_callback(nghttp2_session* session,
                         const nghttp2_frame* frame,
@@ -90,6 +108,14 @@ int frame_recv_callback(nghttp2_session* session,
             data->mapper->get_us_rpc(data->type, frame->hd.stream_id)->res_rcv_time
              = std::chrono::system_clock::now();
         }
+    } else if (frame->hd.type == NGHTTP2_SETTINGS) {
+        DLOG(INFO) << "SETTINGS frame received on fd: " << data->fd;
+        if (*data->status == ConnectionStatus::DOWN) {
+            *data->status = ConnectionStatus::UP;
+            DLOG(INFO) << "Connection status changed to UP";
+        }
+    } else {
+        DLOG(INFO) << "Frame type " << frame_type_to_str(frame->hd.type) << " received on fd: " << data->fd;
     }
     return 0;
 }
@@ -333,6 +359,8 @@ void HTTPConnection::set_callbacks(nghttp2_session_callbacks* callbacks) {
     nghttp2_session_callbacks_set_on_begin_headers_callback(callbacks, on_begin_headers_callback);
     //nghttp2_session_callbacks_set_on_stream_close_callback(callbacks, on_stream_close_callback);
     nghttp2_session_callbacks_set_on_frame_send_callback(callbacks, on_frame_send_callback);
+    nghttp2_session_callbacks_set_error_callback2(callbacks, error_callback);
+    nghttp2_session_callbacks_set_on_invalid_frame_recv_callback(callbacks, invalid_frame_callback);
 }
 
 HTTPConnection::HTTPConnection(int fd, ConnectionType type, RPCMapper* mapper, RPCQueue* queue) 
@@ -349,7 +377,8 @@ HTTPConnection::HTTPConnection(int fd, ConnectionType type, RPCMapper* mapper, R
         direction,
         fd,
         queue,
-        mapper
+        mapper,
+        &status
     });
     
     // set non-blocking
@@ -394,7 +423,8 @@ HTTPConnection::HTTPConnection(std::string host, int port, ConnectionType type, 
         direction,
         fd,
         queue,
-        mapper
+        mapper,
+        &status
     });
 
     addr.sin_family = AF_INET;
