@@ -462,6 +462,10 @@ bool HTTPConnection::want_write() {
     return nghttp2_session_want_write(session) != 0;
 }
 
+bool HTTPConnection::want_read() {
+    return nghttp2_session_want_read(session) != 0;
+}
+
 int HTTPConnection::http_write(Buffer* buffer) {
     const uint8_t* outbuf_ptr = nullptr;
     int written = nghttp2_session_mem_send(session, &outbuf_ptr);

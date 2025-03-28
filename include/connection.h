@@ -52,6 +52,7 @@ class HTTPConnection {
         void set_status(ConnectionStatus s) { status = s; }
         void http_read(Buffer*);
         bool want_write();
+        bool want_read();
         int http_write(Buffer*);
         void submit_settings();
         int32_t submit_request(RPCMessage&);
