@@ -11,6 +11,7 @@ class RPCQueue {
         void enqueue(ConnectionType, ConnectionDirection, uint32_t);
         uint32_t dequeue(ConnectionType, ConnectionDirection);
         bool empty(ConnectionType, ConnectionDirection);
+        int size(ConnectionType, ConnectionDirection);
     
     private:
         std::unordered_map<ConnectionType, 

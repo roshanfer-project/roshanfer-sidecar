@@ -1,6 +1,8 @@
 #include "stats.h"
 
 Stats::Stats() 
-    :   app_resp_out(0),
-        sidecar_resp_in(false)
-    {}
+    :   sidecar_resp_in()
+    {
+        sidecar_resp_in[ConnectionType::INGRESS] = 0;
+        sidecar_resp_in[ConnectionType::EGRESS] = 0;
+    }

@@ -7,6 +7,7 @@
 #include "ring_wrapper.h"
 #include "rpc_mapper.h"
 #include "rpc_queue.h"
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cstdint>
 #include <cstring>
@@ -35,6 +36,9 @@ State::State(Config config, RingWrapper& ring, BufferManager& buffer_manager,
 }
 
 void State::write_http(HTTPConnection* conn) {
+    if (conn->want_write() == 0) {
+        return;
+    }
     DLOG(INFO) << "Starting to write batch of HTTP/2 data on fd: " << conn->get_fd();
 
     while (conn->want_write()) {
@@ -76,6 +80,73 @@ void State::report_latency(RPCMessage& rpc, ConnectionType type) {
 }
 
 
+bool State::route_request(uint32_t stream_id, ConnectionType type) {
+    // get the RPC message
+    auto& rpc = rpc_mapper.get_ds_rpc(type, stream_id);
+
+    // get an upstream connection
+    try {
+        auto& conn = pools.at(type).get_any_connection();
+
+        if (conn->get_status() == ConnectionStatus::TEARDOWN) {
+            LOG(WARNING) << "Connection is in TEARDOWN state. Starting a new connection.";
+            throw NoConnectionException();
+        } else if (conn->get_status() == ConnectionStatus::DOWN) {
+            LOG(WARNING) << "Connection is in DOWN state.";
+            // put the RPC message back in the queue
+            rpc_queue.enqueue(type, ConnectionDirection::DOWNSTREAM, stream_id);
+            return false;
+        }
+
+        // submit the request
+        rpc->us_stream_id = conn->submit_request(*rpc.get());
+
+        // update the mapping
+        rpc_mapper.route(type, rpc->ds_stream_id, rpc->us_stream_id);
+
+        // record the time
+        rpc->req_for_time = std::chrono::system_clock::now();
+
+        // update ppm state
+        if (type == ConnectionType::EGRESS) {
+            ppm_state.unused_credits--;
+        }
+
+        // flush the request
+        write_http(conn.get());
+        
+        DLOG(INFO) << "Submitted request on stream " << rpc->us_stream_id;
+        return true;
+
+    } catch (NoConnectionException& e) {
+        LOG(INFO) << "No connection available. Starting a new connection.";
+
+        std::string host;
+        int port;
+        if (type == ConnectionType::EGRESS) {
+            host = config.endpoint_host;
+            port = config.endpoint_port;
+        } else if (type == ConnectionType::INGRESS) {
+            host = config.ingress_upstream_host;
+            port = config.ingress_upstream_port;
+        } else {
+            LOG(FATAL) << "Unknown connection type";
+        }
+        std::unique_ptr<HTTPConnection>& conn = pools.at(type).add_connection(
+            host, port, &rpc_mapper, &rpc_queue);
+        DLOG(INFO) << "New connection established on fd: " << conn->get_fd();
+        
+        // prepare connect
+        ring.prepare_connect(conn, buffer_manager.get_user_data());
+
+        // put the RPC message back in the queue
+        rpc_queue.enqueue(type, ConnectionDirection::DOWNSTREAM, stream_id);
+
+        return false;
+    }
+}
+
+
 void State::route(ConnectionType type, ConnectionDirection direction) {
     DLOG(INFO) << "Starting routing on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
 
@@ -88,58 +159,14 @@ void State::route(ConnectionType type, ConnectionDirection direction) {
         if (direction == ConnectionDirection::DOWNSTREAM) {
             // we are dealing with a request
 
-            // get the RPC message
-            auto& rpc = rpc_mapper.get_ds_rpc(type, stream_id);
-
-            // get an upstream connection
-            try {
-                auto& conn = pools.at(type).get_any_connection();
-
-                if (conn->get_status() == ConnectionStatus::TEARDOWN) {
-                    LOG(WARNING) << "Connection is in TEARDOWN state. Starting a new connection.";
-                    throw NoConnectionException();
-                } else if (conn->get_status() == ConnectionStatus::DOWN) {
-                    LOG(FATAL) << "Connection is in DOWN state.";
-                }
-
-                // submit the request
-                rpc->us_stream_id = conn->submit_request(*rpc.get());
-
-                // update the mapping
-                rpc_mapper.route(type, rpc->ds_stream_id, rpc->us_stream_id);
-
-                // write the request
-                write_http(conn.get());
-
-                // record the time
-                rpc->req_for_time = std::chrono::system_clock::now();
-                
-                DLOG(INFO) << "Submitted request on stream " << rpc->us_stream_id;
-
-            } catch (NoConnectionException& e) {
-                LOG(INFO) << "No connection available. Starting a new connection.";
-
-                std::string host;
-                int port;
-                if (type == ConnectionType::EGRESS) {
-                    host = config.endpoint_host;
-                    port = config.endpoint_port;
-                } else if (type == ConnectionType::INGRESS) {
-                    host = config.ingress_upstream_host;
-                    port = config.ingress_upstream_port;
-                } else {
-                    LOG(FATAL) << "Unknown connection type";
-                }
-                std::unique_ptr<HTTPConnection>& conn = pools.at(type).add_connection(
-                    host, port, &rpc_mapper, &rpc_queue);
-                DLOG(INFO) << "New connection established on fd: " << conn->get_fd();
-                
-                // prepare connect
-                ring.prepare_connect(conn, buffer_manager.get_user_data());
-
-                // put the RPC message back in the queue
+            if (type == ConnectionType::EGRESS) {
+                // this should be handled by ppm client
                 rpc_queue.enqueue(type, direction, stream_id);
+                DLOG(INFO) << "PPM client should route EGRESS requests";
+                return;
+            }
 
+            if (!route_request(stream_id, type)) {
                 break;
             }
         }
@@ -148,6 +175,7 @@ void State::route(ConnectionType type, ConnectionDirection direction) {
 
             if (listeners.at(type).no_connections()) {
                 LOG(WARNING) << "No " << listeners.at(type).type_to_str() << " connections available";
+                DLOG(INFO) << "Finished routing on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
                 return;
             }
 
@@ -164,6 +192,12 @@ void State::route(ConnectionType type, ConnectionDirection direction) {
 
                 // report latency
                 report_latency(*rpc.get(), type);
+
+                // update stats
+                stats.sidecar_resp_in[type]++;
+                if (type == ConnectionType::EGRESS) {
+                    stats.new_response_in = true;
+                }
 
                 // remove the RPC message from memory
                 rpc_mapper.remove_rpc(type, rpc->ds_stream_id);
@@ -204,8 +238,14 @@ bool State::valid_credit(const char* data) {
     }
 
     ppm_state.received_dns++;
-
-    return data[2] == 0x01;
+    if (data[2] == 0x01) {
+        ppm_state.unused_credits++;
+        ppm_state.received_credits++;
+        return true;
+    } else {
+        return false;
+    }
+    //return data[2] == 0x01;
 }
 
 
@@ -235,38 +275,62 @@ bool State::valid_credit(const char* data) {
     }
 } */
 
-/* void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
+void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
     if (dn_resp) {
         if (valid_credit(dn_resp_buffer->data.get())) {
             // we have received a credit
-            DLOG(INFO) << "Received a credit";
-            send_from_ppm_queue();
+            DLOG(INFO) << "PPMClient: Received a credit";
+
+            // send a request from the queue
+            route_request(
+                rpc_queue.dequeue(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM),
+                ConnectionType::EGRESS
+            );
         } else {
-            DLOG(INFO) << "Received a non-credit response";
+            DLOG(INFO) << "PPMClient: Received a non-credit response";
         }
     } else {
-        if (stats.sidecar_resp_in) {
+        int size = rpc_queue.size(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM);
+        if (size == 0) {
+            return;
+        }
+
+        if (ppm_state.unused_credits > 0) {
+            int to_send = std::min(ppm_state.unused_credits, size);
+            for (int i = 0; i < to_send; i++) {
+                if (!route_request(
+                    rpc_queue.dequeue(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM),
+                    ConnectionType::EGRESS)) {
+                    return;
+                }
+            }
+        }
+        
+
+        if (stats.new_response_in) {
             // we have received a response from the remote server
             // send a DN
-            if (ppm_queue.size() - ppm_state.sent_dns + ppm_state.received_dns > 0) {
-                DLOG(INFO) << "Send DN after receiving a response";
+            if (rpc_queue.size(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM)
+                - ppm_state.sent_dns + ppm_state.received_dns > 0) {
+                DLOG(INFO) << "PPMClient: Send DN after receiving a response";
+                stats.new_response_in = false;
                 send_dn();
             }
         }
 
         // This part assumes no failures
-        int new_dns = ppm_queue.size() - ppm_state.sent_dns + ppm_state.received_dns;
+        int new_dns = rpc_queue.size(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM)
+                        - ppm_state.sent_dns + ppm_state.received_credits;
         if (new_dns > 0) {
             // we have at least one request to send
             for (int i = 0; i < new_dns; i++) {
                 // send DN
-                DLOG(INFO) << "Send DN for new requests";
+                DLOG(INFO) << "PPMClient: Send DN for new requests";
                 send_dn();
             }
         }
-    }
-    
-} */
+    }  
+}
 
 void State::send_dn() {
     // send a demand notification
@@ -279,6 +343,7 @@ void State::send_dn() {
 PPMState::PPMState()
 :   sent_credits(0),
     sent_dns(0),
+    received_credits(0),
     received_dns(0) {}
 
 inline static void write_dn_response(int result, Buffer* resp) {
@@ -301,7 +366,8 @@ void State::queue_multiplexer(Buffer* req, Buffer* resp) {
 
         // produce the response
         uint8_t result = 0;
-        if (config.ppm_limit > ppm_state.sent_credits - stats.app_resp_out) {
+        if (config.ppm_limit > ppm_state.sent_credits - 
+            stats.sidecar_resp_in[ConnectionType::INGRESS]) {
             result = 1;
             ppm_state.sent_credits++;
         }

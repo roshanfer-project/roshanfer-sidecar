@@ -41,6 +41,8 @@ class PPMState  {
         int sent_credits;
         int sent_dns;
         int received_dns;
+        int received_credits;
+        int unused_credits;
 };
 
 class State {
@@ -59,6 +61,7 @@ class State {
         void ppm_client(bool, Buffer*);
         void write_http(HTTPConnection*);
 
+        bool route_request(uint32_t, ConnectionType);
     private:
         void udp_send(std::span<char>, std::string&, uint16_t);
 

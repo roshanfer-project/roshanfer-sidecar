@@ -20,6 +20,9 @@ void RPCQueue::enqueue(ConnectionType type, ConnectionDirection direction, uint3
 }
 
 uint32_t RPCQueue::dequeue(ConnectionType type, ConnectionDirection direction) {
+    if (queue_map[type][direction].empty()) {
+        LOG(FATAL) << "Trying to dequeue from an empty queue";
+    }
     uint32_t stream_id = queue_map[type][direction].front();
     queue_map[type][direction].pop();
     DLOG(INFO) << "Dequeued stream " << stream_id << " on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
@@ -28,5 +31,9 @@ uint32_t RPCQueue::dequeue(ConnectionType type, ConnectionDirection direction) {
 
 bool RPCQueue::empty(ConnectionType type, ConnectionDirection direction) {
     return queue_map[type][direction].empty();
+}
+
+int RPCQueue::size(ConnectionType type, ConnectionDirection direction) {
+    return queue_map[type][direction].size();
 }
 

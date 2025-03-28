@@ -1,3 +1,4 @@
+#include "connection_enums.h"
 #include "listener.h"
 #include "udp_listener.h"
 #include "state.h"
@@ -121,15 +122,23 @@ void EventLoop::run() {
                 // feed data to nghttp2
                 orig_conn->http_read(buffer);
 
+                // send out http2-related data
+                state.write_http(orig_conn);
+
                 // free the buffer
                 buffer_manager.free_buffer(buffer);
 
                 // handle req/res send buffers
                 state.route(orig_conn->type, orig_conn->direction);
 
-                if (orig_conn->direction == ConnectionDirection::UPSTREAM) {
-                    DLOG(INFO) << "Potentially send queued requests";
+                if (orig_conn->direction == ConnectionDirection::UPSTREAM
+                    & orig_conn->type == ConnectionType::INGRESS) {
+                    DLOG(INFO) << "Check if we can send any INGRESS requests";
                     state.route(orig_conn->type, ConnectionDirection::DOWNSTREAM);
+                }
+
+                if (orig_conn->type == ConnectionType::EGRESS) {
+                    state.ppm_client(false, nullptr);
                 }
 
                 // flush every HTTP2 frame out
@@ -262,7 +271,7 @@ void EventLoop::run() {
                         Buffer* buffer = ud->buffer;
 
                         // We have a response for DN (potentially a request unblock)
-                        //state.ppm_client(true, buffer);
+                        state.ppm_client(true, buffer);
 
                         // free the buffer
                         buffer_manager.free_buffer(buffer);
