@@ -16,7 +16,7 @@ RPCQueue::RPCQueue()
 
 void RPCQueue::enqueue(ConnectionType type, ConnectionDirection direction, uint32_t stream_id) {
     queue_map[type][direction].push(stream_id);
-    DLOG(INFO) << "Enqueued stream " << stream_id << " on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
+    VLOG(1) << "Enqueued stream " << stream_id << " on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
 }
 
 uint32_t RPCQueue::dequeue(ConnectionType type, ConnectionDirection direction) {
@@ -25,7 +25,7 @@ uint32_t RPCQueue::dequeue(ConnectionType type, ConnectionDirection direction) {
     }
     uint32_t stream_id = queue_map[type][direction].front();
     queue_map[type][direction].pop();
-    DLOG(INFO) << "Dequeued stream " << stream_id << " on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
+    VLOG(1) << "Dequeued stream " << stream_id << " on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
     return stream_id;
 }
 

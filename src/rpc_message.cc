@@ -75,7 +75,7 @@ void RPCMessage::add_data(const uint8_t* data, size_t len, bool request) {
 }
 
 RPCMessage::~RPCMessage() {
-    DLOG(INFO) << "RPCMessage deconstructor on ds_stream_id: " << ds_stream_id 
+    VLOG(1) << "RPCMessage deconstructor on ds_stream_id: " << ds_stream_id 
                 << " us_stream_id: " << us_stream_id;
     delete [] req_data.data;
     delete [] res_data.data;

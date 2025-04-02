@@ -18,7 +18,7 @@ RingWrapper::RingWrapper(int size)
     if (ret < 0) {
         throw std::runtime_error("Failed to initialize ring");
     }
-    DLOG(INFO) << "Ring initialized";
+    VLOG(1) << "Ring initialized";
 }
 
 RingWrapper::~RingWrapper() {
@@ -44,7 +44,7 @@ void RingWrapper::prepare_accept(Listener& listener, UserData* ud) {
     ud->listener = std::addressof(listener);
     ud->op = Operation::ACCEPT;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
-    DLOG(INFO) << "Prepared accept, fd: " << listener.get_fd();
+    VLOG(1) << "Prepared accept, fd: " << listener.get_fd();
 }
 
 void RingWrapper::prepare_read(Buffer* buffer, int fd, UserData* ud) {
@@ -64,7 +64,7 @@ void RingWrapper::prepare_read(Buffer* buffer, int fd, UserData* ud) {
     // This will help us identify connection and buffer index after completion
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
     
-    DLOG(INFO) << "Prepared read, fd: " << fd;
+    VLOG(1) << "Prepared read, fd: " << fd;
 }
 
 void RingWrapper::submit_and_wait() {
@@ -78,7 +78,7 @@ struct io_uring_cqe* RingWrapper::peek_cqe() {
     struct io_uring_cqe *cqe;
     int ret = io_uring_peek_cqe(&ring, &cqe);
     if(ret == -EAGAIN) {
-        DLOG(WARNING) << "No completion event.";
+        VLOG(1) << "No completion event.";
         seen_cqe(cqe);
         return nullptr;
     }
@@ -101,7 +101,7 @@ struct io_uring_sqe* RingWrapper::get_sqe() {
     sqe = io_uring_get_sqe(&ring);
     if (!sqe) {
         LOG(INFO) << "ring is full. Submitting...";
-        DLOG(INFO) << "submited number: " << io_uring_submit(&ring);
+        VLOG(1) << "submited number: " << io_uring_submit(&ring);
         sqe = io_uring_get_sqe(&ring);
     }
     if (!sqe) {
@@ -124,7 +124,7 @@ void RingWrapper::prepare_connect(std::unique_ptr<HTTPConnection>& conn, UserDat
     ud->op = Operation::CONNECT;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
 
-    DLOG(INFO) << "Prepared connect, fd: " << conn->get_fd();
+    VLOG(1) << "Prepared connect, fd: " << conn->get_fd();
 
 }
 
@@ -142,7 +142,7 @@ void RingWrapper::prepare_write(int fd, Buffer* buffer, UserData* ud) {
     ud->buffer = buffer;
     ud->op = Operation::WRITE;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
-    DLOG(INFO) << "Prepared write, fd: " << fd;
+    VLOG(1) << "Prepared write, fd: " << fd;
 }
 
 void RingWrapper::prepare_cancel(HTTPConnection& conn, UserData* ud) {
@@ -154,7 +154,7 @@ void RingWrapper::prepare_cancel(HTTPConnection& conn, UserData* ud) {
     ud->op = Operation::CANCEL;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
 
-    DLOG(INFO) << "Prepared cancel, fd: " << conn.get_fd();
+    VLOG(1) << "Prepared cancel, fd: " << conn.get_fd();
 }
 
 void RingWrapper::prepare_rcvmsg(int fd, Buffer* buffer, UserData* ud, UDPType udp_type) {
@@ -176,7 +176,7 @@ void RingWrapper::prepare_rcvmsg(int fd, Buffer* buffer, UserData* ud, UDPType u
     ud->udp_type = udp_type;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
 
-    DLOG(INFO) << "Prepared rcvmsg, fd: " << fd;
+    VLOG(1) << "Prepared rcvmsg, fd: " << fd;
 }
 
 /*
@@ -198,7 +198,7 @@ void RingWrapper::prepare_reply_sendmsg(int fd, Buffer* old_buffer,
     ud->op = Operation::SENDMSG;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
 
-    DLOG(INFO) << "Prepared sendmsg (reply), fd: " << fd;
+    VLOG(1) << "Prepared sendmsg (reply), fd: " << fd;
 }
 
 void RingWrapper::prepare_req_sendmsg(int fd, Buffer* buffer, UserData* ud,
@@ -213,5 +213,5 @@ void RingWrapper::prepare_req_sendmsg(int fd, Buffer* buffer, UserData* ud,
     ud->op = Operation::SENDMSG;
     io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
 
-    DLOG(INFO) << "Prepared sendmsg (req), fd: " << fd;
+    VLOG(1) << "Prepared sendmsg (req), fd: " << fd;
 }

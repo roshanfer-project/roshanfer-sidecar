@@ -39,7 +39,7 @@ void State::write_http(HTTPConnection* conn) {
     if (conn->want_write() == 0) {
         return;
     }
-    DLOG(INFO) << "Starting to write batch of HTTP/2 data on fd: " << conn->get_fd();
+    VLOG(1) << "Starting to write batch of HTTP/2 data on fd: " << conn->get_fd();
 
     while (conn->want_write()) {
         auto send_buffer = buffer_manager.get_buffer();
@@ -61,7 +61,7 @@ void State::write_http(HTTPConnection* conn) {
         );
     }
 
-    DLOG(INFO) << "Finished writing batch of HTTP/2 data written on fd: " << conn->get_fd();
+    VLOG(1) << "Finished writing batch of HTTP/2 data written on fd: " << conn->get_fd();
 }
 
 void State::report_latency(RPCMessage& rpc, ConnectionType type) {
@@ -115,7 +115,7 @@ bool State::route_request(uint32_t stream_id, ConnectionType type) {
         // flush the request
         write_http(conn.get());
         
-        DLOG(INFO) << "Submitted request on stream " << rpc->us_stream_id;
+        VLOG(1) << "Submitted request on stream " << rpc->us_stream_id;
         return true;
 
     } catch (NoConnectionException& e) {
@@ -134,7 +134,7 @@ bool State::route_request(uint32_t stream_id, ConnectionType type) {
         }
         std::unique_ptr<HTTPConnection>& conn = pools.at(type).add_connection(
             host, port, &rpc_mapper, &rpc_queue);
-        DLOG(INFO) << "New connection established on fd: " << conn->get_fd();
+        VLOG(1) << "New connection established on fd: " << conn->get_fd();
         
         // prepare connect
         ring.prepare_connect(conn, buffer_manager.get_user_data());
@@ -148,12 +148,12 @@ bool State::route_request(uint32_t stream_id, ConnectionType type) {
 
 
 void State::route(ConnectionType type, ConnectionDirection direction) {
-    DLOG(INFO) << "Starting routing on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
+    VLOG(1) << "Starting routing on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
 
     // check if we have any RPC message in the queue
     while (!rpc_queue.empty(type, direction)) {
         auto stream_id = rpc_queue.dequeue(type, direction);
-        DLOG(INFO) << "Routing message on stream " << stream_id << " of type " << type_to_str(type)
+        VLOG(1) << "Routing message on stream " << stream_id << " of type " << type_to_str(type)
                    << " and direction " << direction_to_str(direction);
 
         if (direction == ConnectionDirection::DOWNSTREAM) {
@@ -162,7 +162,7 @@ void State::route(ConnectionType type, ConnectionDirection direction) {
             if (type == ConnectionType::EGRESS) {
                 // this should be handled by ppm client
                 rpc_queue.enqueue(type, direction, stream_id);
-                DLOG(INFO) << "PPM client should route EGRESS requests";
+                VLOG(1) << "PPM client should route EGRESS requests";
                 return;
             }
 
@@ -175,7 +175,7 @@ void State::route(ConnectionType type, ConnectionDirection direction) {
 
             if (listeners.at(type).no_connections()) {
                 LOG(WARNING) << "No " << listeners.at(type).type_to_str() << " connections available";
-                DLOG(INFO) << "Finished routing on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
+                VLOG(1) << "Finished routing on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
                 return;
             }
 
@@ -188,7 +188,7 @@ void State::route(ConnectionType type, ConnectionDirection direction) {
                 // submit the response
                 conn->submit_response(*rpc.get());
                 write_http(conn.get());
-                DLOG(INFO) << "Submitted response on stream " << rpc->ds_stream_id;
+                VLOG(1) << "Submitted response on stream " << rpc->ds_stream_id;
 
                 // report latency
                 report_latency(*rpc.get(), type);
@@ -209,7 +209,7 @@ void State::route(ConnectionType type, ConnectionDirection direction) {
         }
     }
 
-    DLOG(INFO) << "Finished routing on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
+    VLOG(1) << "Finished routing on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
 }
 
 std::unique_ptr<HTTPConnection>& State::get_connection(int fd, ConnectionType type) {
@@ -251,7 +251,7 @@ bool State::valid_credit(const char* data) {
 
 /* void State::send_from_ppm_queue() {
     if (ppm_queue.size() > 0) {
-        DLOG(INFO) << "Send a request from PPM queue";
+        VLOG(1) << "Send a request from PPM queue";
 
         // send one queued request (from the end of queue)
         auto& msg = ppm_queue.front();
@@ -279,7 +279,7 @@ void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
     if (dn_resp) {
         if (valid_credit(dn_resp_buffer->data.get())) {
             // we have received a credit
-            DLOG(INFO) << "PPMClient: Received a credit";
+            VLOG(1) << "PPMClient: Received a credit";
 
             // send a request from the queue
             route_request(
@@ -287,7 +287,7 @@ void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
                 ConnectionType::EGRESS
             );
         } else {
-            DLOG(INFO) << "PPMClient: Received a non-credit response";
+            VLOG(1) << "PPMClient: Received a non-credit response";
         }
     } else {
         int size = rpc_queue.size(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM);
@@ -312,7 +312,7 @@ void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
             // send a DN
             if (rpc_queue.size(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM)
                 - ppm_state.sent_dns + ppm_state.received_dns > 0) {
-                DLOG(INFO) << "PPMClient: Send DN after receiving a response";
+                VLOG(1) << "PPMClient: Send DN after receiving a response";
                 stats.new_response_in = false;
                 send_dn();
             }
@@ -325,7 +325,7 @@ void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
             // we have at least one request to send
             for (int i = 0; i < new_dns; i++) {
                 // send DN
-                DLOG(INFO) << "PPMClient: Send DN for new requests";
+                VLOG(1) << "PPMClient: Send DN for new requests";
                 send_dn();
             }
         }
@@ -337,7 +337,7 @@ void State::send_dn() {
     char msg[] = {0x01, 0x00, 0x01};
     udp_send(msg, config.endpoint_host, config.endpoint_port);
     ppm_state.sent_dns++;
-    DLOG(INFO) << "Sent demand notification";
+    VLOG(1) << "Sent demand notification";
 }
 
 PPMState::PPMState()
@@ -351,7 +351,7 @@ inline static void write_dn_response(int result, Buffer* resp) {
     resp->data.get()[1] = 0x01; // response
     resp->data.get()[2] = result;
     resp->set_filled(3);
-    DLOG(INFO) << "Wrote a DN response";
+    VLOG(1) << "Wrote a DN response";
 }
 
 void State::queue_multiplexer(Buffer* req, Buffer* resp) {

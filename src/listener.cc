@@ -41,7 +41,7 @@ Listener::Listener(uint16_t port, ConnectionType type)
         throw std::runtime_error("Failed to listen on socket: " + std::to_string(port));
     }
 
-    DLOG(INFO) << "Listener created on port: " << port << " with fd: " << fd;
+    VLOG(1) << "Listener created on port: " << port << " with fd: " << fd;
 };
 
 HTTPConnection& Listener::add_connection(int fd, RPCMapper* mapper, RPCQueue* queue) {

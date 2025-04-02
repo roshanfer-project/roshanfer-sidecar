@@ -90,11 +90,11 @@ int frame_recv_callback(nghttp2_session* session,
     CallbackData* data = reinterpret_cast<CallbackData*>(user_data);
 
     if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
-        DLOG(INFO) << "EOS flag detected on fd: " << data->fd;
+        VLOG(1) << "EOS flag detected on fd: " << data->fd;
 
         if (frame->hd.type == NGHTTP2_DATA) {
             // we have a request
-            DLOG(INFO) << "RPC request received on stream " << frame->hd.stream_id;
+            VLOG(1) << "RPC request received on stream " << frame->hd.stream_id;
             data->queue->enqueue(data->type, data->direction, frame->hd.stream_id);
 
             // record receive time for the RPC
@@ -103,19 +103,19 @@ int frame_recv_callback(nghttp2_session* session,
         }
         else if (frame->hd.type == NGHTTP2_HEADERS) {
             // we have a response
-            DLOG(INFO) << "RPC response received on stream " << frame->hd.stream_id;
+            VLOG(1) << "RPC response received on stream " << frame->hd.stream_id;
             data->queue->enqueue(data->type, data->direction, frame->hd.stream_id);
             data->mapper->get_us_rpc(data->type, frame->hd.stream_id)->res_rcv_time
              = std::chrono::system_clock::now();
         }
     } else if (frame->hd.type == NGHTTP2_SETTINGS) {
-        DLOG(INFO) << "SETTINGS frame received on fd: " << data->fd;
+        VLOG(1) << "SETTINGS frame received on fd: " << data->fd;
         if (*data->status == ConnectionStatus::DOWN) {
             *data->status = ConnectionStatus::UP;
-            DLOG(INFO) << "Change status to UP, fd: " << data->fd;
+            VLOG(1) << "Change status to UP, fd: " << data->fd;
         }
     } else {
-        DLOG(INFO) << "Frame type " << frame_type_to_str(frame->hd.type) << " received on fd: " << data->fd;
+        VLOG(1) << "Frame type " << frame_type_to_str(frame->hd.type) << " received on fd: " << data->fd;
     }
     return 0;
 }
@@ -146,7 +146,7 @@ int on_data_chunk_recv_callback(nghttp2_session* session,
         }
     }
 
-    DLOG(INFO) << "Data chunk received on stream " << stream_id << ": "
+    VLOG(1) << "Data chunk received on stream " << stream_id << ": "
     << std::string(reinterpret_cast<const char*>(data), len) << "\n";
     return 0;
 }
@@ -167,7 +167,7 @@ int on_header_callback(nghttp2_session* session,
         }
 
         // a request header
-        DLOG(INFO) << "Request header received on stream " << frame->hd.stream_id;
+        VLOG(1) << "Request header received on stream " << frame->hd.stream_id;
         data->mapper->get_ds_rpc(data->type, frame->hd.stream_id)->add_header_field(
             name, namelen, value, valuelen, true, false);
     } else if (frame->headers.cat == NGHTTP2_HCAT_HEADERS) {
@@ -175,7 +175,7 @@ int on_header_callback(nghttp2_session* session,
             LOG(FATAL) << "Invalid direction for response frame";
         }
 
-        DLOG(INFO) << "tailer header received on stream " << frame->hd.stream_id;
+        VLOG(1) << "tailer header received on stream " << frame->hd.stream_id;
         
         data->mapper->get_us_rpc(data->type, frame->hd.stream_id)->add_header_field(
             name, namelen, value, valuelen, false, true);
@@ -184,12 +184,12 @@ int on_header_callback(nghttp2_session* session,
             LOG(FATAL) << "Invalid direction for response frame";
         }
 
-        DLOG(INFO) << "Response header received on stream " << frame->hd.stream_id;
+        VLOG(1) << "Response header received on stream " << frame->hd.stream_id;
         data->mapper->get_us_rpc(data->type, frame->hd.stream_id)->add_header_field(
             name, namelen, value, valuelen, false, false);
     }
 
-    DLOG(INFO) << "Header received: "
+    VLOG(1) << "Header received: "
     << std::string(reinterpret_cast<const char*>(name), namelen)
     << " : " << std::string(reinterpret_cast<const char*>(value), valuelen);
     return 0;
@@ -207,11 +207,11 @@ int on_begin_headers_callback(nghttp2_session* session,
         }
 
         // we have a new request
-        DLOG(INFO) << "New request on stream " << frame->hd.stream_id;
+        VLOG(1) << "New request on stream " << frame->hd.stream_id;
         data->mapper->allocate_rpc(data->type, frame->hd.stream_id, data->fd);
     }
 
-    DLOG(INFO) << "Begin headers on stream " << frame->hd.stream_id << " fd: " << data->fd;
+    VLOG(1) << "Begin headers on stream " << frame->hd.stream_id << " fd: " << data->fd;
     return 0;
 }
 
@@ -233,7 +233,7 @@ int on_begin_headers_callback(nghttp2_session* session,
         
     // remove the RPC object
     //data->mapper->remove_rpc(data->type, stream_id);
-    DLOG(INFO) << "Stream " << stream_id << " closed on fd: " << data->fd;
+    VLOG(1) << "Stream " << stream_id << " closed on fd: " << data->fd;
     return 0;
 } */
 
@@ -243,7 +243,7 @@ int on_frame_send_callback(nghttp2_session *session,
     
     CallbackData* data = reinterpret_cast<CallbackData*>(user_data);
 
-    DLOG(INFO) << "Frame type " << frame_type_to_str(frame->hd.type) << " sent on fd: " << data->fd;
+    VLOG(1) << "Frame type " << frame_type_to_str(frame->hd.type) << " sent on fd: " << data->fd;
     return 0;
 }
 
@@ -254,11 +254,11 @@ ssize_t data_read_callback_request(nghttp2_session*,
                         uint32_t* data_flags,
                         nghttp2_data_source* source,
                         void* /*user_data*/) {
-    DLOG(INFO) << "Data provider read callback";
+    VLOG(1) << "Data provider read callback";
     
     DataReadStruct* info = reinterpret_cast<DataReadStruct*>(source->ptr);
 
-    DLOG(INFO) << "Data: " << std::string(reinterpret_cast<const char*>(info->data), info->len);
+    VLOG(1) << "Data: " << std::string(reinterpret_cast<const char*>(info->data), info->len);
 
     // If the output buffer is too small, copy what fits.
     if (length < info->len) {
@@ -278,18 +278,18 @@ ssize_t data_read_callback_response(nghttp2_session* session,
                             uint32_t* data_flags,
                             nghttp2_data_source* source,
                             void* user_data) {
-    DLOG(INFO) << "Data provider read callback";
+    VLOG(1) << "Data provider read callback";
 
     DataReadStruct* info = reinterpret_cast<DataReadStruct*>(source->ptr);
     CallbackData* callback_data = reinterpret_cast<CallbackData*>(user_data);
 
     if (info->len == 0) {
         *data_flags |= NGHTTP2_DATA_FLAG_EOF;
-        DLOG(FATAL) << "No data to send";
+        LOG(FATAL) << "No data to send";
         return 0;
     }
 
-    DLOG(INFO) << "Data: " << std::string(reinterpret_cast<const char*>(info->data), info->len);
+    VLOG(1) << "Data: " << std::string(reinterpret_cast<const char*>(info->data), info->len);
 
     // If the output buffer is too small, copy what fits.
     *data_flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
@@ -445,12 +445,12 @@ HTTPConnection::HTTPConnection(std::string host, int port, ConnectionType type, 
 }
 
 void HTTPConnection::http_read(Buffer* buffer) {
-    DLOG(INFO) << "Start reading HTTP/2 data on fd: " << fd;
+    VLOG(1) << "Start reading HTTP/2 data on fd: " << fd;
     if (nghttp2_session_mem_recv(session, reinterpret_cast<const uint8_t*>(buffer->data.get()),
         buffer->get_filled()) != buffer->get_filled()) {
             LOG(FATAL) << "Failed to fully process received HTTP/2 data";
         }
-    DLOG(INFO) << "Finish reading HTTP/2 data on fd: " << fd;
+    VLOG(1) << "Finish reading HTTP/2 data on fd: " << fd;
 }
 
 bool HTTPConnection::want_write() {
@@ -471,7 +471,7 @@ int HTTPConnection::http_write(Buffer* buffer) {
     std::memcpy(buffer->data.get(), outbuf_ptr, written);
     buffer->set_filled(written);
 
-    DLOG(INFO) << "HTTP/2 data written on fd: " << fd;
+    VLOG(1) << "HTTP/2 data written on fd: " << fd;
     return written;
 }
 
@@ -479,7 +479,7 @@ void HTTPConnection::submit_settings() {
     if (nghttp2_submit_settings(session, NGHTTP2_FLAG_NONE, nullptr, 0) != 0 ) {
         LOG(FATAL) << "Failed to submit HTTP/2 settings";
     }
-    DLOG(INFO) << "HTTP/2 settings submitted on fd: " << fd;
+    VLOG(1) << "HTTP/2 settings submitted on fd: " << fd;
 }
 
 int32_t HTTPConnection::submit_request(RPCMessage& rpc) {
@@ -505,7 +505,7 @@ int32_t HTTPConnection::submit_request(RPCMessage& rpc) {
         LOG(FATAL) << "Failed to submit HTTP/2 request on fd: " << fd;
     }
 
-    DLOG(INFO) << "HTTP/2 request submitted on fd: " << fd;
+    VLOG(1) << "HTTP/2 request submitted on fd: " << fd;
     return id;
 }
 
@@ -540,7 +540,7 @@ void HTTPConnection::submit_response(RPCMessage& rpc) {
     nghttp2_submit_response(session, rpc.ds_stream_id,
         nva_res, rpc.res_headers.size(), &data_prd);
 
-    DLOG(INFO) << "HTTP/2 response submitted on fd: " << fd;
+    VLOG(1) << "HTTP/2 response submitted on fd: " << fd;
 }
 
 sockaddr* HTTPConnection::get_addr() {
@@ -548,7 +548,7 @@ sockaddr* HTTPConnection::get_addr() {
 }
 
 HTTPConnection::~HTTPConnection() {
-    DLOG(INFO) << "HTTPConnection deconstructor on fd: " << fd;
+    VLOG(1) << "HTTPConnection deconstructor on fd: " << fd;
     close(fd);
     if (session) {
         nghttp2_session_del(session);

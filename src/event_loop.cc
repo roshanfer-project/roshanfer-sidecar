@@ -24,7 +24,7 @@ void EventLoop::run() {
 
     // Add accept submissions
     for (auto& listener : listeners) {
-        DLOG(INFO) << "Listening on " << listener.second.type_to_str() << " listener, port: " << listener.second.get_port();
+        VLOG(1) << "Listening on " << listener.second.type_to_str() << " listener, port: " << listener.second.get_port();
         ring.prepare_accept(listener.second, buffer_manager.get_user_data());
     }
 
@@ -41,7 +41,7 @@ void EventLoop::run() {
         ring.submit_and_wait();
 
         while((cqe = ring.peek_cqe())) {
-            DLOG(INFO) << "Processing completion event";
+            VLOG(1) << "Processing completion event";
 
             // Identify the type of event
             ud = ring.get_user_data(cqe);
@@ -50,7 +50,7 @@ void EventLoop::run() {
             switch (ud->op)
             {
             case Operation::ACCEPT: {
-                DLOG(INFO) << "Accept completion event";
+                VLOG(1) << "Accept completion event";
 
                 // get the listener from the user data
                 Listener* listener = ud->listener;
@@ -62,9 +62,9 @@ void EventLoop::run() {
                     std::addressof(rpc_queue)
                 );
 
-                DLOG(INFO) << "Accepted connection on " << listener->type_to_str() << " listener"
+                VLOG(1) << "Accepted connection on " << listener->type_to_str() << " listener"
                            << " fd: " << listener->get_fd();
-                DLOG(INFO) << "New connection on fd: " << conn.get_fd();
+                VLOG(1) << "New connection on fd: " << conn.get_fd();
 
                 // submit the first setting frame
                 conn.submit_settings();
@@ -94,10 +94,10 @@ void EventLoop::run() {
                 auto orig_listener = ud->listener;
 
                 // log the read event
-                DLOG(INFO) << "Read completion event, fd: " << orig_conn->get_fd();
-                DLOG(INFO) << "Read " << cqe->res << " bytes from buffer: " << buffer->data.get();
-                DLOG(INFO) << "Connection type: " << orig_conn->type_to_str();
-                DLOG(INFO) << "Connection direction: " << orig_conn->direction_to_str();
+                VLOG(1) << "Read completion event, fd: " << orig_conn->get_fd();
+                VLOG(1) << "Read " << cqe->res << " bytes from buffer: " << buffer->data.get();
+                VLOG(1) << "Connection type: " << orig_conn->type_to_str();
+                VLOG(1) << "Connection direction: " << orig_conn->direction_to_str();
 
                 // check corner cases (errors, closed connection)
                 if (cqe->res < 0) {
@@ -133,7 +133,7 @@ void EventLoop::run() {
 
                 if (orig_conn->direction == ConnectionDirection::UPSTREAM
                     & orig_conn->type == ConnectionType::INGRESS) {
-                    DLOG(INFO) << "Check if we can send any INGRESS requests";
+                    VLOG(1) << "Check if we can send any INGRESS requests";
                     state.route(orig_conn->type, ConnectionDirection::DOWNSTREAM);
                 }
 
@@ -165,12 +165,12 @@ void EventLoop::run() {
 
                 HTTPConnection* orig_conn = ud->conn;
 
-                DLOG(INFO) << "Connect completion event, fd: " << orig_conn->get_fd();
+                VLOG(1) << "Connect completion event, fd: " << orig_conn->get_fd();
 
                 // submit first SETTING frame
                 orig_conn->submit_settings();
-                DLOG(INFO) << "conn type: " << orig_conn->type_to_str();
-                DLOG(INFO) << "conn direction: " << orig_conn->direction_to_str();
+                VLOG(1) << "conn type: " << orig_conn->type_to_str();
+                VLOG(1) << "conn direction: " << orig_conn->direction_to_str();
 
                 // write http frames
                 state.write_http(orig_conn);
@@ -188,8 +188,8 @@ void EventLoop::run() {
             }
 
             case Operation::WRITE: {
-                DLOG(INFO) << "Write completion event";
-                DLOG(INFO) << "Wrote " << cqe->res << " bytes to fd: " << ud->conn->get_fd();
+                VLOG(1) << "Write completion event";
+                VLOG(1) << "Wrote " << cqe->res << " bytes to fd: " << ud->conn->get_fd();
 
                 // free buffer
                 buffer_manager.free_buffer(ud->buffer);
@@ -199,7 +199,7 @@ void EventLoop::run() {
 
             case Operation::CANCEL: {
                 HTTPConnection* conn = ud->conn;
-                DLOG(INFO) << "Cancel completion event, fd: " << conn->get_fd();
+                VLOG(1) << "Cancel completion event, fd: " << conn->get_fd();
 
                 switch (conn->direction) {
                     case ConnectionDirection::UPSTREAM:
@@ -224,7 +224,7 @@ void EventLoop::run() {
             }
 
             case Operation::RCVMSG: {
-                DLOG(INFO) << "Recvmsg completion event";
+                VLOG(1) << "Recvmsg completion event";
 
                 // get the buffer from the user data
                 Buffer* old_buffer = ud->buffer;
@@ -237,7 +237,7 @@ void EventLoop::run() {
 
                 switch (udp_type) {
                     case UDPType::REQUEST: {
-                        DLOG(INFO) << "Request for Queue Multiplxer";
+                        VLOG(1) << "Request for Queue Multiplxer";
 
                         // get the new buffer from QM
                         Buffer* new_buffer = buffer_manager.get_buffer();
@@ -266,7 +266,7 @@ void EventLoop::run() {
                     }
 
                     case UDPType::RESPONSE: {
-                        DLOG(INFO) << "Response for DN";
+                        VLOG(1) << "Response for DN";
 
                         Buffer* buffer = ud->buffer;
 
@@ -285,7 +285,7 @@ void EventLoop::run() {
             }
 
             case Operation::SENDMSG: {
-                DLOG(INFO) << "Sendmsg completion event";
+                VLOG(1) << "Sendmsg completion event";
 
                 // get the buffer from the user data
                 Buffer* buffer = ud->buffer;
