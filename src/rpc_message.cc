@@ -6,6 +6,15 @@
 #include <vector>
 #include <glog/logging.h>
 
+HeaderField::HeaderField(const uint8_t* name, size_t name_len, const uint8_t* value, size_t value_len) 
+: name(), name_len(name_len), value(), value_len(value_len) {
+    if (name_len > sizeof(this->name) || value_len > sizeof(this->value)) {
+        LOG(FATAL) << "HeaderField name or value too long";
+    }
+    std::memcpy(this->name, name, name_len);
+    std::memcpy(this->value, value, value_len);
+}
+
 RPCMessage::RPCMessage(uint32_t ds_stream_id, int fd)
 :   req_data(DataReadStruct{nullptr, 0}),
     res_data(DataReadStruct{nullptr, 0}),
@@ -23,12 +32,12 @@ RPCMessage::RPCMessage(uint32_t ds_stream_id, int fd)
 void RPCMessage::add_header_field(const uint8_t* name, size_t name_len,
     const uint8_t* value, size_t value_len, bool request, bool tailer) {
     auto hf = std::make_unique<HeaderField>(
-        HeaderField {
-            std::string(reinterpret_cast<const char*>(name), name_len),
+        HeaderField(
+            name,
             name_len,
-            std::string(reinterpret_cast<const char*>(value), value_len),
+            value,
             value_len
-        }
+        )
     );
 
     if (tailer) {

@@ -2,18 +2,22 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
-#include <string>
 #include <sys/types.h>
 #include <vector>
 #include <chrono>
 
-typedef struct HeaderField{
-    std::string name;
-    size_t name_len;
-    std::string value;
-    size_t value_len;
-} HeaderField;
+class HeaderField {
+    public:
+        HeaderField(const uint8_t* name, size_t name_len, const uint8_t* value, size_t value_len);
+
+    public:
+        uint8_t name[60];
+        size_t name_len;
+        uint8_t value[60];
+        size_t value_len;
+};
 
 typedef struct DataReadStruct {
     const uint8_t* data;

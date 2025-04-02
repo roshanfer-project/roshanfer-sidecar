@@ -309,8 +309,8 @@ ssize_t data_read_callback_response(nghttp2_session* session,
 
     nghttp2_nv* nva_trailers = new nghttp2_nv[rpc->res_trailers.size()];
     for (int i = 0; i < rpc->res_trailers.size(); i++) {
-        nva_trailers[i].name = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(rpc->res_trailers[i]->name.c_str()));
-        nva_trailers[i].value = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(rpc->res_trailers[i]->value.c_str()));
+        nva_trailers[i].name = rpc->res_trailers[i]->name;
+        nva_trailers[i].value = rpc->res_trailers[i]->value;
         nva_trailers[i].namelen = rpc->res_trailers[i]->name_len;
         nva_trailers[i].valuelen = rpc->res_trailers[i]->value_len;
         nva_trailers[i].flags = NGHTTP2_NV_FLAG_NONE;
@@ -485,8 +485,8 @@ void HTTPConnection::submit_settings() {
 int32_t HTTPConnection::submit_request(RPCMessage& rpc) {
     nghttp2_nv* nva = new nghttp2_nv[rpc.req_headers.size()];
     for (int i = 0; i < rpc.req_headers.size(); i++) {
-        nva[i].name = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(rpc.req_headers[i]->name.c_str()));
-        nva[i].value = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(rpc.req_headers[i]->value.c_str()));
+        nva[i].name = rpc.req_headers[i]->name;
+        nva[i].value = rpc.req_headers[i]->value;
         nva[i].namelen = rpc.req_headers[i]->name_len;
         nva[i].valuelen = rpc.req_headers[i]->value_len;
         nva[i].flags = NGHTTP2_NV_FLAG_NONE;
@@ -512,8 +512,8 @@ int32_t HTTPConnection::submit_request(RPCMessage& rpc) {
 void HTTPConnection::submit_response(RPCMessage& rpc) {
     nghttp2_nv* nva_res = new nghttp2_nv[rpc.res_headers.size()];
     for (int i = 0; i < rpc.res_headers.size(); i++) {
-        nva_res[i].name = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(rpc.res_headers[i]->name.c_str()));
-        nva_res[i].value = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(rpc.res_headers[i]->value.c_str()));
+        nva_res[i].name = rpc.res_headers[i]->name;
+        nva_res[i].value = rpc.res_headers[i]->value;
         nva_res[i].namelen = rpc.res_headers[i]->name_len;
         nva_res[i].valuelen = rpc.res_headers[i]->value_len;
         nva_res[i].flags = NGHTTP2_NV_FLAG_NONE;
@@ -521,8 +521,8 @@ void HTTPConnection::submit_response(RPCMessage& rpc) {
 
     nghttp2_nv* nva_trailers = new nghttp2_nv[rpc.res_trailers.size()];
     for (int i = 0; i < rpc.res_trailers.size(); i++) {
-        nva_trailers[i].name = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(rpc.res_trailers[i]->name.c_str()));
-        nva_trailers[i].value = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(rpc.res_trailers[i]->value.c_str()));
+        nva_trailers[i].name = rpc.res_trailers[i]->name;
+        nva_trailers[i].value = rpc.res_trailers[i]->value;
         nva_trailers[i].namelen = rpc.res_trailers[i]->name_len;
         nva_trailers[i].valuelen = rpc.res_trailers[i]->value_len;
         nva_trailers[i].flags = NGHTTP2_NV_FLAG_NONE;
