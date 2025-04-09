@@ -68,15 +68,14 @@ void State::report_latency(RPCMessage& rpc, ConnectionType type) {
     // calculate the duration
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::system_clock::now() - rpc.req_rcv_time);
-
-    LOG(INFO) << "E2E Latency: " << duration.count() << " us, " 
-            << " type: " << type_to_str(type);
     
-    LOG(INFO) << "Request forward delay: " << std::chrono::duration_cast<std::chrono::microseconds>(
-        rpc.req_for_time - rpc.req_rcv_time).count() << " us";
+    LOG(INFO) << "M# " << config.name << " E2E-" << type_to_str(type) << " " << duration.count();
+    
+    LOG(INFO) << "M# " << config.name << " REQ-FOR " << std::chrono::duration_cast<std::chrono::microseconds>(
+        rpc.req_for_time - rpc.req_rcv_time).count();
 
-    LOG(INFO) << "Response forward delay: " << std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::system_clock::now() - rpc.res_rcv_time).count() << " us";
+    LOG(INFO) << "M# " << config.name << " RES-FOR " << std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now() - rpc.res_rcv_time).count();
 }
 
 

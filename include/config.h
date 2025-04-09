@@ -14,6 +14,7 @@ struct Config
     std::string ingress_upstream_host;
     int ingress_upstream_port;
     int ppm_limit;
+    std::string name;
 };
 
 Config load_config(const std::string &filename);
