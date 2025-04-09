@@ -2,7 +2,7 @@
 
 # Build the sidecar
 cd ./build
-cmake .. -DCMAKE_BUILD_TYPE=Debug
+cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build .
 
 # Check if build was successful
