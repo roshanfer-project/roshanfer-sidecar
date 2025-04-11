@@ -468,8 +468,12 @@ int HTTPConnection::http_write(Buffer* buffer) {
         LOG(FATAL) << "Failed to send HTTP/2 data";
     }
 
-    std::memcpy(buffer->data.get(), outbuf_ptr, written);
-    buffer->set_filled(written);
+    std::memcpy(buffer->data.get()+buffer->get_filled(), outbuf_ptr, written);
+    buffer->set_filled(written + buffer->get_filled());
+
+    if (buffer->get_filled() > buffer->get_size()) {
+        LOG(FATAL) << "Buffer overflow";
+    }
 
     VLOG(1) << "HTTP/2 data written on fd: " << fd;
     return written;

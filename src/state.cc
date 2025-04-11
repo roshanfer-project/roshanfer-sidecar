@@ -1,4 +1,5 @@
 #include "state.h"
+#include "buffer.h"
 #include "buffer_manager.h"
 #include "config.h"
 #include "connection.h"
@@ -41,15 +42,23 @@ void State::write_http(HTTPConnection* conn) {
     }
     VLOG(1) << "Starting to write batch of HTTP/2 data on fd: " << conn->get_fd();
 
+    Buffer* send_buffer = nullptr;
+    bool write_flag = false;
     while (conn->want_write()) {
-        auto send_buffer = buffer_manager.get_buffer();
+        if (send_buffer == nullptr) {
+            send_buffer = buffer_manager.get_buffer();
+        }
+
         conn->http_write(send_buffer);
 
         if (send_buffer->get_filled() == 0) {
             buffer_manager.free_buffer(send_buffer);
             break;
         }
+        write_flag = true;
+    }
 
+    if (write_flag) {
         auto write_ud = buffer_manager.get_user_data();
         prepare_write(write_ud, send_buffer, conn);
 
@@ -105,6 +114,7 @@ bool State::route_request(uint32_t stream_id, ConnectionType type) {
 
         // record the time
         rpc->req_for_time = std::chrono::system_clock::now();
+        LOG(INFO) << "M# " << config.name << " REQ 1";
 
         // update ppm state
         if (type == ConnectionType::EGRESS) {
