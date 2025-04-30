@@ -69,7 +69,10 @@ int error_callback(nghttp2_session *session,
                     const char *msg,
                     size_t len,
                     void *user_data) {
-    LOG(FATAL) << "nghttp2 error (" << lib_error_code << "): " 
+    
+    CallbackData* data = reinterpret_cast<CallbackData*>(user_data);
+
+    LOG(FATAL) << "nghttp2 error (" << lib_error_code << ") on fd=" <<  data->fd << " : " 
               << std::string(msg, len);
     return 0;
 }
