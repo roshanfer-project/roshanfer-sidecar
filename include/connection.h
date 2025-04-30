@@ -36,7 +36,7 @@ class HTTPConnection {
          * @brief Construct an upstream connection
          * @note This is used by state
          */
-        HTTPConnection(std::string, int, ConnectionType, RPCQueue*, RPCMapper*);
+        HTTPConnection(std::string, uint16_t, ConnectionType, RPCQueue*, RPCMapper*);
 
         /*
          * @brief Construct an downstream connection
@@ -57,6 +57,8 @@ class HTTPConnection {
         void submit_settings();
         int32_t submit_request(RPCMessage&);
         void submit_response(RPCMessage&);
+        uint16_t get_port() { return port; }
+        std::string& get_host() { return host; }
 
     private:
         int fd; // local socket file descriptor
@@ -65,6 +67,8 @@ class HTTPConnection {
         nghttp2_session* session;
         nghttp2_session_callbacks* callbacks;
         std::unique_ptr<CallbackData> callback_data;
+        std::string host;
+        uint16_t port;
 
     public:
         ConnectionType type;
@@ -83,7 +87,7 @@ class ConnectionPool {
         /**
          * @brief Add a connection to the pool
          */
-        std::unique_ptr<HTTPConnection>& add_connection(std::string&, int, RPCMapper*, RPCQueue*);
+        std::unique_ptr<HTTPConnection>& add_connection(const std::string&, int, RPCMapper*, RPCQueue*);
         std::unique_ptr<HTTPConnection>& get_connection(int fd) { return connections[fd]; }
         std::unique_ptr<HTTPConnection>& get_any_connection();
         bool has_connection(int fd);

@@ -129,15 +129,9 @@ void EventLoop::run() {
                 buffer_manager.free_buffer(buffer);
 
                 // handle req/res send buffers
-                state.route(orig_conn->type, orig_conn->direction);
+                state.forward(orig_conn->type, orig_conn->direction);
 
-                if (orig_conn->direction == ConnectionDirection::UPSTREAM
-                    & orig_conn->type == ConnectionType::INGRESS) {
-                    VLOG(1) << "Check if we can send any INGRESS requests";
-                    state.route(orig_conn->type, ConnectionDirection::DOWNSTREAM);
-                }
-
-                if (orig_conn->type == ConnectionType::EGRESS) {
+                if (orig_conn->type == ConnectionType::EGRESS && orig_conn->direction == ConnectionDirection::DOWNSTREAM) {
                     state.ppm_client(false, nullptr);
                 }
 
@@ -159,7 +153,7 @@ void EventLoop::run() {
             case Operation::CONNECT: {
                 // check if the connection is successful
                 if (cqe->res < 0) {
-                    LOG(WARNING) << "Failed to connect";
+                    LOG(WARNING) << "Failed to connect to fd: " << ud->conn->get_fd();
                     break;
                 }
 
@@ -204,7 +198,7 @@ void EventLoop::run() {
                 switch (conn->direction) {
                     case ConnectionDirection::UPSTREAM:
                         // for upstream connections, pools (inside state) hold the connection
-                        state.remove_connection(conn->get_fd(), conn->type);
+                        state.remove_connection(*conn);
                         break;
                     case ConnectionDirection::DOWNSTREAM:
                         // also remove the corresponsing connection from state becasue,

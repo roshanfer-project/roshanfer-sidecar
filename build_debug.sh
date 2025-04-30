@@ -13,4 +13,5 @@ fi
 
 # run in gdb for debugging and pass environment variable to log to stderr
 GLOG_logtostderr=1
+GLOV_v=1
 gdb ./sidecar

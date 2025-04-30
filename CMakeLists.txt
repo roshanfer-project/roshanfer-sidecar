@@ -9,6 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g -fno-omit-frame-pointer")
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -fno-omit-frame-pointer")
+# options: "-fsanitize=address": to see memory leaks, stack corruption, etc.
 
 # find glog
 find_package (glog 0.7.1 REQUIRED)

@@ -82,7 +82,8 @@ int invalid_frame_callback(nghttp2_session *session,
     return 0;
 }
 
-// This callback is used to detect EOS flag for a stream
+// This callback is used to detect EOS flag for a stream, which marks the end of a request/response
+// to put in a queue for for forwarding/routing
 int frame_recv_callback(nghttp2_session* session,
                         const nghttp2_frame* frame,
                         void* user_data) {
@@ -95,17 +96,17 @@ int frame_recv_callback(nghttp2_session* session,
         if (frame->hd.type == NGHTTP2_DATA) {
             // we have a request
             VLOG(1) << "RPC request received on stream " << frame->hd.stream_id;
-            data->queue->enqueue(data->type, data->direction, frame->hd.stream_id);
+            data->queue->enqueue(data->type, data->direction, data->fd, frame->hd.stream_id);
 
             // record receive time for the RPC
-            data->mapper->get_ds_rpc(data->type, frame->hd.stream_id)->req_rcv_time
+            data->mapper->get_ds_rpc(data->type, frame->hd.stream_id, data->fd)->req_rcv_time
              = std::chrono::system_clock::now();
         }
         else if (frame->hd.type == NGHTTP2_HEADERS) {
             // we have a response
             VLOG(1) << "RPC response received on stream " << frame->hd.stream_id;
-            data->queue->enqueue(data->type, data->direction, frame->hd.stream_id);
-            data->mapper->get_us_rpc(data->type, frame->hd.stream_id)->res_rcv_time
+            data->queue->enqueue(data->type, data->direction, data->fd, frame->hd.stream_id);
+            data->mapper->get_us_rpc(data->type, frame->hd.stream_id, data->fd)->res_rcv_time
              = std::chrono::system_clock::now();
         }
     } else if (frame->hd.type == NGHTTP2_SETTINGS) {
@@ -132,14 +133,14 @@ int on_data_chunk_recv_callback(nghttp2_session* session,
     
     if (callback_data->direction == ConnectionDirection::DOWNSTREAM) {
         try {
-            callback_data->mapper->get_ds_rpc(callback_data->type, stream_id)->add_data(
+            callback_data->mapper->get_ds_rpc(callback_data->type, stream_id, callback_data->fd)->add_data(
                 data, len, true);
         } catch (const std::out_of_range& e) {
             LOG(FATAL) << "No RPC object found for stream_id: " << stream_id;
         }
     } else {
         try {
-            callback_data->mapper->get_us_rpc(callback_data->type, stream_id)->add_data(
+            callback_data->mapper->get_us_rpc(callback_data->type, stream_id, callback_data->fd)->add_data(
                 data, len, false);
         } catch (const std::out_of_range& e) {
             LOG(FATAL) << "No RPC object found for stream_id: " << stream_id;
@@ -168,7 +169,7 @@ int on_header_callback(nghttp2_session* session,
 
         // a request header
         VLOG(1) << "Request header received on stream " << frame->hd.stream_id;
-        data->mapper->get_ds_rpc(data->type, frame->hd.stream_id)->add_header_field(
+        data->mapper->get_ds_rpc(data->type, frame->hd.stream_id, data->fd)->add_header_field(
             name, namelen, value, valuelen, true, false);
     } else if (frame->headers.cat == NGHTTP2_HCAT_HEADERS) {
         if (data->direction != ConnectionDirection::UPSTREAM) {
@@ -177,7 +178,7 @@ int on_header_callback(nghttp2_session* session,
 
         VLOG(1) << "tailer header received on stream " << frame->hd.stream_id;
         
-        data->mapper->get_us_rpc(data->type, frame->hd.stream_id)->add_header_field(
+        data->mapper->get_us_rpc(data->type, frame->hd.stream_id, data->fd)->add_header_field(
             name, namelen, value, valuelen, false, true);
     } else if (frame->headers.cat == NGHTTP2_HCAT_RESPONSE) {
         if (data->direction != ConnectionDirection::UPSTREAM) {
@@ -185,7 +186,7 @@ int on_header_callback(nghttp2_session* session,
         }
 
         VLOG(1) << "Response header received on stream " << frame->hd.stream_id;
-        data->mapper->get_us_rpc(data->type, frame->hd.stream_id)->add_header_field(
+        data->mapper->get_us_rpc(data->type, frame->hd.stream_id, data->fd)->add_header_field(
             name, namelen, value, valuelen, false, false);
     }
 
@@ -305,7 +306,7 @@ ssize_t data_read_callback_response(nghttp2_session* session,
         res_len = info->len;
     }
     
-    auto rpc = callback_data->mapper->get_ds_rpc(callback_data->type, stream_id).get();
+    auto rpc = callback_data->mapper->get_ds_rpc(callback_data->type, stream_id, callback_data->fd).get();
 
     nghttp2_nv* nva_trailers = new nghttp2_nv[rpc->res_trailers.size()];
     for (int i = 0; i < rpc->res_trailers.size(); i++) {
@@ -328,7 +329,7 @@ ConnectionPool::ConnectionPool(ConnectionType type)
     : connections(std::unordered_map<int, std::unique_ptr<HTTPConnection>>()),
       type(type) {};
 
-std::unique_ptr<HTTPConnection>& ConnectionPool::add_connection(std::string& host,
+std::unique_ptr<HTTPConnection>& ConnectionPool::add_connection(const std::string& host,
      int port, RPCMapper* mapper, RPCQueue* queue) {
     auto c = std::make_unique<HTTPConnection>(host, port, type, queue, mapper);
     int fd = c->get_fd();
@@ -365,7 +366,9 @@ HTTPConnection::HTTPConnection(int fd, ConnectionType type, RPCMapper* mapper, R
         direction(ConnectionDirection::DOWNSTREAM),
         status(ConnectionStatus::UP),
         session(nullptr),
-        callbacks(nullptr) {
+        callbacks(nullptr),
+        host(""),
+        port(0) {
 
     callback_data = std::make_unique<CallbackData>(CallbackData{
         type,
@@ -399,19 +402,23 @@ HTTPConnection::HTTPConnection(int fd, ConnectionType type, RPCMapper* mapper, R
     }
 };
 
-HTTPConnection::HTTPConnection(std::string host, int port, ConnectionType type, RPCQueue* queue, RPCMapper* mapper) 
+HTTPConnection::HTTPConnection(std::string host, uint16_t port, ConnectionType type, RPCQueue* queue, RPCMapper* mapper) 
     :   type(type),
         addr(0),
         fd(0),
         direction(ConnectionDirection::UPSTREAM),
         status(ConnectionStatus::DOWN),
         session(nullptr),
-        callbacks(nullptr) {
+        callbacks(nullptr),
+        host(host),
+        port(port) {
 
     fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (fd < 0) {
         LOG(FATAL) << "Failed to create socket";
     }
+
+    VLOG(1) << "Created fd: " << fd << " for host: " << host << " port: " << port;
 
     callback_data = std::make_unique<CallbackData>(CallbackData{
         type,

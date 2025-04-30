@@ -2,11 +2,13 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <sys/types.h>
 #include "config.h"
 #include "connection.h"
 #include "buffer_manager.h"
 #include "connection_enums.h"
+#include "ppm_queue.h"
 #include "ring_wrapper.h"
 #include "rpc_mapper.h"
 #include "rpc_message.h"
@@ -39,10 +41,17 @@ class PPMState  {
     
     public:
         int sent_credits;
-        int sent_dns;
-        int received_dns;
-        int received_credits;
-        int unused_credits;
+        std::unordered_map<std::string, uint8_t, TransparentHash, TransparentEqual> denied_reqs;
+};
+
+class UpstreamRouteMapper{
+    public:
+        UpstreamRouteMapper();
+        void add_route(std::string);
+        ConnectionPool& get_pool(const std::string&);
+    
+    private:
+        std::unordered_map<std::string, ConnectionPool> map;
 };
 
 class State {
@@ -50,31 +59,30 @@ class State {
     public:
         State(Config, RingWrapper&, BufferManager&, RPCMapper&, RPCQueue&,
             std::unordered_map<ConnectionType, Listener>&);
-        void route(ConnectionType, ConnectionDirection);
-        std::unique_ptr<HTTPConnection>& get_connection(int, ConnectionType);
-        void remove_connection(int, ConnectionType);
-        void remove_one_connection(ConnectionType);
-        HTTPConnection& get_one_connection(ConnectionType);
+        void forward(ConnectionType, ConnectionDirection);
+        void remove_connection(HTTPConnection&);
 
         // PPM-related functions
         void queue_multiplexer(Buffer*, Buffer*);
         void ppm_client(bool, Buffer*);
         void write_http(HTTPConnection*);
 
-        bool route_request(uint32_t, ConnectionType);
+        bool forward_request(HTTPConnection*, std::shared_ptr<RPCMessage>&);
+        HTTPConnection* route_request(ConnectionType, uint32_t, int);
     private:
         void udp_send(std::span<char>, std::string&, uint16_t);
 
         void report_latency(RPCMessage&, ConnectionType);
 
         // PPM-related functions
-        void send_dn();
-        bool valid_credit(const char*);
+        void send_dn(HTTPConnection*, const std::string&);
+        std::pair<const std::string&, bool> valid_credit(const char*);
         void send_from_ppm_queue();
 
 
     private:
-        std::unordered_map<ConnectionType, ConnectionPool> pools;
+        ConnectionPool ingress_pool;
+        UpstreamRouteMapper upstream_route_mapper;
         Config config;
         RingWrapper& ring;
         BufferManager& buffer_manager;
@@ -82,6 +90,7 @@ class State {
         RPCMapper& rpc_mapper;
         RPCQueue& rpc_queue;
         std::unordered_map<ConnectionType, Listener>& listeners;
+        PPMQueue ppm_queue;
     
     public:
         Stats stats;

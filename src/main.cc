@@ -13,7 +13,7 @@ void MyPrefixFormatter(std::ostream& s, const google::LogMessage& m, void* /*dat
     << std::setw(6) << m.time().usec()
     << ' '
     << m.basename() << ':' << m.line() << "]";
- }
+}
  
 
 int main(int argc, char* argv[]) {
@@ -38,7 +38,7 @@ int main(int argc, char* argv[]) {
     }
     catch(const std::exception& e)
     {
-        std::cerr << e.what() << '\n';
+        DLOG(FATAL) << "Error in event loop: " << e.what();
     }
 }
 

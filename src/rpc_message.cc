@@ -25,12 +25,27 @@ RPCMessage::RPCMessage(uint32_t ds_stream_id, int fd)
     us_stream_id(-1),
     have_req_data(false),
     have_res_data(false),
-    ds_fd(fd)
+    ds_fd(fd),
+    us_fd(-1)
 {}
 
 
 void RPCMessage::add_header_field(const uint8_t* name, size_t name_len,
     const uint8_t* value, size_t value_len, bool request, bool tailer) {
+    
+    if (std::strcmp(reinterpret_cast<const char*>(name), ":path") == 0) {
+        // split the path by /
+        std::string path(reinterpret_cast<const char*>(value), value_len);
+        size_t pos = path.find("/", 1);
+        if (pos != std::string::npos) {
+            service = path.substr(1, pos-1);
+            method = path.substr(pos+1);
+        } else {
+            LOG(FATAL) << "Invalid path: " << path;
+        }
+        VLOG(1) << "Service: " << service << " Method: " << method;
+    }
+
     auto hf = std::make_unique<HeaderField>(
         HeaderField(
             name,
