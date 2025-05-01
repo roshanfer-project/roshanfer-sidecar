@@ -70,16 +70,18 @@ State::State(Config config, RingWrapper& ring, BufferManager& buffer_manager,
         ppm_state.denied_reqs.emplace(route.service, 0);
     }
 
-    auto& conn = ingress_pool.add_connection(
-        config.ingress_upstream_host,
-        config.ingress_upstream_port,
-        &rpc_mapper,
-        &rpc_queue
-    );
-
-    // prepare connect
-    ring.prepare_connect(conn, buffer_manager.get_user_data());
-
+    if (!config.disable_ingress) {
+        auto& conn = ingress_pool.add_connection(
+            config.ingress_upstream_host,
+            config.ingress_upstream_port,
+            &rpc_mapper,
+            &rpc_queue
+        );
+    
+        // prepare connect
+        ring.prepare_connect(conn, buffer_manager.get_user_data());
+    }
+    
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
         LOG(FATAL) << "Failed to create socket";

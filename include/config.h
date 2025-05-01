@@ -25,6 +25,7 @@ struct Config
     int ppm_limit;
     std::string name;
     std::vector<RoutingEntry> routing;
+    bool disable_ingress;
 };
 
 Config load_config(const std::string &filename);

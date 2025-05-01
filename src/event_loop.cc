@@ -316,8 +316,11 @@ EventLoop::EventLoop(Config config)
             ConnectionType::EGRESS,
             Listener(config.egress_listener_port, ConnectionType::EGRESS)
         );
-        listeners.emplace(
-            ConnectionType::INGRESS,
-            Listener(config.ingress_listener_port, ConnectionType::INGRESS)
-        );
+
+        if (!config.disable_ingress) {
+            listeners.emplace(
+                ConnectionType::INGRESS,
+                Listener(config.ingress_listener_port, ConnectionType::INGRESS)
+            );
+        }
     };

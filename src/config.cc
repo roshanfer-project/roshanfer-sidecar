@@ -5,7 +5,11 @@
 
 Config load_config(const std::string &filename) {
     Config config;
-    std::string config_path = "../" + filename;
+
+    // default values
+    config.disable_ingress = false;
+
+    std::string config_path = filename;
     YAML::Node node;
     try {
         node = YAML::LoadFile(config_path);
@@ -22,8 +26,13 @@ Config load_config(const std::string &filename) {
     config.ingress_listener_port= node["ingress_listener_port"].as<int>();
     config.ingress_upstream_host= node["ingress_upstream_host"].as<std::string>();
     config.ingress_upstream_port= node["ingress_upstream_port"].as<int>();
-    config.ppm_limit             = node["ppm_limit"].as<int>();
-    config.name             = node["name"].as<std::string>();
+    config.ppm_limit            = node["ppm_limit"].as<int>();
+    config.name                 = node["name"].as<std::string>();
+
+    // Optional boolean value
+    if (node["disable_ingress"]) {
+        config.disable_ingress = node["disable_ingress"].as<bool>();
+    }
 
     // Parse the routing section
     if (!node["routing"]) {
