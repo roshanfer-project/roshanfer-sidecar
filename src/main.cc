@@ -30,10 +30,10 @@ int main(int argc, char* argv[]) {
 
     Config config = load_config(argv[1]);
 
-    EventLoop event_loop(config);
     LOG(INFO) << "Starting event loop"; 
     try
     {
+        EventLoop event_loop(config);
         event_loop.run();
     }
     catch(const std::exception& e)

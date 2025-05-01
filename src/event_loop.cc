@@ -153,7 +153,7 @@ void EventLoop::run() {
             case Operation::CONNECT: {
                 // check if the connection is successful
                 if (cqe->res < 0) {
-                    LOG(WARNING) << "Failed to connect to fd: " << ud->conn->get_fd();
+                    LOG(FATAL) << "Failed to connect to fd: " << ud->conn->get_fd();
                     break;
                 }
 
