@@ -8,12 +8,14 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 #include "connection_enums.h"
 #include "glog/logging.h"
 #include "rpc_mapper.h"
 #include "rpc_message.h"
 #include <memory>
 #include <sys/types.h>
+#include <unistd.h>
 #include <unordered_map>
 #include <netinet/tcp.h>
 
@@ -423,6 +425,37 @@ HTTPConnection::HTTPConnection(std::string host, uint16_t port, ConnectionType t
 
     VLOG(1) << "Created fd: " << fd << " for host: " << host << " port: " << port;
 
+    // Perform DNS resolution using getaddrinfo
+    struct addrinfo hints, *result;
+    std::memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;       // IPv4
+    hints.ai_socktype = SOCK_STREAM;
+
+    int rv = getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &result);
+    if (rv != 0) {
+        close(fd);
+        LOG(FATAL) << "DNS resolution failed for " << host << ": " << gai_strerror(rv);
+    }
+
+    // Copy resolved address to our member variable addr
+    struct sockaddr_in* addr_in = reinterpret_cast<struct sockaddr_in*>(result->ai_addr);
+    addr = *addr_in;
+
+    // Log the resolved IP address
+    char ip_str[INET_ADDRSTRLEN];
+    if (inet_ntop(AF_INET, &(addr_in->sin_addr), ip_str, sizeof(ip_str)) == nullptr) {
+        LOG(FATAL) << "Failed to convert resolved address to string";
+    } else {
+        VLOG(1) << "Resolved address for " << host << ": " << ip_str;
+    }
+
+    freeaddrinfo(result);
+
+    int flag = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) == -1) {
+        LOG(FATAL) << "Failed to set TCP_NODELAY";
+    }
+
     callback_data = std::make_unique<CallbackData>(CallbackData{
         type,
         direction,
@@ -431,19 +464,6 @@ HTTPConnection::HTTPConnection(std::string host, uint16_t port, ConnectionType t
         mapper,
         &status
     });
-
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-
-    if (inet_pton(AF_INET, host.c_str(), &addr.sin_addr) <= 0) {
-        close(fd);
-        LOG(FATAL) << "Invalid address: " << host;
-    }
-
-    int flag = 1;
-    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) == -1) {
-        LOG(FATAL) << "Failed to set TCP_NODELAY";
-    }
 
     nghttp2_session_callbacks* callbacks;
     nghttp2_session_callbacks_new(&callbacks);
