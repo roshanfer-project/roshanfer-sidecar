@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <sys/types.h>
+#include <unordered_map>
 #include <vector>
 #include <chrono>
 
@@ -20,9 +21,11 @@ class HeaderField {
         size_t value_len;
 };
 
+const size_t MAX_PAYLOAD_SIZE = 20000;
+
 typedef struct DataReadStruct {
     const uint8_t* data;
-    size_t len;
+    size_t offset;
 } DataReadStruct;
 
 class RPCMessage {
@@ -48,10 +51,7 @@ class RPCMessage {
         std::string service;
         std::string method;
 
-        DataReadStruct req_data;
-        DataReadStruct res_data;
-        bool have_req_data;
-        bool have_res_data;
+        std::unordered_map<uint8_t, DataReadStruct> data_map; // 0: req, 1: res
         std::vector<std::unique_ptr<HeaderField>> req_headers;
         std::vector<std::unique_ptr<HeaderField>> res_headers;
         std::vector<std::unique_ptr<HeaderField>> res_trailers;

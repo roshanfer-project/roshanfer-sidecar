@@ -16,15 +16,12 @@ HeaderField::HeaderField(const uint8_t* name, size_t name_len, const uint8_t* va
 }
 
 RPCMessage::RPCMessage(uint32_t ds_stream_id, int fd)
-:   req_data(DataReadStruct{nullptr, 0}),
-    res_data(DataReadStruct{nullptr, 0}),
+:   data_map(std::unordered_map<uint8_t, DataReadStruct>()),
     req_headers(std::vector<std::unique_ptr<HeaderField>>()),
     res_headers(std::vector<std::unique_ptr<HeaderField>>()),
     res_trailers(std::vector<std::unique_ptr<HeaderField>>()),
     ds_stream_id(ds_stream_id),
     us_stream_id(-1),
-    have_req_data(false),
-    have_res_data(false),
     ds_fd(fd),
     us_fd(-1)
 {}
@@ -70,28 +67,26 @@ void RPCMessage::add_header_field(const uint8_t* name, size_t name_len,
 }
 
 void RPCMessage::add_data(const uint8_t* data, size_t len, bool request) {
-    if (request) {
-        if (have_req_data) {
-            LOG(FATAL) << "Request data already exists (Multiple DATA frames)";
-        }
-        req_data.data = new uint8_t[len];
-        std::memcpy(const_cast<uint8_t*>(req_data.data), data, len);
-        req_data.len = len;
-        have_req_data = true;
-    } else {
-        if (have_res_data) {
-            LOG(FATAL) << "Response data already exists (Multiple DATA frames)";
-        }
-        res_data.data = new uint8_t[len];
-        std::memcpy(const_cast<uint8_t*>(res_data.data), data, len);
-        res_data.len = len;
-        have_res_data = true;
+    uint8_t key = request ? 0 : 1;
+    auto& data_struct = this->data_map[key];
+
+    if (data_struct.data == nullptr) {
+        data_struct.data = new uint8_t[MAX_PAYLOAD_SIZE];
+        data_struct.offset = 0;
     }
+
+    if (data_struct.offset + len > MAX_PAYLOAD_SIZE) {
+        LOG(FATAL) << "Data length exceeds maximum payload size";
+    }
+    std::memcpy(const_cast<uint8_t*>(data_struct.data) + data_struct.offset, data, len);
+    data_struct.offset += len;
+    VLOG(1) << "Add data (request:" << request << ") of length: " << len << " for stream id: " << ds_stream_id 
+                << " us_stream_id: " << us_stream_id;
 }
 
 RPCMessage::~RPCMessage() {
     VLOG(1) << "RPCMessage deconstructor on ds_stream_id: " << ds_stream_id 
                 << " us_stream_id: " << us_stream_id;
-    delete [] req_data.data;
-    delete [] res_data.data;
+    delete [] data_map[0].data;
+    delete [] data_map[1].data;
 }

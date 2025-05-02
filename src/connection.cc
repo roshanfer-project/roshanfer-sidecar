@@ -264,16 +264,16 @@ ssize_t data_read_callback_request(nghttp2_session*,
     
     DataReadStruct* info = reinterpret_cast<DataReadStruct*>(source->ptr);
 
-    VLOG(1) << "Data: " << std::string(reinterpret_cast<const char*>(info->data), info->len);
+    VLOG(1) << "Data: " << std::string(reinterpret_cast<const char*>(info->data), info->offset);
 
     // If the output buffer is too small, copy what fits.
-    if (length < info->len) {
+    if (length < info->offset) {
         std::memcpy(buf, info->data, length);
         return length;
     } else {
-        std::memcpy(buf, info->data, info->len);
+        std::memcpy(buf, info->data, info->offset);
         *data_flags |= NGHTTP2_DATA_FLAG_EOF;
-        return info->len;
+        return info->offset;
     }
 };
 
@@ -289,26 +289,26 @@ ssize_t data_read_callback_response(nghttp2_session* session,
     DataReadStruct* info = reinterpret_cast<DataReadStruct*>(source->ptr);
     CallbackData* callback_data = reinterpret_cast<CallbackData*>(user_data);
 
-    if (info->len == 0) {
+    if (info->offset == 0) {
         *data_flags |= NGHTTP2_DATA_FLAG_EOF;
         LOG(FATAL) << "No data to send";
         return 0;
     }
 
-    VLOG(1) << "Data: " << std::string(reinterpret_cast<const char*>(info->data), info->len);
+    VLOG(1) << "Data: " << std::string(reinterpret_cast<const char*>(info->data), info->offset);
 
     // If the output buffer is too small, copy what fits.
     *data_flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
     ssize_t res_len;
-    if (length < info->len) {
+    if (length < info->offset) {
         std::memcpy(buf, info->data, length);
         //return length;
         res_len = length;
     } else {
-        std::memcpy(buf, info->data, info->len);
+        std::memcpy(buf, info->data, info->offset);
         *data_flags |= NGHTTP2_DATA_FLAG_EOF;
         //return info->len;
-        res_len = info->len;
+        res_len = info->offset;
     }
     
     auto rpc = callback_data->mapper->get_ds_rpc(callback_data->type, stream_id, callback_data->fd).get();
@@ -528,7 +528,7 @@ int32_t HTTPConnection::submit_request(RPCMessage& rpc) {
 
     // preprae the data provider
     nghttp2_data_provider data_prd;
-    data_prd.source.ptr = reinterpret_cast<void*>(&rpc.req_data);
+    data_prd.source.ptr = reinterpret_cast<void*>(&rpc.data_map[0]);
     data_prd.read_callback = data_read_callback_request;
 
     // submit the requets and get the upstream stream id
@@ -564,10 +564,10 @@ void HTTPConnection::submit_response(RPCMessage& rpc) {
 
     // preprae the data provider
     nghttp2_data_provider data_prd;
-    data_prd.source.ptr = reinterpret_cast<void*>(&rpc.res_data);
+    data_prd.source.ptr = reinterpret_cast<void*>(&rpc.data_map[1]);
     data_prd.read_callback = data_read_callback_response;
 
-    if (rpc.res_data.len == 0) {
+    if (rpc.data_map[1].offset == 0) {
         LOG(FATAL) << "No data to send";
     }
 
