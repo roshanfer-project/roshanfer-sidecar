@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <string>
 #include <string_view>
@@ -483,15 +484,22 @@ void State::queue_multiplexer(Buffer* req, Buffer* resp) {
 }
 
 void State::udp_send(std::span<char> msg, std::string& host, uint16_t port) {
+    struct addrinfo hints, *res;
+    std::memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET; // IPv4
+    hints.ai_socktype = SOCK_DGRAM;
+
+    int ret = getaddrinfo(host.c_str(), nullptr, &hints, &res);
+    if (ret != 0) {
+        LOG(FATAL) << "DNS resolution failed for host " << host << ": " << gai_strerror(ret);
+        return;
+    }
+
     struct sockaddr_in servaddr;
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(port);
-    servaddr.sin_addr.s_addr = inet_addr(host.c_str());
-
-    if (inet_pton(AF_INET, host.c_str(), &servaddr.sin_addr) <= 0) {
-        LOG(FATAL) << "Invalid server IP address";
-        return;
-    }
+    servaddr.sin_addr = ((struct sockaddr_in*)res->ai_addr)->sin_addr;
+    freeaddrinfo(res);
 
     // write the message to a buffer
     Buffer* buffer = buffer_manager.get_buffer();
