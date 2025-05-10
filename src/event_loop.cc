@@ -52,6 +52,12 @@ void EventLoop::run() {
             case Operation::ACCEPT: {
                 VLOG(1) << "Accept completion event";
 
+                if (cqe->res < 0) {
+                    LOG(FATAL) << "Failed to accept connection, error: "
+                               << strerror(-cqe->res);
+                    break;
+                }
+
                 // get the listener from the user data
                 Listener* listener = ud->listener;
 
@@ -101,7 +107,8 @@ void EventLoop::run() {
 
                 // check corner cases (errors, closed connection)
                 if (cqe->res < 0) {
-                    LOG(FATAL) << "Failed to read from fd: " << orig_conn->get_fd();
+                    LOG(FATAL) << "Failed to read from fd: " << orig_conn->get_fd()
+                               << ", error: " << strerror(-cqe->res);
                 } else if (cqe->res == 0) {
                     LOG(INFO) << "Closing connection on fd: " << orig_conn->get_fd();
 

@@ -157,8 +157,7 @@ int on_data_chunk_recv_callback(nghttp2_session* session,
         }
     }
 
-    VLOG(1) << "Data chunk received on stream " << stream_id << ": "
-    << std::string(reinterpret_cast<const char*>(data), len) << "\n";
+    VLOG(1) << "Data chunk received on stream " << stream_id << " of length: " << len;
     return 0;
 }
 
@@ -269,7 +268,7 @@ ssize_t data_read_callback_request(nghttp2_session*,
     
     DataReadStruct* info = reinterpret_cast<DataReadStruct*>(source->ptr);
 
-    VLOG(1) << "Data: " << std::string(reinterpret_cast<const char*>(info->data), info->offset);
+    VLOG(1) << "data_read_callback_request, data len: " << info->offset;
 
     // If the output buffer is too small, copy what fits.
     if (length < info->offset) {

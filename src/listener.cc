@@ -1,6 +1,5 @@
 #include <listener.h>
 #include <connection.h>
-#include <stdexcept>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -16,7 +15,7 @@ Listener::Listener(uint16_t port, ConnectionType type)
     // Create a socket
     fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
-        throw std::runtime_error("Failed to create socket");
+        LOG(FATAL) << "Failed to create socket";
     }
 
     // Bind the socket
@@ -33,12 +32,12 @@ Listener::Listener(uint16_t port, ConnectionType type)
     }
     
     if (bind(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        throw std::runtime_error("Failed to bind socket: " + std::to_string(port));
+        LOG(FATAL) << "Failed to bind socket: " << port;
     }
 
     // Listen on the socket
     if (listen(fd, 10) < 0) {
-        throw std::runtime_error("Failed to listen on socket: " + std::to_string(port));
+        LOG(FATAL) << "Failed to listen on socket: " << port;
     }
 
     VLOG(1) << "Listener created on port: " << port << " with fd: " << fd;
