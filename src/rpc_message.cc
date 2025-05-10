@@ -23,8 +23,12 @@ RPCMessage::RPCMessage(uint32_t ds_stream_id, int fd)
     ds_stream_id(ds_stream_id),
     us_stream_id(-1),
     ds_fd(fd),
-    us_fd(-1)
-{}
+    us_fd(-1),
+    error(false)
+{
+    data_map.emplace(0, DataReadStruct{nullptr, 0});
+    data_map.emplace(1, DataReadStruct{nullptr, 0});
+}
 
 
 void RPCMessage::add_header_field(const uint8_t* name, size_t name_len,

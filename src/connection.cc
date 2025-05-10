@@ -111,8 +111,13 @@ int frame_recv_callback(nghttp2_session* session,
             // we have a response
             VLOG(1) << "RPC response received on stream " << frame->hd.stream_id;
             data->queue->enqueue(data->type, data->direction, data->fd, frame->hd.stream_id);
-            data->mapper->get_us_rpc(data->type, frame->hd.stream_id, data->fd)->res_rcv_time
-             = std::chrono::system_clock::now();
+            auto& rpc = data->mapper->get_us_rpc(data->type, frame->hd.stream_id, data->fd);
+            rpc->res_rcv_time = std::chrono::system_clock::now();
+            if (rpc->data_map.at(1).offset == 0) {
+                // This is an error response
+                VLOG(1) << "RPC error detected on stream " << frame->hd.stream_id;
+                rpc->error = true;
+            }
         }
     } else if (frame->hd.type == NGHTTP2_SETTINGS) {
         VLOG(1) << "SETTINGS frame received on fd: " << data->fd;
@@ -289,26 +294,26 @@ ssize_t data_read_callback_response(nghttp2_session* session,
     DataReadStruct* info = reinterpret_cast<DataReadStruct*>(source->ptr);
     CallbackData* callback_data = reinterpret_cast<CallbackData*>(user_data);
 
+    VLOG(1) << "data_read_callback_response, data len: " << info->offset;
+    
+    ssize_t res_len;
     if (info->offset == 0) {
         *data_flags |= NGHTTP2_DATA_FLAG_EOF;
-        LOG(FATAL) << "No data to send";
-        return 0;
-    }
-
-    VLOG(1) << "Data: " << std::string(reinterpret_cast<const char*>(info->data), info->offset);
-
-    // If the output buffer is too small, copy what fits.
-    *data_flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
-    ssize_t res_len;
-    if (length < info->offset) {
-        std::memcpy(buf, info->data, length);
-        //return length;
-        res_len = length;
+        res_len = 0;
+        LOG(WARNING) << "No data to send";
     } else {
-        std::memcpy(buf, info->data, info->offset);
-        *data_flags |= NGHTTP2_DATA_FLAG_EOF;
-        //return info->len;
-        res_len = info->offset;
+        // If the output buffer is too small, copy what fits.
+        *data_flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
+        if (length < info->offset) {
+            std::memcpy(buf, info->data, length);
+            //return length;
+            res_len = length;
+        } else {
+            std::memcpy(buf, info->data, info->offset);
+            *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+            //return info->len;
+            res_len = info->offset;
+        }
     }
     
     auto rpc = callback_data->mapper->get_ds_rpc(callback_data->type, stream_id, callback_data->fd).get();
@@ -568,13 +573,31 @@ void HTTPConnection::submit_response(RPCMessage& rpc) {
     data_prd.read_callback = data_read_callback_response;
 
     if (rpc.data_map[1].offset == 0) {
-        LOG(FATAL) << "No data to send";
+        LOG(WARNING) << "No data to send";
     }
 
     nghttp2_submit_response(session, rpc.ds_stream_id,
         nva_res, rpc.res_headers.size(), &data_prd);
 
     VLOG(1) << "HTTP/2 response submitted on fd: " << fd;
+}
+
+void HTTPConnection::submit_error_response(RPCMessage& rpc) {
+    nghttp2_nv* nva_res = new nghttp2_nv[rpc.res_headers.size()];
+    for (int i = 0; i < rpc.res_headers.size(); i++) {
+        nva_res[i].name = rpc.res_headers[i]->name;
+        nva_res[i].value = rpc.res_headers[i]->value;
+        nva_res[i].namelen = rpc.res_headers[i]->name_len;
+        nva_res[i].valuelen = rpc.res_headers[i]->value_len;
+        nva_res[i].flags = NGHTTP2_NV_FLAG_NONE;
+    }
+
+    if (nghttp2_submit_response(session, rpc.ds_stream_id,
+        nva_res, rpc.res_headers.size(), nullptr) != 0) {
+        LOG(FATAL) << "Failed to submit HTTP/2 error response on fd: " << fd;
+    }
+
+    VLOG(1) << "HTTP/2 error response submitted on fd: " << fd;
 }
 
 sockaddr* HTTPConnection::get_addr() {

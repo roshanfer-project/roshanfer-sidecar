@@ -279,7 +279,11 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                 //auto conn = listeners.at(type).get_connections().begin()->second.get();
 
                 // submit the response
-                conn->submit_response(*rpc.get());
+                if (rpc->error) {
+                    conn->submit_error_response(*rpc.get());
+                } else {
+                    conn->submit_response(*rpc.get());
+                }
                 write_http(conn.get());
                 VLOG(1) << "Submitted response on stream " << rpc->ds_stream_id;
 

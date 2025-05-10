@@ -51,6 +51,7 @@ class RPCMessage {
         std::string service;
         std::string method;
 
+        bool error;
         std::unordered_map<uint8_t, DataReadStruct> data_map; // 0: req, 1: res
         std::vector<std::unique_ptr<HeaderField>> req_headers;
         std::vector<std::unique_ptr<HeaderField>> res_headers;

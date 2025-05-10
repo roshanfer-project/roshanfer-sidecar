@@ -57,6 +57,7 @@ class HTTPConnection {
         void submit_settings();
         int32_t submit_request(RPCMessage&);
         void submit_response(RPCMessage&);
+        void submit_error_response(RPCMessage&);
         uint16_t get_port() { return port; }
         std::string& get_host() { return host; }
 
