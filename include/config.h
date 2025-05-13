@@ -29,3 +29,5 @@ struct Config
 };
 
 Config load_config(const std::string &filename);
+
+extern Config config;

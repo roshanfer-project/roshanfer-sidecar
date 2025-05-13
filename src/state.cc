@@ -126,19 +126,6 @@ void State::write_http(HTTPConnection* conn) {
     VLOG(1) << "Finished writing batch of HTTP/2 data written on fd: " << conn->get_fd();
 }
 
-void State::report_latency(RPCMessage& rpc, ConnectionType type) {
-    // calculate the duration
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::system_clock::now() - rpc.req_rcv_time);
-    
-    LOG(INFO) << "M# " << config.name << " E2E-" << type_to_str(type) << " " << duration.count();
-    
-    LOG(INFO) << "M# " << config.name << " REQ-FOR " << std::chrono::duration_cast<std::chrono::microseconds>(
-        rpc.req_for_time - rpc.req_rcv_time).count();
-
-    LOG(INFO) << "M# " << config.name << " RES-FOR " << std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::system_clock::now() - rpc.res_rcv_time).count();
-}
 
 HTTPConnection* State::route_request(ConnectionType type, uint32_t ds_stream_id, int ds_fd) {
     // get the RPC message
@@ -186,9 +173,7 @@ bool State::forward_request(HTTPConnection* conn, std::shared_ptr<RPCMessage>& r
         // update the mapping
         rpc_mapper.route(conn->type, rpc->ds_stream_id, rpc->ds_fd, rpc->us_stream_id, conn->get_fd());
 
-        // record the time
-        rpc->req_for_time = std::chrono::system_clock::now();
-        LOG(INFO) << "M# " << config.name << " REQ 1";
+        //LOG(INFO) << "M# " << config.name << " REQ 1";
 
         /* // update ppm state
         if (type == ConnectionType::EGRESS) {
@@ -287,17 +272,12 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                 write_http(conn.get());
                 VLOG(1) << "Submitted response on stream " << rpc->ds_stream_id;
 
-                // report latency
-                report_latency(*rpc.get(), type);
 
                 // update stats
                 stats.sidecar_resp_in[type]++;
                 if (type == ConnectionType::EGRESS) {
                     stats.new_response_in = true;
                 }
-
-                // remove the RPC message from memory
-                rpc_mapper.remove_rpc(type, rpc);
                 
             } catch (const std::out_of_range& e) {
                 LOG(FATAL) << "No connection found for fd: " << rpc->ds_fd;

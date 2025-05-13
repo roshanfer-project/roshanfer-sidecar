@@ -13,6 +13,7 @@
 #include "glog/logging.h"
 #include "rpc_mapper.h"
 #include "rpc_message.h"
+#include "stats.h"
 #include <memory>
 #include <sys/types.h>
 #include <unistd.h>
@@ -258,17 +259,20 @@ int on_frame_send_callback(nghttp2_session *session,
 }
 
 ssize_t data_read_callback_request(nghttp2_session*,
-                        int32_t /*stream_id*/,
+                        int32_t stream_id,
                         uint8_t* buf,
                         size_t length,
                         uint32_t* data_flags,
                         nghttp2_data_source* source,
-                        void* /*user_data*/) {
+                        void* user_data) {
     VLOG(1) << "Data provider read callback";
     
     DataReadStruct* info = reinterpret_cast<DataReadStruct*>(source->ptr);
+    CallbackData* callback_data = reinterpret_cast<CallbackData*>(user_data);
 
-    VLOG(1) << "data_read_callback_request, data len: " << info->offset;
+    VLOG(1) << "data_read_callback_request, data len: " << info->offset
+            << " stream id: " << stream_id
+            << " fd: " << callback_data->fd;
 
     // If the output buffer is too small, copy what fits.
     if (length < info->offset) {
@@ -279,6 +283,10 @@ ssize_t data_read_callback_request(nghttp2_session*,
         *data_flags |= NGHTTP2_DATA_FLAG_EOF;
         return info->offset;
     }
+
+    // record the time
+    callback_data->mapper->get_ds_rpc(callback_data->type, stream_id, callback_data->fd)->req_for_time
+     = std::chrono::system_clock::now();
 };
 
 ssize_t data_read_callback_response(nghttp2_session* session,
@@ -288,12 +296,13 @@ ssize_t data_read_callback_response(nghttp2_session* session,
                             uint32_t* data_flags,
                             nghttp2_data_source* source,
                             void* user_data) {
-    VLOG(1) << "Data provider read callback";
 
     DataReadStruct* info = reinterpret_cast<DataReadStruct*>(source->ptr);
     CallbackData* callback_data = reinterpret_cast<CallbackData*>(user_data);
 
-    VLOG(1) << "data_read_callback_response, data len: " << info->offset;
+    VLOG(1) << "data_read_callback_response, data len: " << info->offset
+            << " stream id: " << stream_id
+            << " fd: " << callback_data->fd;
     
     ssize_t res_len;
     if (info->offset == 0) {
@@ -330,6 +339,12 @@ ssize_t data_read_callback_response(nghttp2_session* session,
             rpc->res_trailers.size()) != 0) {
         LOG(FATAL) << "Failed to submit HTTP/2 response trailers";
     }
+
+    // report latency
+    report_latency(*rpc, callback_data->type);
+
+    // remove the RPC message from memory
+    callback_data->mapper->remove_rpc(callback_data->type, *rpc);
 
     return res_len;
 };

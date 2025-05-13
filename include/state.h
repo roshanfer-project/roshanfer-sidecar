@@ -72,8 +72,6 @@ class State {
     private:
         void udp_send(std::span<char>, std::string&, uint16_t);
 
-        void report_latency(RPCMessage&, ConnectionType);
-
         // PPM-related functions
         void send_dn(HTTPConnection*, const std::string&);
         std::pair<const std::string&, bool> valid_credit(const char*);

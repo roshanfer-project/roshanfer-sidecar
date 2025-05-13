@@ -48,7 +48,7 @@ std::shared_ptr<RPCMessage>& RPCMapper::get_us_rpc(ConnectionType type, uint32_t
     try {
         return us_map[type][us_fd].at(us_stream_id);
     } catch (const std::out_of_range& e) {
-        LOG(FATAL) << "No RPC found for fd: " << us_fd << " and stream id: " 
+        LOG(FATAL) << "No US RPC found for fd: " << us_fd << " and stream id: " 
                     << us_stream_id << " of type: " << type_to_str(type);
     }
 }
@@ -57,14 +57,14 @@ std::shared_ptr<RPCMessage>& RPCMapper::get_ds_rpc(ConnectionType type, uint32_t
     try {
         return ds_map[type][ds_fd].at(ds_stream_id);
     } catch (const std::out_of_range& e) {
-        LOG(FATAL) << "No RPC found for fd: " << ds_fd << " and stream id: " << ds_stream_id
+        LOG(FATAL) << "No DS RPC found for fd: " << ds_fd << " and stream id: " << ds_stream_id
                     << " of type: " << type_to_str(type);
     }
 }
 
-void RPCMapper::remove_rpc(ConnectionType type, std::shared_ptr<RPCMessage>& rpc) {
-    us_map[type][rpc->us_fd].erase(rpc->us_stream_id);
-    ds_map[type][rpc->ds_fd].erase(rpc->ds_stream_id);
+void RPCMapper::remove_rpc(ConnectionType type, RPCMessage& rpc) {
+    us_map[type][rpc.us_fd].erase(rpc.us_stream_id);
+    ds_map[type][rpc.ds_fd].erase(rpc.ds_stream_id);
 }
 
 

@@ -14,7 +14,7 @@ class RPCMapper {
         void route(ConnectionType, uint32_t, int, uint32_t, int);
         std::shared_ptr<RPCMessage>& get_us_rpc(ConnectionType, uint32_t, int);
         std::shared_ptr<RPCMessage>& get_ds_rpc(ConnectionType, uint32_t, int);
-        void remove_rpc(ConnectionType, std::shared_ptr<RPCMessage>&);
+        void remove_rpc(ConnectionType, RPCMessage&);
     
     private:
     std::unordered_map<ConnectionType,

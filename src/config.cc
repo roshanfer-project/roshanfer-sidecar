@@ -2,12 +2,13 @@
 #include <yaml-cpp/yaml.h>
 #include "glog/logging.h"
 
+Config config;
 
 Config load_config(const std::string &filename) {
-    Config config;
+    Config local_config;
 
     // default values
-    config.disable_ingress = false;
+    local_config.disable_ingress = false;
 
     std::string config_path = filename;
     YAML::Node node;
@@ -19,25 +20,28 @@ Config load_config(const std::string &filename) {
         LOG(FATAL) << "Error parsing config file: " << config_path << " - " << e.what();
    }
 
-    config.ring_size            = node["ring_size"].as<int>();
-    config.buffer_count         = node["buffer_count"].as<int>();
-    config.buffer_size          = node["buffer_size"].as<int>();
-    config.egress_listener_port = node["egress_listener_port"].as<int>();
-    config.ingress_listener_port= node["ingress_listener_port"].as<int>();
-    config.ingress_upstream_host= node["ingress_upstream_host"].as<std::string>();
-    config.ingress_upstream_port= node["ingress_upstream_port"].as<int>();
-    config.ppm_limit            = node["ppm_limit"].as<int>();
-    config.name                 = node["name"].as<std::string>();
+    local_config.ring_size            = node["ring_size"].as<int>();
+    local_config.buffer_count         = node["buffer_count"].as<int>();
+    local_config.buffer_size          = node["buffer_size"].as<int>();
+    local_config.egress_listener_port = node["egress_listener_port"].as<int>();
+    local_config.ingress_listener_port= node["ingress_listener_port"].as<int>();
+    local_config.ingress_upstream_host= node["ingress_upstream_host"].as<std::string>();
+    local_config.ingress_upstream_port= node["ingress_upstream_port"].as<int>();
+    local_config.ppm_limit            = node["ppm_limit"].as<int>();
+    local_config.name                 = node["name"].as<std::string>();
+
+    LOG(INFO) << "config.name: " << local_config.name;
+    config = local_config;
 
     // Optional boolean value
     if (node["disable_ingress"]) {
-        config.disable_ingress = node["disable_ingress"].as<bool>();
+        local_config.disable_ingress = node["disable_ingress"].as<bool>();
     }
 
     // Parse the routing section
     if (!node["routing"]) {
         LOG(WARNING) << "Routing section not found";
-        return config;
+        return local_config;
     }
     if (node["routing"].IsSequence()) {
         for (const auto& route_node : node["routing"]) {
@@ -48,7 +52,7 @@ Config load_config(const std::string &filename) {
                 if (upstream_node["host"] && upstream_node["port"]) {
                     entry.upstream.host = upstream_node["host"].as<std::string>();
                     entry.upstream.port = upstream_node["port"].as<int>();
-                    config.routing.push_back(entry);
+                    local_config.routing.push_back(entry);
                 } else {
                     LOG(FATAL) << "Skipping routing entry: Missing host or port in upstream section for service " << entry.service;
                 }
@@ -60,5 +64,5 @@ Config load_config(const std::string &filename) {
         LOG(FATAL) << "Routing section not a sequence in " << config_path;
     }
 
-    return config;
+    return local_config;
 }
