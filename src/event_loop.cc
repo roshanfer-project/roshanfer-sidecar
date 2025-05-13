@@ -51,39 +51,38 @@ void EventLoop::run() {
             {
             case Operation::ACCEPT: {
                 VLOG(1) << "Accept completion event";
+                // get the listener from the user data
+                    Listener* listener = ud->listener;
 
                 if (cqe->res < 0) {
-                    LOG(FATAL) << "Failed to accept connection, error: "
+                    LOG(ERROR) << "Failed to accept connection, error: "
                                << strerror(-cqe->res);
-                    break;
+                    //break;
+                } else {
+                    // add the connection to the listener
+                    HTTPConnection& conn = listener->add_connection(
+                        cqe->res,
+                        std::addressof(rpc_mapper),
+                        std::addressof(rpc_queue)
+                    );
+
+                    VLOG(1) << "Accepted connection on " << listener->type_to_str() << " listener"
+                            << " fd: " << listener->get_fd();
+                    VLOG(1) << "New connection on fd: " << conn.get_fd();
+
+                    // submit the first setting frame
+                    conn.submit_settings();
+
+                    // prepare the first read
+                    Buffer* buffer = buffer_manager.get_buffer();
+                    auto read_ud = buffer_manager.get_user_data();
+                    prepare_read(read_ud, buffer, listener, std::addressof(conn));
+                    ring.prepare_read(
+                        buffer,
+                        conn.get_fd(),
+                        read_ud
+                    );
                 }
-
-                // get the listener from the user data
-                Listener* listener = ud->listener;
-
-                // add the connection to the listener
-                HTTPConnection& conn = listener->add_connection(
-                    cqe->res,
-                    std::addressof(rpc_mapper),
-                    std::addressof(rpc_queue)
-                );
-
-                VLOG(1) << "Accepted connection on " << listener->type_to_str() << " listener"
-                           << " fd: " << listener->get_fd();
-                VLOG(1) << "New connection on fd: " << conn.get_fd();
-
-                // submit the first setting frame
-                conn.submit_settings();
-
-                // prepare the first read
-                Buffer* buffer = buffer_manager.get_buffer();
-                auto read_ud = buffer_manager.get_user_data();
-                prepare_read(read_ud, buffer, listener, std::addressof(conn));
-                ring.prepare_read(
-                    buffer,
-                    conn.get_fd(),
-                    read_ud
-                );
 
                 // re-arm accept on the listener
                 ring.prepare_accept(*listener, buffer_manager.get_user_data());
@@ -106,11 +105,13 @@ void EventLoop::run() {
                 VLOG(1) << "Connection direction: " << orig_conn->direction_to_str();
 
                 // check corner cases (errors, closed connection)
-                if (cqe->res < 0) {
-                    LOG(FATAL) << "Failed to read from fd: " << orig_conn->get_fd()
+                if (cqe->res <= 0) {
+                    if (cqe->res < 0) {
+                        LOG(ERROR) << "Failed to read from " << orig_conn->get_host() << ":" << orig_conn->get_port()
                                << ", error: " << strerror(-cqe->res);
-                } else if (cqe->res == 0) {
-                    LOG(INFO) << "Closing connection on fd: " << orig_conn->get_fd();
+                    } else if (cqe->res == 0) {
+                        LOG(INFO) << "Closing connection on fd: " << orig_conn->get_fd();
+                    }
 
                     // update connection status
                     orig_conn->set_status(ConnectionStatus::TEARDOWN);
