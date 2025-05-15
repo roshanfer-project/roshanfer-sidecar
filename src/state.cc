@@ -314,7 +314,7 @@ std::pair<const std::string&, bool> State::valid_credit(const char* data) {
     if (data[2] != 0x01) {
         LOG(FATAL) << "Expected a response";
     }
-    std::string_view key(data+4);
+    std::string_view key(data+4, data[0] - 4);
     if (data[3] == 0x01) {
         
         return {ppm_queue.check(key), true};

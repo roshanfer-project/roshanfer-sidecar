@@ -15,7 +15,6 @@ Buffer::Buffer(int size, int index)
 }
 
 void Buffer::clear() {
-    std::memset(data.get(), 0, size);
     msg = nullptr;
     addr = nullptr;
     iov = nullptr;

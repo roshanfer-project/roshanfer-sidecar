@@ -29,7 +29,6 @@ Buffer* BufferManager::get_buffer() {
     for (int i = 0; i < count; i++) {
         if (!used_buffer[i]) {
             used_buffer[i] = true;
-            std::memset(buffers[i]->data.get(), 0, size);
             return buffers[i];
         }
     }
