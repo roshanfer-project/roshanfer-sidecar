@@ -7,9 +7,6 @@ Config config;
 Config load_config(const std::string &filename) {
     Config local_config;
 
-    // default values
-    local_config.disable_ingress = false;
-
     std::string config_path = filename;
     YAML::Node node;
     try {
@@ -31,16 +28,27 @@ Config load_config(const std::string &filename) {
     local_config.name                 = node["name"].as<std::string>();
 
     LOG(INFO) << "config.name: " << local_config.name;
-    config = local_config;
 
-    // Optional boolean value
+    // Optional disable_ingress
     if (node["disable_ingress"]) {
         local_config.disable_ingress = node["disable_ingress"].as<bool>();
+    } else {
+        local_config.disable_ingress = false;
     }
+    LOG(INFO) << "config.disable_ingress: " << local_config.disable_ingress;
+
+    // Optional report_latency
+    if (node["report_latency"]) {
+        local_config.report_latency = node["report_latency"].as<bool>();
+    } else {
+        local_config.report_latency = false;
+    }
+    LOG(INFO) << "config.report_latency: " << local_config.report_latency;
 
     // Parse the routing section
     if (!node["routing"]) {
         LOG(WARNING) << "Routing section not found";
+        config = local_config;
         return local_config;
     }
     if (node["routing"].IsSequence()) {
@@ -64,5 +72,6 @@ Config load_config(const std::string &filename) {
         LOG(FATAL) << "Routing section not a sequence in " << config_path;
     }
 
+    config = local_config;
     return local_config;
 }

@@ -26,6 +26,7 @@ struct Config
     std::string name;
     std::vector<RoutingEntry> routing;
     bool disable_ingress;
+    bool report_latency;
 };
 
 Config load_config(const std::string &filename);

@@ -14,6 +14,7 @@
 #include "rpc_mapper.h"
 #include "rpc_message.h"
 #include "stats.h"
+#include "config.h"
 #include <memory>
 #include <sys/types.h>
 #include <unistd.h>
@@ -341,8 +342,10 @@ ssize_t data_read_callback_response(nghttp2_session* session,
     }
 
     // report latency
-    report_latency(*rpc, callback_data->type);
-
+    if (config.report_latency) {
+        report_latency(*rpc, callback_data->type);
+    }
+    
     // remove the RPC message from memory
     callback_data->mapper->remove_rpc(callback_data->type, *rpc);
 

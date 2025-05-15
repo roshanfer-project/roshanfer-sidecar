@@ -20,11 +20,15 @@ void inline report_latency(RPCMessage& rpc, ConnectionType type) {
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::system_clock::now() - rpc.req_rcv_time);
     
-    LOG(INFO) << "M# " << config.name << " E2E-" << type_to_str(type) << " " << duration.count();
+    // template: M# <sidecar name> <metric name> <connection type> <service>:<method> <value>
+    LOG(INFO) << "M# " << config.name << " E2E " << type_to_str(type) <<
+        " " << rpc.service << ":" << rpc.method << " " << duration.count();
     
-    LOG(INFO) << "M# " << config.name << " REQ-FOR " << std::chrono::duration_cast<std::chrono::microseconds>(
+    LOG(INFO) << "M# " << config.name << " REQ-FOR " << type_to_str(type) << " " 
+        << rpc.service << ":" << rpc.method << " " << std::chrono::duration_cast<std::chrono::microseconds>(
         rpc.req_for_time - rpc.req_rcv_time).count();
 
-    LOG(INFO) << "M# " << config.name << " RES-FOR " << std::chrono::duration_cast<std::chrono::microseconds>(
+    LOG(INFO) << "M# " << config.name << " RES-FOR " << type_to_str(type) << " " 
+        << rpc.service << ":" << rpc.method << " " << std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::system_clock::now() - rpc.res_rcv_time).count();
 }
