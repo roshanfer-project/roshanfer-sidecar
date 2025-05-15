@@ -286,7 +286,7 @@ ssize_t data_read_callback_request(nghttp2_session*,
     }
 
     // record the time
-    callback_data->mapper->get_ds_rpc(callback_data->type, stream_id, callback_data->fd)->req_for_time
+    callback_data->mapper->get_us_rpc(callback_data->type, stream_id, callback_data->fd)->req_for_time
      = std::chrono::system_clock::now();
 };
 
