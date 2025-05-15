@@ -423,7 +423,7 @@ void State::send_dn(HTTPConnection* conn, const std::string& service) {
     msg[2] = 0x00; // request (0x00), response (0x01)
     msg[3] = 0x01; // number of credits
     std::memcpy(msg + 4, service.c_str(), service.length());
-    udp_send(std::span<char>(msg, len), conn->get_host(), conn->get_port());
+    udp_send(std::span<char>(msg, len), reinterpret_cast<struct sockaddr_in*>(conn->get_addr()));
     //ppm_state.sent_dns++;
     VLOG(1) << "Sent demand notification";
 }
@@ -467,23 +467,7 @@ void State::queue_multiplexer(Buffer* req, Buffer* resp) {
     }
 }
 
-void State::udp_send(std::span<char> msg, std::string& host, uint16_t port) {
-    struct addrinfo hints, *res;
-    std::memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_INET; // IPv4
-    hints.ai_socktype = SOCK_DGRAM;
-
-    int ret = getaddrinfo(host.c_str(), nullptr, &hints, &res);
-    if (ret != 0) {
-        LOG(FATAL) << "DNS resolution failed for host " << host << ": " << gai_strerror(ret);
-        return;
-    }
-
-    struct sockaddr_in servaddr;
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(port);
-    servaddr.sin_addr = ((struct sockaddr_in*)res->ai_addr)->sin_addr;
-    freeaddrinfo(res);
+void State::udp_send(std::span<char> msg, struct sockaddr_in* addr) {
 
     // write the message to a buffer
     Buffer* buffer = buffer_manager.get_buffer();
@@ -495,7 +479,7 @@ void State::udp_send(std::span<char> msg, std::string& host, uint16_t port) {
         sockfd,
         buffer,
         buffer_manager.get_user_data(),
-        servaddr
+        *addr
     );
 
     // preprae rcvmsg for the response
