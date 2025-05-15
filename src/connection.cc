@@ -259,6 +259,9 @@ int on_frame_send_callback(nghttp2_session *session,
     return 0;
 }
 
+/*
+    Note that in this callback we have upstream fd and stream id
+*/
 ssize_t data_read_callback_request(nghttp2_session*,
                         int32_t stream_id,
                         uint8_t* buf,
@@ -266,7 +269,6 @@ ssize_t data_read_callback_request(nghttp2_session*,
                         uint32_t* data_flags,
                         nghttp2_data_source* source,
                         void* user_data) {
-    VLOG(1) << "Data provider read callback";
     
     DataReadStruct* info = reinterpret_cast<DataReadStruct*>(source->ptr);
     CallbackData* callback_data = reinterpret_cast<CallbackData*>(user_data);
@@ -276,18 +278,21 @@ ssize_t data_read_callback_request(nghttp2_session*,
             << " fd: " << callback_data->fd;
 
     // If the output buffer is too small, copy what fits.
+    ssize_t res_len;
     if (length < info->offset) {
         std::memcpy(buf, info->data, length);
-        return length;
+        res_len = length;
     } else {
         std::memcpy(buf, info->data, info->offset);
         *data_flags |= NGHTTP2_DATA_FLAG_EOF;
-        return info->offset;
+        res_len = info->offset;
     }
 
     // record the time
     callback_data->mapper->get_us_rpc(callback_data->type, stream_id, callback_data->fd)->req_for_time
      = std::chrono::system_clock::now();
+
+    return res_len;
 };
 
 ssize_t data_read_callback_response(nghttp2_session* session,
