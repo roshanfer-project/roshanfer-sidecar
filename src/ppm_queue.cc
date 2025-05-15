@@ -34,7 +34,12 @@ std::shared_ptr<RPCMessage> PPMQueue::dequeue(const std::string& service) {
 const std::string& PPMQueue::check(std::string_view& service) {
     auto it = ppm_queue.find(service);
     if (it == ppm_queue.end()) {
-        LOG(FATAL) << "Service not found in PPM queue: " << service;
+        LOG(INFO) << "ppm_queue size: " << ppm_queue.size()
+                    << " keys: ";
+        for (const auto& kv : ppm_queue) {
+            LOG(INFO) << "'" << kv.first << "'";
+        }
+        LOG(FATAL) << "Service not found in PPM queue: " << service << " (size: " << service.length() << ")";
     }
     if (it->second.empty()) {
         LOG(FATAL) << "Trying to find from an empty queue";

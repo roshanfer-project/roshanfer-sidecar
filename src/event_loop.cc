@@ -100,7 +100,7 @@ void EventLoop::run() {
 
                 // log the read event
                 VLOG(1) << "Read completion event, fd: " << orig_conn->get_fd();
-                VLOG(1) << "Read " << cqe->res << " bytes from buffer: " << buffer->data.get();
+                VLOG(1) << "Read " << cqe->res << " bytes from buffer";
                 VLOG(1) << "Connection type: " << orig_conn->type_to_str();
                 VLOG(1) << "Connection direction: " << orig_conn->direction_to_str();
 

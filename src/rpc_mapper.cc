@@ -46,7 +46,12 @@ void RPCMapper::route(ConnectionType type, uint32_t ds_stream_id, int ds_fd, uin
 
 std::shared_ptr<RPCMessage>& RPCMapper::get_us_rpc(ConnectionType type, uint32_t us_stream_id, int us_fd) {
     try {
-        return us_map[type][us_fd].at(us_stream_id);
+        auto& rpc = us_map[type][us_fd].at(us_stream_id);
+        VLOG(2) << "Access rpc with get_us_rpc. ds_fd: " << rpc->ds_fd
+                << " ds_stream_id: " << rpc->ds_stream_id
+                << " us_fd: " << us_fd
+                << " us_stream_id: " << us_stream_id; 
+        return rpc;
     } catch (const std::out_of_range& e) {
         LOG(FATAL) << "No US RPC found for fd: " << us_fd << " and stream id: " 
                     << us_stream_id << " of type: " << type_to_str(type);
@@ -55,7 +60,12 @@ std::shared_ptr<RPCMessage>& RPCMapper::get_us_rpc(ConnectionType type, uint32_t
 
 std::shared_ptr<RPCMessage>& RPCMapper::get_ds_rpc(ConnectionType type, uint32_t ds_stream_id, int ds_fd) {
     try {
-        return ds_map[type][ds_fd].at(ds_stream_id);
+        auto& rpc = ds_map[type][ds_fd].at(ds_stream_id);
+        VLOG(2) << "Access rpc with get_ds_rpc. ds_fd: " << ds_fd
+                << " ds_stream_id: " << ds_stream_id
+                << " us_fd: " << rpc->us_fd
+                << " us_stream_id: " << rpc->us_stream_id;
+        return rpc;
     } catch (const std::out_of_range& e) {
         LOG(FATAL) << "No DS RPC found for fd: " << ds_fd << " and stream id: " << ds_stream_id
                     << " of type: " << type_to_str(type);

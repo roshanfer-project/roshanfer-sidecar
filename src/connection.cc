@@ -98,11 +98,11 @@ int frame_recv_callback(nghttp2_session* session,
     CallbackData* data = reinterpret_cast<CallbackData*>(user_data);
 
     if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
-        VLOG(1) << "EOS flag detected on fd: " << data->fd;
+        VLOG(1) << "EOS flag detected on fd: " << data->fd << " stream id: " << frame->hd.stream_id;
 
         if (frame->hd.type == NGHTTP2_DATA) {
             // we have a request
-            VLOG(1) << "RPC request received on stream " << frame->hd.stream_id;
+            VLOG(1) << "RPC request received on fd: " << data->fd << " stream id: " << frame->hd.stream_id;
             data->queue->enqueue(data->type, data->direction, data->fd, frame->hd.stream_id);
 
             // record receive time for the RPC
@@ -111,24 +111,24 @@ int frame_recv_callback(nghttp2_session* session,
         }
         else if (frame->hd.type == NGHTTP2_HEADERS) {
             // we have a response
-            VLOG(1) << "RPC response received on stream " << frame->hd.stream_id;
+            VLOG(1) << "RPC response received on fd: " << data->fd << " stream id: " << frame->hd.stream_id;
             data->queue->enqueue(data->type, data->direction, data->fd, frame->hd.stream_id);
             auto& rpc = data->mapper->get_us_rpc(data->type, frame->hd.stream_id, data->fd);
             rpc->res_rcv_time = std::chrono::system_clock::now();
             if (rpc->data_map.at(1).offset == 0) {
                 // This is an error response
-                VLOG(1) << "RPC error detected on stream " << frame->hd.stream_id;
+                VLOG(1) << "RPC error detected on fd: " << data->fd  << " stream id: " << frame->hd.stream_id;
                 rpc->error = true;
             }
         }
     } else if (frame->hd.type == NGHTTP2_SETTINGS) {
-        VLOG(1) << "SETTINGS frame received on fd: " << data->fd;
+        VLOG(1) << "SETTINGS frame received on fd: " << data->fd << " stream id: " << frame->hd.stream_id;
         if (*data->status == ConnectionStatus::DOWN) {
             *data->status = ConnectionStatus::UP;
-            VLOG(1) << "Change status to UP, fd: " << data->fd;
+            VLOG(1) << "Change status to UP, fd: " << data->fd << " stream id: " << frame->hd.stream_id;
         }
     } else {
-        VLOG(1) << "Frame type " << frame_type_to_str(frame->hd.type) << " received on fd: " << data->fd;
+        VLOG(1) << "Frame type " << frame_type_to_str(frame->hd.type) << " received on fd: " << data->fd << " stream id: " << frame->hd.stream_id;
     }
     return 0;
 }
@@ -159,7 +159,7 @@ int on_data_chunk_recv_callback(nghttp2_session* session,
         }
     }
 
-    VLOG(1) << "Data chunk received on stream " << stream_id << " of length: " << len;
+    VLOG(1) << "on_data_chunk_recv_callback fd: " << callback_data->fd << " stream id: " << stream_id << " of length: " << len;
     return 0;
 }
 
@@ -179,7 +179,7 @@ int on_header_callback(nghttp2_session* session,
         }
 
         // a request header
-        VLOG(1) << "Request header received on stream " << frame->hd.stream_id;
+        VLOG(1) << "Request header received on fd: " << data->fd << " stream id: " << frame->hd.stream_id;
         data->mapper->get_ds_rpc(data->type, frame->hd.stream_id, data->fd)->add_header_field(
             name, namelen, value, valuelen, true, false);
     } else if (frame->headers.cat == NGHTTP2_HCAT_HEADERS) {
@@ -187,7 +187,7 @@ int on_header_callback(nghttp2_session* session,
             LOG(FATAL) << "Invalid direction for response frame";
         }
 
-        VLOG(1) << "tailer header received on stream " << frame->hd.stream_id;
+        VLOG(1) << "tailer header received on fd: " << data->fd << " stream id:" << frame->hd.stream_id;
         
         data->mapper->get_us_rpc(data->type, frame->hd.stream_id, data->fd)->add_header_field(
             name, namelen, value, valuelen, false, true);
@@ -196,7 +196,7 @@ int on_header_callback(nghttp2_session* session,
             LOG(FATAL) << "Invalid direction for response frame";
         }
 
-        VLOG(1) << "Response header received on stream " << frame->hd.stream_id;
+        VLOG(1) << "Response header received on fd: " << data->fd << " stream id: " << frame->hd.stream_id;
         data->mapper->get_us_rpc(data->type, frame->hd.stream_id, data->fd)->add_header_field(
             name, namelen, value, valuelen, false, false);
     }
@@ -255,7 +255,7 @@ int on_frame_send_callback(nghttp2_session *session,
     
     CallbackData* data = reinterpret_cast<CallbackData*>(user_data);
 
-    VLOG(1) << "Frame type " << frame_type_to_str(frame->hd.type) << " sent on fd: " << data->fd;
+    VLOG(1) << "Frame type " << frame_type_to_str(frame->hd.type) << " sent on fd: " << data->fd << " stream id: " << frame->hd.stream_id;
     return 0;
 }
 
@@ -566,7 +566,7 @@ int32_t HTTPConnection::submit_request(RPCMessage& rpc) {
         LOG(FATAL) << "Failed to submit HTTP/2 request on fd: " << fd;
     }
 
-    VLOG(1) << "HTTP/2 request submitted on fd: " << fd;
+    VLOG(1) << "HTTP/2 request submitted on fd: " << fd << " stream id: " << id;
     return id;
 }
 
