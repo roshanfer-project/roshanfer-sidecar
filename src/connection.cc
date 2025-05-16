@@ -113,7 +113,7 @@ int frame_recv_callback(nghttp2_session* session,
             // we have a response
             VLOG(1) << "RPC response received on fd: " << data->fd << " stream id: " << frame->hd.stream_id;
             data->queue->enqueue(data->type, data->direction, data->fd, frame->hd.stream_id);
-            auto& rpc = data->mapper->get_us_rpc(data->type, frame->hd.stream_id, data->fd);
+            auto rpc = data->mapper->get_us_rpc(data->type, frame->hd.stream_id, data->fd);
             rpc->res_rcv_time = std::chrono::system_clock::now();
             if (rpc->data_map.at(1).offset == 0) {
                 // This is an error response
@@ -330,10 +330,10 @@ ssize_t data_read_callback_response(nghttp2_session* session,
         }
     }
     
-    auto rpc = callback_data->mapper->get_ds_rpc(callback_data->type, stream_id, callback_data->fd).get();
+    auto rpc = callback_data->mapper->get_ds_rpc(callback_data->type, stream_id, callback_data->fd);
 
-    nghttp2_nv* nva_trailers = new nghttp2_nv[rpc->res_trailers.size()];
-    for (int i = 0; i < rpc->res_trailers.size(); i++) {
+    nghttp2_nv* nva_trailers = new nghttp2_nv[rpc->res_trailer_count];
+    for (int i = 0; i < rpc->res_trailer_count; i++) {
         nva_trailers[i].name = rpc->res_trailers[i]->name;
         nva_trailers[i].value = rpc->res_trailers[i]->value;
         nva_trailers[i].namelen = rpc->res_trailers[i]->name_len;
@@ -342,9 +342,10 @@ ssize_t data_read_callback_response(nghttp2_session* session,
     }
 
     if (nghttp2_submit_trailer(session, rpc->ds_stream_id, nva_trailers,
-            rpc->res_trailers.size()) != 0) {
+            rpc->res_trailer_count) != 0) {
         LOG(FATAL) << "Failed to submit HTTP/2 response trailers";
     }
+    delete [] nva_trailers;
 
     // report latency
     if (config.report_latency) {
@@ -352,7 +353,7 @@ ssize_t data_read_callback_response(nghttp2_session* session,
     }
     
     // remove the RPC message from memory
-    callback_data->mapper->remove_rpc(callback_data->type, *rpc);
+    callback_data->mapper->remove_rpc(callback_data->type, rpc);
 
     return res_len;
 };
@@ -544,8 +545,8 @@ void HTTPConnection::submit_settings() {
 }
 
 int32_t HTTPConnection::submit_request(RPCMessage& rpc) {
-    nghttp2_nv* nva = new nghttp2_nv[rpc.req_headers.size()];
-    for (int i = 0; i < rpc.req_headers.size(); i++) {
+    nghttp2_nv* nva = new nghttp2_nv[rpc.req_header_count];
+    for (int i = 0; i < rpc.req_header_count; i++) {
         nva[i].name = rpc.req_headers[i]->name;
         nva[i].value = rpc.req_headers[i]->value;
         nva[i].namelen = rpc.req_headers[i]->name_len;
@@ -559,7 +560,7 @@ int32_t HTTPConnection::submit_request(RPCMessage& rpc) {
     data_prd.read_callback = data_read_callback_request;
 
     // submit the requets and get the upstream stream id
-    int32_t id = nghttp2_submit_request(session, nullptr, nva, rpc.req_headers.size(),
+    int32_t id = nghttp2_submit_request(session, nullptr, nva, rpc.req_header_count,
      &data_prd, nullptr);
 
     if (id < 0) {
@@ -567,12 +568,13 @@ int32_t HTTPConnection::submit_request(RPCMessage& rpc) {
     }
 
     VLOG(1) << "HTTP/2 request submitted on fd: " << fd << " stream id: " << id;
+    delete [] nva;
     return id;
 }
 
 void HTTPConnection::submit_response(RPCMessage& rpc) {
-    nghttp2_nv* nva_res = new nghttp2_nv[rpc.res_headers.size()];
-    for (int i = 0; i < rpc.res_headers.size(); i++) {
+    nghttp2_nv* nva_res = new nghttp2_nv[rpc.res_header_count];
+    for (int i = 0; i < rpc.res_header_count; i++) {
         nva_res[i].name = rpc.res_headers[i]->name;
         nva_res[i].value = rpc.res_headers[i]->value;
         nva_res[i].namelen = rpc.res_headers[i]->name_len;
@@ -580,14 +582,6 @@ void HTTPConnection::submit_response(RPCMessage& rpc) {
         nva_res[i].flags = NGHTTP2_NV_FLAG_NONE;
     }
 
-    nghttp2_nv* nva_trailers = new nghttp2_nv[rpc.res_trailers.size()];
-    for (int i = 0; i < rpc.res_trailers.size(); i++) {
-        nva_trailers[i].name = rpc.res_trailers[i]->name;
-        nva_trailers[i].value = rpc.res_trailers[i]->value;
-        nva_trailers[i].namelen = rpc.res_trailers[i]->name_len;
-        nva_trailers[i].valuelen = rpc.res_trailers[i]->value_len;
-        nva_trailers[i].flags = NGHTTP2_NV_FLAG_NONE;
-    }
 
     // preprae the data provider
     nghttp2_data_provider data_prd;
@@ -599,14 +593,15 @@ void HTTPConnection::submit_response(RPCMessage& rpc) {
     }
 
     nghttp2_submit_response(session, rpc.ds_stream_id,
-        nva_res, rpc.res_headers.size(), &data_prd);
+        nva_res, rpc.res_header_count, &data_prd);
 
     VLOG(1) << "HTTP/2 response submitted on fd: " << fd;
+    delete [] nva_res;
 }
 
 void HTTPConnection::submit_error_response(RPCMessage& rpc) {
-    nghttp2_nv* nva_res = new nghttp2_nv[rpc.res_headers.size()];
-    for (int i = 0; i < rpc.res_headers.size(); i++) {
+    nghttp2_nv* nva_res = new nghttp2_nv[rpc.res_header_count];
+    for (int i = 0; i < rpc.res_header_count; i++) {
         nva_res[i].name = rpc.res_headers[i]->name;
         nva_res[i].value = rpc.res_headers[i]->value;
         nva_res[i].namelen = rpc.res_headers[i]->name_len;
@@ -615,7 +610,7 @@ void HTTPConnection::submit_error_response(RPCMessage& rpc) {
     }
 
     if (nghttp2_submit_response(session, rpc.ds_stream_id,
-        nva_res, rpc.res_headers.size(), nullptr) != 0) {
+        nva_res, rpc.res_header_count, nullptr) != 0) {
         LOG(FATAL) << "Failed to submit HTTP/2 error response on fd: " << fd;
     }
 

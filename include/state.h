@@ -67,7 +67,7 @@ class State {
         void ppm_client(bool, Buffer*);
         void write_http(HTTPConnection*);
 
-        bool forward_request(HTTPConnection*, std::shared_ptr<RPCMessage>&);
+        bool forward_request(HTTPConnection*, RPCMessage*);
         HTTPConnection* route_request(ConnectionType, uint32_t, int);
     private:
         void udp_send(std::span<char>, struct sockaddr_in*);

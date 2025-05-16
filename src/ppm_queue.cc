@@ -1,24 +1,23 @@
 #include "ppm_queue.h"
 #include "glog/logging.h"
 #include "rpc_message.h"
-#include <memory>
 #include <queue>
 #include <string>
 #include <unordered_map>
 
 PPMQueue::PPMQueue()
-: ppm_queue(std::unordered_map<std::string, std::queue<std::shared_ptr<RPCMessage>>,
+: ppm_queue(std::unordered_map<std::string, std::queue<RPCMessage*>,
     TransparentHash, TransparentEqual>()) {}
 
-void PPMQueue::enqueue(std::shared_ptr<RPCMessage> rpc) {
+void PPMQueue::enqueue(RPCMessage* rpc) {
     if (ppm_queue.find(rpc->service) == ppm_queue.end()) {
-        ppm_queue.emplace(rpc->service, std::queue<std::shared_ptr<RPCMessage>>());
+        ppm_queue.emplace(rpc->service, std::queue<RPCMessage*>());
     }
     ppm_queue[rpc->service].push(rpc);
     VLOG(1) << "Enqueued RPC message on service " << rpc->service;
 }
 
-std::shared_ptr<RPCMessage> PPMQueue::dequeue(const std::string& service) {
+RPCMessage* PPMQueue::dequeue(const std::string& service) {
     if (ppm_queue.find(service) == ppm_queue.end()) {
         LOG(FATAL) << "Service not found in PPM queue: " << service;
     }

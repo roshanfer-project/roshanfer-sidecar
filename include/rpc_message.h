@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <memory>
+#include <queue>
 #include <string>
 #include <sys/types.h>
 #include <unordered_map>
@@ -12,7 +12,8 @@
 
 class HeaderField {
     public:
-        HeaderField(const uint8_t* name, size_t name_len, const uint8_t* value, size_t value_len);
+        HeaderField();
+        void set(const uint8_t* name, size_t name_len, const uint8_t* value, size_t value_len);
 
     public:
         uint8_t name[60];
@@ -22,6 +23,7 @@ class HeaderField {
 };
 
 const size_t MAX_PAYLOAD_SIZE = 20000;
+const size_t MAX_HEADER_FIELD_NUMBER = 10;
 
 typedef struct DataReadStruct {
     const uint8_t* data;
@@ -31,7 +33,7 @@ typedef struct DataReadStruct {
 class RPCMessage {
 
     public:
-        RPCMessage(uint32_t, int);
+        RPCMessage();
         ~RPCMessage();
         void add_header_field(const uint8_t*, size_t, const uint8_t*, size_t, bool, bool);
         void add_data(const uint8_t*, size_t, bool);
@@ -53,10 +55,24 @@ class RPCMessage {
 
         bool error;
         std::unordered_map<uint8_t, DataReadStruct> data_map; // 0: req, 1: res
-        std::vector<std::unique_ptr<HeaderField>> req_headers;
-        std::vector<std::unique_ptr<HeaderField>> res_headers;
-        std::vector<std::unique_ptr<HeaderField>> res_trailers;
+        std::vector<HeaderField*> req_headers;
+        int req_header_count;
+        std::vector<HeaderField*> res_headers;
+        int res_header_count;
+        std::vector<HeaderField*> res_trailers;
+        int res_trailer_count;
         std::chrono::time_point<std::chrono::system_clock> req_rcv_time;
         std::chrono::time_point<std::chrono::system_clock> req_for_time;
         std::chrono::time_point<std::chrono::system_clock> res_rcv_time;
+};
+
+
+class RPCMessagePool {
+    public:
+        RPCMessagePool(int);
+        void free_rpc(RPCMessage*);
+        RPCMessage* get_rpc(uint32_t, int);
+    
+    private:
+        std::queue<RPCMessage*> pool;
 };

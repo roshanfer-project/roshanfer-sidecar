@@ -129,7 +129,7 @@ void State::write_http(HTTPConnection* conn) {
 
 HTTPConnection* State::route_request(ConnectionType type, uint32_t ds_stream_id, int ds_fd) {
     // get the RPC message
-    auto& rpc = rpc_mapper.get_ds_rpc(type, ds_stream_id, ds_fd);
+    auto rpc = rpc_mapper.get_ds_rpc(type, ds_stream_id, ds_fd);
 
     try {
         HTTPConnection* conn = nullptr;
@@ -163,12 +163,12 @@ HTTPConnection* State::route_request(ConnectionType type, uint32_t ds_stream_id,
 }
 
 
-bool State::forward_request(HTTPConnection* conn, std::shared_ptr<RPCMessage>& rpc) {
+bool State::forward_request(HTTPConnection* conn, RPCMessage* rpc) {
     // get an upstream connection
     try {
 
         // submit the request
-        rpc->us_stream_id = conn->submit_request(*rpc.get());
+        rpc->us_stream_id = conn->submit_request(*rpc);
 
         // update the mapping
         rpc_mapper.route(conn->type, rpc->ds_stream_id, rpc->ds_fd, rpc->us_stream_id, conn->get_fd());
@@ -242,7 +242,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
             } */
 
             HTTPConnection* conn = route_request(type, src_stream_id, src_fd);
-            auto& rpc = rpc_mapper.get_ds_rpc(type, src_stream_id, src_fd);
+            auto rpc = rpc_mapper.get_ds_rpc(type, src_stream_id, src_fd);
 
             if (!forward_request(conn, rpc)) {
                 break;
@@ -258,19 +258,23 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
             }
 
             // get the RPC message
-            auto& rpc = rpc_mapper.get_us_rpc(type, src_stream_id, src_fd);
+            auto rpc = rpc_mapper.get_us_rpc(type, src_stream_id, src_fd);
+            auto ds_stream_id = rpc->ds_stream_id;
+            auto ds_fd = rpc->ds_fd;
             try {
                 auto& conn = listeners.at(type).get_connections().at(rpc->ds_fd);
                 //auto conn = listeners.at(type).get_connections().begin()->second.get();
 
                 // submit the response
+                
                 if (rpc->error) {
-                    conn->submit_error_response(*rpc.get());
+                    conn->submit_error_response(*rpc);
+                    rpc_mapper.remove_rpc(type, rpc);
                 } else {
-                    conn->submit_response(*rpc.get());
+                    conn->submit_response(*rpc);
                 }
                 write_http(conn.get());
-                VLOG(1) << "Submitted response on stream " << rpc->ds_stream_id;
+                VLOG(1) << "Submitted response on stream " << ds_stream_id;
 
 
                 // update stats
@@ -280,7 +284,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                 }
                 
             } catch (const std::out_of_range& e) {
-                LOG(FATAL) << "No connection found for fd: " << rpc->ds_fd;
+                LOG(FATAL) << "No connection found for fd: " << ds_fd;
             }
             
         }
@@ -402,7 +406,7 @@ void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
                 ConnectionDirection::DOWNSTREAM
             );
             auto conn = route_request(ConnectionType::EGRESS, ds_stream_id, ds_fd);
-            auto& rpc = rpc_mapper.get_ds_rpc(
+            auto rpc = rpc_mapper.get_ds_rpc(
                 ConnectionType::EGRESS,
                 ds_stream_id,
                 ds_fd

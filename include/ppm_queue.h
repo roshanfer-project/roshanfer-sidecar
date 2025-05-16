@@ -1,7 +1,6 @@
 #pragma once
 
 #include "rpc_message.h"
-#include <memory>
 #include <queue>
 #include <string>
 #include <string_view>
@@ -26,12 +25,12 @@ struct TransparentEqual {
 class PPMQueue {
     public:
         PPMQueue();
-        void enqueue(std::shared_ptr<RPCMessage>);
-        std::shared_ptr<RPCMessage> dequeue(const std::string&);
+        void enqueue(RPCMessage*);
+        RPCMessage* dequeue(const std::string&);
         const std::string& check(std::string_view&);
         int get_fd(const std::string&);
     
     private:
-        std::unordered_map<std::string, std::queue<std::shared_ptr<RPCMessage>>,
+        std::unordered_map<std::string, std::queue<RPCMessage*>,
         TransparentHash, TransparentEqual> ppm_queue;
 };
