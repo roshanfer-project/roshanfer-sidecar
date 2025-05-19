@@ -279,11 +279,14 @@ ssize_t data_read_callback_request(nghttp2_session*,
 
     // If the output buffer is too small, copy what fits.
     ssize_t res_len;
-    if (length < info->offset) {
-        std::memcpy(buf, info->data, length);
+    if (length < info->offset - info->read_offset) {
+        LOG(FATAL) << "FIXME: Like data_read_callback_response";
+        std::memcpy(buf, info->data+info->read_offset, length);
+        info->read_offset += length;
         res_len = length;
     } else {
-        std::memcpy(buf, info->data, info->offset);
+        std::memcpy(buf, info->data+info->read_offset, info->offset-info->read_offset);
+        info->read_offset += info->offset;
         *data_flags |= NGHTTP2_DATA_FLAG_EOF;
         res_len = info->offset;
     }
@@ -310,6 +313,9 @@ ssize_t data_read_callback_response(nghttp2_session* session,
             << " stream id: " << stream_id
             << " fd: " << callback_data->fd;
     
+    VLOG(2) << "Before read. offset: " << info->offset
+                << " read_offset: " << info->read_offset
+                << " length: " << length;
     ssize_t res_len;
     if (info->offset == 0) {
         *data_flags |= NGHTTP2_DATA_FLAG_EOF;
@@ -317,44 +323,49 @@ ssize_t data_read_callback_response(nghttp2_session* session,
         LOG(WARNING) << "No data to send";
     } else {
         // If the output buffer is too small, copy what fits.
-        *data_flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
-        if (length < info->offset) {
-            std::memcpy(buf, info->data, length);
-            //return length;
-            res_len = length;
-        } else {
-            std::memcpy(buf, info->data, info->offset);
+        
+        size_t remain = info->offset - info->read_offset;
+        size_t to_copy = std::min(remain, length);
+        std::memcpy(buf, info->data + info->read_offset, to_copy);
+        info->read_offset += to_copy;
+        res_len = to_copy;
+
+        VLOG(2) << "After read. offset: " << info->offset
+                << " read_offset: " << info->read_offset
+                << " length: " << length;
+
+        // only signal EOF on the last chunk
+        if (info->read_offset == info->offset) {
             *data_flags |= NGHTTP2_DATA_FLAG_EOF;
-            //return info->len;
-            res_len = info->offset;
+            *data_flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
+
+            auto rpc = callback_data->mapper->get_ds_rpc(callback_data->type, stream_id, callback_data->fd);
+
+            nghttp2_nv* nva_trailers = new nghttp2_nv[rpc->res_trailer_count];
+            for (int i = 0; i < rpc->res_trailer_count; i++) {
+                nva_trailers[i].name = rpc->res_trailers[i]->name;
+                nva_trailers[i].value = rpc->res_trailers[i]->value;
+                nva_trailers[i].namelen = rpc->res_trailers[i]->name_len;
+                nva_trailers[i].valuelen = rpc->res_trailers[i]->value_len;
+                nva_trailers[i].flags = NGHTTP2_NV_FLAG_NONE;
+            }
+
+            if (nghttp2_submit_trailer(session, rpc->ds_stream_id, nva_trailers,
+                    rpc->res_trailer_count) != 0) {
+                LOG(FATAL) << "Failed to submit HTTP/2 response trailers";
+            }
+            delete [] nva_trailers;
+
+            // report latency
+            if (config.report_latency) {
+                report_latency(*rpc, callback_data->type);
+            }
+            
+            // remove the RPC message from memory
+            callback_data->mapper->remove_rpc(callback_data->type, rpc);
         }
     }
     
-    auto rpc = callback_data->mapper->get_ds_rpc(callback_data->type, stream_id, callback_data->fd);
-
-    nghttp2_nv* nva_trailers = new nghttp2_nv[rpc->res_trailer_count];
-    for (int i = 0; i < rpc->res_trailer_count; i++) {
-        nva_trailers[i].name = rpc->res_trailers[i]->name;
-        nva_trailers[i].value = rpc->res_trailers[i]->value;
-        nva_trailers[i].namelen = rpc->res_trailers[i]->name_len;
-        nva_trailers[i].valuelen = rpc->res_trailers[i]->value_len;
-        nva_trailers[i].flags = NGHTTP2_NV_FLAG_NONE;
-    }
-
-    if (nghttp2_submit_trailer(session, rpc->ds_stream_id, nva_trailers,
-            rpc->res_trailer_count) != 0) {
-        LOG(FATAL) << "Failed to submit HTTP/2 response trailers";
-    }
-    delete [] nva_trailers;
-
-    // report latency
-    if (config.report_latency) {
-        report_latency(*rpc, callback_data->type);
-    }
-    
-    // remove the RPC message from memory
-    callback_data->mapper->remove_rpc(callback_data->type, rpc);
-
     return res_len;
 };
 

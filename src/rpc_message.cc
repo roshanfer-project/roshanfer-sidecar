@@ -146,7 +146,9 @@ void RPCMessagePool::free_rpc(RPCMessage* rpc) {
     rpc->service.clear();
     rpc->method.clear();
     rpc->data_map[0].offset = 0;
+    rpc->data_map[0].read_offset = 0;
     rpc->data_map[1].offset = 0;
+    rpc->data_map[1].read_offset = 0;
     for (auto& header : rpc->req_headers) {
         header->name_len = 0;
         header->value_len = 0;

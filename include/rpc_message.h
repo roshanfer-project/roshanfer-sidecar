@@ -28,6 +28,7 @@ const size_t MAX_HEADER_FIELD_NUMBER = 10;
 typedef struct DataReadStruct {
     const uint8_t* data;
     size_t offset;
+    size_t read_offset;
 } DataReadStruct;
 
 class RPCMessage {
