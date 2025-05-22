@@ -47,7 +47,7 @@ State::State(Config config, RingWrapper& ring, BufferManager& buffer_manager,
 :   config(config),
     ingress_pool(ConnectionType::INGRESS),
     upstream_route_mapper(),
-    stats(),
+    stats(config.routing),
     ppm_state(),
     buffer_manager(buffer_manager),
     ring(ring),
@@ -263,10 +263,14 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
             auto ds_fd = rpc->ds_fd;
             try {
                 auto& conn = listeners.at(type).get_connections().at(rpc->ds_fd);
-                //auto conn = listeners.at(type).get_connections().begin()->second.get();
+
+                // update stats
+                stats.sidecar_resp_in[type]++;
+                if (type == ConnectionType::EGRESS) {
+                    stats.new_response_in[rpc->service] = true;
+                }
 
                 // submit the response
-                
                 if (rpc->error) {
                     conn->submit_error_response(*rpc);
                     rpc_mapper.remove_rpc(type, rpc);
@@ -277,11 +281,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                 VLOG(1) << "Submitted response on stream " << ds_stream_id;
 
 
-                // update stats
-                stats.sidecar_resp_in[type]++;
-                if (type == ConnectionType::EGRESS) {
-                    stats.new_response_in = true;
-                }
+                
                 
             } catch (const std::out_of_range& e) {
                 LOG(FATAL) << "No connection found for fd: " << ds_fd;
@@ -379,26 +379,19 @@ void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
         );
     } else {
         // we need to send a demand notification
-        int size = rpc_queue.size(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM);
-        if (size == 0) {
-            return;
-        }
-
-        if (stats.new_response_in) {
-            for (auto& key : ppm_state.denied_reqs) {
-                if (key.second > 0) {
-                    VLOG(1) << "PPMClient: Sending demand notification for service " << key.first;
-                    send_dn(
-                        upstream_route_mapper.get_pool(key.first).get_any_connection().get(),
-                        key.first
-                        );
-                    key.second--;
-                    break;
-                }
+        for (auto & key : stats.new_response_in) {
+            if (key.second && ppm_state.denied_reqs[key.first] > 0) {
+                VLOG(1) << "PPMClient: Sending demand notification for service " << key.first;
+                send_dn(
+                    upstream_route_mapper.get_pool(key.first).get_any_connection().get(),
+                    key.first
+                );
+                key.second = false;
+                ppm_state.denied_reqs[key.first]--;
             }
-            stats.new_response_in = false;
         }
 
+        int size = rpc_queue.size(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM);
         for (int i = 0; i < size; i++) {
             // send a demand notification
             auto [ds_fd, ds_stream_id] = rpc_queue.dequeue(

@@ -139,9 +139,7 @@ void EventLoop::run() {
                 // handle req/res send buffers
                 state.forward(orig_conn->type, orig_conn->direction);
 
-                if (orig_conn->type == ConnectionType::EGRESS && orig_conn->direction == ConnectionDirection::DOWNSTREAM) {
-                    state.ppm_client(false, nullptr);
-                }
+                state.ppm_client(false, nullptr);
 
                 // flush every HTTP2 frame out
                 state.write_http(orig_conn);

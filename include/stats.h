@@ -3,7 +3,9 @@
 #include "NanoLog.h"
 #include "connection_enums.h"
 #include "rpc_message.h"
+#include <string>
 #include <unordered_map>
+#include <vector>
 #include "config.h"
 #include "NanoLogCpp17.h"
 
@@ -11,11 +13,11 @@ using namespace NanoLog::LogLevels;
 
 class Stats {
     public:
-        Stats();
+        Stats(std::vector<RoutingEntry> routing);
 
     public:
         std::unordered_map<ConnectionType, int> sidecar_resp_in;
-        bool new_response_in;
+        std::unordered_map<std::string, bool> new_response_in;
 };
 
 void inline report_latency(RPCMessage& rpc, ConnectionType type) {
