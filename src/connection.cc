@@ -550,6 +550,8 @@ HTTP1Connection::HTTP1Connection(int fd, RPCMapper* mapper, RPCQueue* queue)
 }
 
 HTTP1Connection::~HTTP1Connection() {
+    VLOG(1) << "HTTP2Connection deconstructor on fd: " << fd;
+    close(fd);
     delete[] buf;
 }
 
@@ -1097,7 +1099,7 @@ void HTTP2Connection::submit_error_response(RPCMessage& rpc) {
 }
 
 HTTP2Connection::~HTTP2Connection() {
-    VLOG(1) << "HTTPConnection deconstructor on fd: " << fd;
+    VLOG(1) << "HTTP2Connection deconstructor on fd: " << fd;
     close(fd);
     if (session) {
         nghttp2_session_del(session);

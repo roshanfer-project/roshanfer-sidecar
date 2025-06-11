@@ -46,6 +46,7 @@ class HTTPConnection {
          * @note This is used by listeners
          */
         HTTPConnection(int, ConnectionType);
+        virtual ~HTTPConnection() = default;
         int get_fd() { return fd; }
         sockaddr* get_addr();
         std::string type_to_str();
