@@ -130,9 +130,11 @@ class HTTPMessage : public RPCMessage {
         void set_method(const char* m, size_t m_len) {
             method.assign(m, m_len);
         }
-        void set_service(const char* s, size_t s_len) {
-            service.assign(s, s_len);
+        void set_service(const char* s, size_t s_len);
+        void set_path(const char* p, size_t p_len) {
+            path.assign(p, p_len);
         }
+        const std::string& get_path() const { return path; }
         DataReadStruct& get_res_data() { return res_data; }
         std::vector<HeaderField*>& get_req_headers() { return req_headers; }
         int get_req_header_count() const { return req_header_count; }
@@ -149,6 +151,7 @@ class HTTPMessage : public RPCMessage {
 
     private:
         std::string service;
+        std::string path;
         std::string method;
         int minor;
         int status;

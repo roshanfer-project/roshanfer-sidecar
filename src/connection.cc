@@ -646,6 +646,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
         }
         rpc->set_method(method, method_len);
         rpc->set_service(path, path_len);
+        rpc->set_path(path, path_len);
         rpc->set_minor(minor);
 
         // Send RPC to Ingress
@@ -799,7 +800,7 @@ int HTTP1Connection::http_write(Buffer* buffer) {
         written += snprintf(buffer->data.get()+written, buffer->get_size()-written,
                             "%.*s %.*s HTTP/1.%d\r\n",
                             (int)rpc->get_method().length(), rpc->get_method().c_str(),
-                            (int)rpc->get_service().length(),   rpc->get_service().c_str(),
+                            (int)rpc->get_path().length(),   rpc->get_path().c_str(),
                             rpc->get_minor());
 
         auto& headers = rpc->get_req_headers();

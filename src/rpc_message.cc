@@ -184,6 +184,43 @@ HTTPMessage::HTTPMessage()
     }
 }
 
+
+void HTTPMessage::set_service(const char* s, size_t s_len) {
+    /*
+        Extracts the main endpoint path as the service.
+        Exmaple:
+
+        if the input s is:
+        http://192.168.1.100:2000/hotels?lat=37.7867&lon=-122.4112&inDate=2024-08-15&outDate=2024-08-17:GET
+
+        The service is "hotels"
+    */
+
+    const char* const end = s + s_len;
+
+    // (1) skip "http://"
+    const char* p = s;
+    if (s_len >= 7 && std::memcmp(s, "http://", 7) == 0) {
+        p += 7;
+    }
+
+    // (2) find the first '/' after host:port
+    const char* slash = static_cast<const char*>(std::memchr(p, '/', end - p));
+    if (!slash || slash + 1 >= end) {
+        service.clear();
+        LOG(FATAL) << "Invalid service format";
+    }
+
+    // (3) service starts just after that '/'
+    const char* svc_begin = slash + 1;
+
+    // (4) find the '?' that marks end-of-service
+    const char* question = static_cast<const char*>(std::memchr(svc_begin, '?', end - svc_begin));
+    const char* svc_end = question ? question : end;
+
+    service.assign(svc_begin, svc_end - svc_begin);
+}
+
 void HTTPMessage::add_header_field(const uint8_t* name, size_t name_len,
     const uint8_t* value, size_t value_len, bool request, bool tailer) {
     
