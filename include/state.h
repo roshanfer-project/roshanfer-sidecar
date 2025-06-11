@@ -8,6 +8,7 @@
 #include "connection.h"
 #include "buffer_manager.h"
 #include "connection_enums.h"
+#include "ingress.h"
 #include "ppm_queue.h"
 #include "ring_wrapper.h"
 #include "rpc_mapper.h"
@@ -58,15 +59,16 @@ class State {
 
     public:
         State(Config, RingWrapper&, BufferManager&, RPCMapper&, RPCQueue&,
-            std::unordered_map<ConnectionType, Listener>&);
+            std::unordered_map<ConnectionType, Listener>&, Ingress&);
         void forward(ConnectionType, ConnectionDirection);
         void remove_connection(HTTPConnection&);
 
         // PPM-related functions
         void queue_multiplexer(Buffer*, Buffer*);
         void ppm_client(bool, Buffer*);
+        void ingress_admit();
+        
         void write_http(HTTPConnection*);
-
         bool forward_request(HTTPConnection*, RPCMessage*);
         HTTPConnection* route_request(ConnectionType, uint32_t, int);
     private:
@@ -89,6 +91,7 @@ class State {
         RPCQueue& rpc_queue;
         std::unordered_map<ConnectionType, Listener>& listeners;
         PPMQueue ppm_queue;
+        Ingress& ingress;
     
     public:
         Stats stats;

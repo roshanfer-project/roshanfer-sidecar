@@ -25,7 +25,7 @@ struct Config
     int ppm_limit;
     std::string name;
     std::vector<RoutingEntry> routing;
-    bool disable_ingress;
+    bool is_ingress;
     bool report_latency;
 };
 

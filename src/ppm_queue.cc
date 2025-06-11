@@ -10,11 +10,11 @@ PPMQueue::PPMQueue()
     TransparentHash, TransparentEqual>()) {}
 
 void PPMQueue::enqueue(RPCMessage* rpc) {
-    if (ppm_queue.find(rpc->service) == ppm_queue.end()) {
-        ppm_queue.emplace(rpc->service, std::queue<RPCMessage*>());
+    if (ppm_queue.find(rpc->get_service()) == ppm_queue.end()) {
+        ppm_queue.emplace(rpc->get_service(), std::queue<RPCMessage*>());
     }
-    ppm_queue[rpc->service].push(rpc);
-    VLOG(1) << "Enqueued RPC message on service " << rpc->service;
+    ppm_queue[rpc->get_service()].push(rpc);
+    VLOG(1) << "Enqueued RPC message on service " << rpc->get_service();
 }
 
 RPCMessage* PPMQueue::dequeue(const std::string& service) {
@@ -54,5 +54,5 @@ int PPMQueue::get_fd(const std::string& service) {
     if (it->second.empty()) {
         LOG(FATAL) << "Trying to find from an empty queue";
     }
-    return it->second.front()->us_fd;
+    return it->second.front()->get_us_fd();
 }

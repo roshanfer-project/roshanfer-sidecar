@@ -43,8 +43,12 @@ Listener::Listener(uint16_t port, ConnectionType type)
     VLOG(1) << "Listener created on port: " << port << " with fd: " << fd;
 };
 
-HTTPConnection& Listener::add_connection(int fd, RPCMapper* mapper, RPCQueue* queue) {
-    connections[fd] = std::make_unique<HTTPConnection>(fd, type, mapper, queue);
+HTTPConnection& Listener::add_connection(int fd, RPCMapper* mapper, RPCQueue* queue, bool is_http1) {
+    if (is_http1) {
+        connections[fd] = std::make_unique<HTTP1Connection>(fd, mapper, queue);
+    } else {
+        connections[fd] = std::make_unique<HTTP2Connection>(fd, type, mapper, queue);
+    }
     return *connections[fd];
 };
 

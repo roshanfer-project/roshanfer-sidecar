@@ -29,13 +29,13 @@ Config load_config(const std::string &filename) {
 
     LOG(INFO) << "config.name: " << local_config.name;
 
-    // Optional disable_ingress
-    if (node["disable_ingress"]) {
-        local_config.disable_ingress = node["disable_ingress"].as<bool>();
+    // Optional is_ingress
+    if (node["is_ingress"]) {
+        local_config.is_ingress = node["is_ingress"].as<bool>();
     } else {
-        local_config.disable_ingress = false;
+        local_config.is_ingress = false;
     }
-    LOG(INFO) << "config.disable_ingress: " << local_config.disable_ingress;
+    LOG(INFO) << "config.is_ingress: " << local_config.is_ingress;
 
     // Optional report_latency
     if (node["report_latency"]) {

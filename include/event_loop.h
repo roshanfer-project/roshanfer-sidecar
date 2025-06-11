@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ingress.h"
 #include "rpc_mapper.h"
 #include "rpc_queue.h"
 #include "udp_listener.h"
@@ -24,5 +25,7 @@ public:
     UDPListner udp_listener;
     RPCMapper rpc_mapper;
     RPCQueue rpc_queue;
+    Ingress ingress;
     State state;
+    Config config;
 };

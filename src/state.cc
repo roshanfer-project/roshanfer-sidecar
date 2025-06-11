@@ -43,7 +43,8 @@ ConnectionPool& UpstreamRouteMapper::get_pool(const std::string& service) {
 }
 
 State::State(Config config, RingWrapper& ring, BufferManager& buffer_manager,
-    RPCMapper& mapper, RPCQueue& queue, std::unordered_map<ConnectionType, Listener>& listeners)
+    RPCMapper& mapper, RPCQueue& queue, std::unordered_map<ConnectionType,
+    Listener>& listeners, Ingress& ingress)
 :   config(config),
     ingress_pool(ConnectionType::INGRESS),
     upstream_route_mapper(),
@@ -54,15 +55,22 @@ State::State(Config config, RingWrapper& ring, BufferManager& buffer_manager,
     rpc_mapper(mapper),
     rpc_queue(queue),
     listeners(listeners),
-    ppm_queue()
+    ppm_queue(),
+    ingress(ingress)
 {
+
+    if (config.buffer_size > HTTP1Connection_BUF_SIZE) {
+        LOG(FATAL) << "Buffer size cannot be larger than " << HTTP1Connection_BUF_SIZE;
+    }
+
     for (const auto& route : config.routing) {
         upstream_route_mapper.add_route(route.service);
         auto& conn = upstream_route_mapper.get_pool(route.service).add_connection(
             route.upstream.host,
             route.upstream.port,
             &rpc_mapper,
-            &rpc_queue
+            &rpc_queue,
+            false // HTTP/2 connection
         );
 
         // prepare connect
@@ -71,18 +79,28 @@ State::State(Config config, RingWrapper& ring, BufferManager& buffer_manager,
         ppm_state.denied_reqs.emplace(route.service, 0);
     }
 
-    if (!config.disable_ingress) {
+    /* 
+    Since HTTP/1.1 does not support multiplexing, we need to create at least
+    ppm_limit connections for ingress requests. In the case of HTTP/2, we can
+    easilly go up to 100 concurrent streams, but ppm_limit will limit the number 
+    concurrent streams.
+    */
+    int n_conn = config.is_ingress ? config.ppm_limit : 1;
+    VLOG(2) << "Creating " << n_conn << " connections for ingress requests";
+    for (int i = 0; i< n_conn; i++) {
         auto& conn = ingress_pool.add_connection(
             config.ingress_upstream_host,
             config.ingress_upstream_port,
             &rpc_mapper,
-            &rpc_queue
+            &rpc_queue,
+            config.is_ingress
         );
-    
+
         // prepare connect
         ring.prepare_connect(conn, buffer_manager.get_user_data());
     }
     
+    // socket for UDP (Used for PPM)
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
         LOG(FATAL) << "Failed to create socket";
@@ -146,12 +164,12 @@ HTTPConnection* State::route_request(ConnectionType type, uint32_t ds_stream_id,
         } else if (conn->get_status() == ConnectionStatus::DOWN) {
             LOG(WARNING) << "Connection is in DOWN state.";
             // put the RPC message back in the queue
-            rpc_queue.enqueue(type, ConnectionDirection::DOWNSTREAM, rpc->ds_fd, rpc->ds_stream_id);
+            rpc_queue.enqueue(type, ConnectionDirection::DOWNSTREAM, rpc->get_ds_fd(), rpc->get_ds_stream_id());
             return nullptr;
         }
 
         // update RPC message metadata
-        rpc->us_fd = conn->get_fd();
+        rpc->set_us_fd(conn->get_fd());
 
         VLOG(1) << "Routing message (" << ds_fd << "," << ds_stream_id << ") to fd: " << conn->get_fd();
 
@@ -168,22 +186,15 @@ bool State::forward_request(HTTPConnection* conn, RPCMessage* rpc) {
     try {
 
         // submit the request
-        rpc->us_stream_id = conn->submit_request(*rpc);
+        rpc->set_us_stream_id(conn->submit_request(*rpc));
 
         // update the mapping
-        rpc_mapper.route(conn->type, rpc->ds_stream_id, rpc->ds_fd, rpc->us_stream_id, conn->get_fd());
-
-        //LOG(INFO) << "M# " << config.name << " REQ 1";
-
-        /* // update ppm state
-        if (type == ConnectionType::EGRESS) {
-            ppm_state.unused_credits--;
-        } */
+        rpc_mapper.route(conn->type, rpc->get_ds_stream_id(), rpc->get_ds_fd(), rpc->get_us_stream_id(), conn->get_fd());
 
         // flush the request
         write_http(conn);
         
-        VLOG(1) << "Submitted request on stream " << rpc->us_stream_id;
+        VLOG(1) << "Submitted request on stream " << rpc->get_us_stream_id();
         return true;
 
     } catch (NoConnectionException& e) {
@@ -259,19 +270,19 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
 
             // get the RPC message
             auto rpc = rpc_mapper.get_us_rpc(type, src_stream_id, src_fd);
-            auto ds_stream_id = rpc->ds_stream_id;
-            auto ds_fd = rpc->ds_fd;
+            auto ds_stream_id = rpc->get_ds_stream_id();
+            auto ds_fd = rpc->get_ds_fd();
             try {
-                auto& conn = listeners.at(type).get_connections().at(rpc->ds_fd);
+                auto& conn = listeners.at(type).get_connections().at(rpc->get_ds_fd());
 
                 // update stats
                 stats.sidecar_resp_in[type]++;
                 if (type == ConnectionType::EGRESS) {
-                    stats.new_response_in[rpc->service] = true;
+                    stats.new_response_in[rpc->get_service()] = true;
                 }
 
                 // submit the response
-                if (rpc->error) {
+                if (rpc->is_error()) {
                     conn->submit_error_response(*rpc);
                     rpc_mapper.remove_rpc(type, rpc);
                 } else {
@@ -374,7 +385,7 @@ void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
 
         auto rpc = ppm_queue.dequeue(service);
         forward_request(
-            upstream_route_mapper.get_pool(service).get_connection(rpc->us_fd).get(),
+            upstream_route_mapper.get_pool(service).get_connection(rpc->get_us_fd()).get(),
             rpc
         );
     } else {
@@ -425,9 +436,32 @@ void State::send_dn(HTTPConnection* conn, const std::string& service) {
     VLOG(1) << "Sent demand notification";
 }
 
-PPMState::PPMState()
-:   sent_credits(0),
-    denied_reqs(std::unordered_map<std::string, uint8_t, TransparentHash, TransparentEqual>()) {}
+void State::ingress_admit() {
+    bool admit = false;
+    for (int i = 0; i < ingress.size(); i++) {
+        if (config.ppm_limit > ppm_state.sent_credits - 
+            stats.sidecar_resp_in[ConnectionType::INGRESS]) {
+            
+            VLOG(1) << "Admitting an ingress request";
+            admit = true;
+            ppm_state.sent_credits++;
+            auto rpc = ingress.dequeue();
+            rpc_queue.enqueue(
+                ConnectionType::INGRESS,
+                ConnectionDirection::DOWNSTREAM,
+                rpc->get_ds_fd(),
+                rpc->get_ds_stream_id()
+            );
+        } else {
+            break;
+        }
+    }
+
+    if (admit) {
+        forward(ConnectionType::INGRESS, ConnectionDirection::DOWNSTREAM);
+    }
+    
+}
 
 inline static void write_dn_response(int result, Buffer* req, Buffer* resp) {
     // copy request to response
@@ -487,3 +521,8 @@ void State::udp_send(std::span<char> msg, struct sockaddr_in* addr) {
         UDPType::RESPONSE
     );
 }
+
+
+PPMState::PPMState()
+:   sent_credits(0),
+    denied_reqs(std::unordered_map<std::string, uint8_t, TransparentHash, TransparentEqual>()) {}

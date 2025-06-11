@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(sidecar LANGUAGES CXX)
+project(sidecar LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -36,7 +36,7 @@ pkg_check_modules(NGHTTP2 REQUIRED libnghttp2)
 
 include_directories(include NanoLog/runtime)
 
-file(GLOB_RECURSE SOURCES src/*.cc)
+file(GLOB_RECURSE SOURCES src/*.cc src/*.c)
 
 add_executable(sidecar ${SOURCES})
 # link glog

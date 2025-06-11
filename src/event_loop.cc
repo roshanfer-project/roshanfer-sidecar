@@ -63,7 +63,8 @@ void EventLoop::run() {
                     HTTPConnection& conn = listener->add_connection(
                         cqe->res,
                         std::addressof(rpc_mapper),
-                        std::addressof(rpc_queue)
+                        std::addressof(rpc_queue),
+                        listener->type == ConnectionType::INGRESS ? config.is_ingress : false
                     );
 
                     VLOG(1) << "Accepted connection on " << listener->type_to_str() << " listener"
@@ -128,7 +129,7 @@ void EventLoop::run() {
                 }
 
                 // feed data to nghttp2
-                orig_conn->http_read(buffer);
+                orig_conn->http_read(buffer, ingress);
 
                 // send out http2-related data
                 state.write_http(orig_conn);
@@ -136,6 +137,11 @@ void EventLoop::run() {
                 // free the buffer
                 buffer_manager.free_buffer(buffer);
 
+                // check ingress admission
+                if (config.is_ingress) {
+                    state.ingress_admit();
+                }
+                
                 // handle req/res send buffers
                 state.forward(orig_conn->type, orig_conn->direction);
 
@@ -172,8 +178,15 @@ void EventLoop::run() {
                 VLOG(1) << "conn type: " << orig_conn->type_to_str();
                 VLOG(1) << "conn direction: " << orig_conn->direction_to_str();
 
+                if (orig_conn->is_http1()) {
+                    orig_conn->set_status(ConnectionStatus::UP);
+                }
+
                 // write http frames
-                state.write_http(orig_conn);
+                if (!config.is_ingress || orig_conn->type == ConnectionType::EGRESS) {
+                    state.write_http(orig_conn);
+                }
+                
 
                 // arm the first read
                 Buffer* read_buffer = buffer_manager.get_buffer();
@@ -312,21 +325,21 @@ void EventLoop::run() {
 EventLoop::EventLoop(Config config)
 :   ring(config.ring_size),
     buffer_manager(config.buffer_count, config.buffer_size),
-    state(config, ring, buffer_manager, rpc_mapper, rpc_queue, listeners),
+    state(config, ring, buffer_manager, rpc_mapper, rpc_queue, listeners, ingress),
     listeners(),
     udp_listener(config.ingress_listener_port),
     rpc_mapper(),
-    rpc_queue()
+    rpc_queue(),
+    config(config),
+    ingress()
     {
         listeners.emplace(
             ConnectionType::EGRESS,
             Listener(config.egress_listener_port, ConnectionType::EGRESS)
         );
 
-        if (!config.disable_ingress) {
-            listeners.emplace(
-                ConnectionType::INGRESS,
-                Listener(config.ingress_listener_port, ConnectionType::INGRESS)
-            );
-        }
+        listeners.emplace(
+            ConnectionType::INGRESS,
+            Listener(config.ingress_listener_port, ConnectionType::INGRESS)
+        );
     };

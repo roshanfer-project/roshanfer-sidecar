@@ -9,7 +9,7 @@ class Listener {
         Listener(uint16_t, enum ConnectionType);
         int get_fd() { return fd; }
         uint16_t get_port() { return port; }
-        HTTPConnection& add_connection(int fd, RPCMapper*, RPCQueue*);
+        HTTPConnection& add_connection(int fd, RPCMapper*, RPCQueue*, bool);
         void remove_connection(int fd) { connections.erase(fd); }
         std::unordered_map<int, std::unique_ptr<HTTPConnection>>& get_connections() { return connections; }
         bool no_connections() { return connections.empty(); }
@@ -18,7 +18,9 @@ class Listener {
     
     private:
         int fd; // local socket file descriptor
-        enum ConnectionType type;
         uint16_t port;
         std::unordered_map<int, std::unique_ptr<HTTPConnection>> connections; // fd -> connection
+    
+    public:
+        enum ConnectionType type; // type of the listener (INGRESS or EGRESS)
     };

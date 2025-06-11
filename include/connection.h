@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <netinet/in.h>
@@ -10,7 +11,9 @@
 #include <string>
 #include "buffer.h"
 #include "connection_enums.h"
+#include "ingress.h"
 #include "rpc_mapper.h"
+#include "rpc_message.h"
 #include "rpc_queue.h"
 
 
@@ -36,48 +39,115 @@ class HTTPConnection {
          * @brief Construct an upstream connection
          * @note This is used by state
          */
-        HTTPConnection(std::string, uint16_t, ConnectionType, RPCQueue*, RPCMapper*);
+        HTTPConnection(std::string, uint16_t, ConnectionType);
 
         /*
          * @brief Construct an downstream connection
          * @note This is used by listeners
          */
-        HTTPConnection(int, ConnectionType, RPCMapper*, RPCQueue*); 
-        ~HTTPConnection();
+        HTTPConnection(int, ConnectionType);
         int get_fd() { return fd; }
         sockaddr* get_addr();
         std::string type_to_str();
         std::string direction_to_str();
         ConnectionStatus get_status() { return status; }
         void set_status(ConnectionStatus s) { status = s; }
-        void http_read(Buffer*);
-        bool want_write();
-        bool want_read();
-        int http_write(Buffer*);
-        void submit_settings();
-        int32_t submit_request(RPCMessage&);
-        void submit_response(RPCMessage&);
-        void submit_error_response(RPCMessage&);
         uint16_t get_port() { return port; }
         std::string& get_host() { return host; }
 
-    private:
+        // pure virtual functions
+        virtual void http_read(Buffer*, Ingress&) = 0;
+        virtual bool want_write() = 0;
+        virtual int http_write(Buffer*) = 0;
+        virtual void submit_settings() = 0;
+        virtual int32_t submit_request(RPCMessage&) = 0;
+        virtual void submit_response(RPCMessage&) = 0;
+        virtual void submit_error_response(RPCMessage&) = 0;
+        virtual bool available() = 0;
+        virtual bool is_http1() = 0;
+        
+    protected:
         int fd; // local socket file descriptor
         sockaddr_in addr;
         ConnectionStatus status;
-        nghttp2_session* session;
-        nghttp2_session_callbacks* callbacks;
-        std::unique_ptr<CallbackData> callback_data;
         std::string host;
         uint16_t port;
 
     public:
         ConnectionType type;
         ConnectionDirection direction;
+};
+
+
+class HTTP2Connection : public HTTPConnection {
+
+    public:
+        HTTP2Connection(std::string, uint16_t, ConnectionType, RPCQueue*, RPCMapper*);
+        HTTP2Connection(int, ConnectionType, RPCMapper*, RPCQueue*);
+        ~HTTP2Connection();
+
+        void http_read(Buffer*, Ingress&);
+        bool want_write();
+        int http_write(Buffer*);
+        void submit_settings();
+        int32_t submit_request(RPCMessage&);
+        void submit_response(RPCMessage&);
+        void submit_error_response(RPCMessage&);
+        bool available() { return true;}
+        bool is_http1() { return false; }
+
+    private:
+        nghttp2_session* session;
+        nghttp2_session_callbacks* callbacks;
+        std::unique_ptr<CallbackData> callback_data;
     
     private:
         static void set_callbacks(nghttp2_session_callbacks*);
 
+};
+
+
+const size_t HTTP1Connection_BUF_SIZE = 200000;
+const size_t HTTP1Connection_MAX_HEADERS = 20;
+
+
+class HTTP1Connection : public HTTPConnection {
+
+    public:
+        HTTP1Connection(std::string, uint16_t, RPCMapper*, RPCQueue*);
+        HTTP1Connection(int, RPCMapper*, RPCQueue*);
+        ~HTTP1Connection();
+
+        void http_read(Buffer*, Ingress&);
+        bool want_write();
+        int http_write(Buffer*);
+        void submit_settings();
+        int32_t submit_request(RPCMessage&);
+        void submit_response(RPCMessage&);
+        void submit_error_response(RPCMessage&);
+        bool available();
+        bool is_http1() { return true; }
+    
+    private:
+        void set_rpc_message(HTTPMessage* msg);
+        HTTPMessage* get_rpc_message();
+        int parse_http1_request(Buffer*);
+        
+    private:
+        // internal state for parsing
+        char* buf;
+        size_t buf_len;
+        size_t prev_buf_len;
+        bool hdr_complete;
+        int content_length;
+        size_t hdr_size;
+
+
+        bool idle;
+        RPCMapper* mapper;
+        RPCQueue* queue;
+        uint32_t last_id;
+        HTTPMessage* rpc_message;
 };
 
 class ConnectionPool {
@@ -88,7 +158,7 @@ class ConnectionPool {
         /**
          * @brief Add a connection to the pool
          */
-        std::unique_ptr<HTTPConnection>& add_connection(const std::string&, int, RPCMapper*, RPCQueue*);
+        std::unique_ptr<HTTPConnection>& add_connection(const std::string&, int, RPCMapper*, RPCQueue*, bool);
         std::unique_ptr<HTTPConnection>& get_connection(int fd) { return connections[fd]; }
         std::unique_ptr<HTTPConnection>& get_any_connection();
         bool has_connection(int fd);

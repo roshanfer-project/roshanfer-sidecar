@@ -6,12 +6,13 @@
 #include "rpc_message.h"
 
 
-const size_t MAX_POOL_SIZE = 100;
+const size_t MAX_gRPC_POOL_SIZE = 100;
+const size_t MAX_HTTP_POOL_SIZE = 1000;
 
 class RPCMapper {
     public:
         RPCMapper();
-        void allocate_rpc(ConnectionType, uint32_t, int);
+        void allocate_rpc(ConnectionType, uint32_t, int, bool);
         void route(ConnectionType, uint32_t, int, uint32_t, int);
         RPCMessage* get_us_rpc(ConnectionType, uint32_t, int);
         RPCMessage* get_ds_rpc(ConnectionType, uint32_t, int);
