@@ -34,7 +34,11 @@ FetchContent_MakeAvailable(yaml-cpp)
 # find nghttp2
 pkg_check_modules(NGHTTP2 REQUIRED libnghttp2)
 
-include_directories(include NanoLog/runtime)
+# add hdrhistogram
+add_subdirectory(external/HdrHistogram_c)
+
+# add NanoLog
+include_directories(include external/NanoLog/runtime)
 
 file(GLOB_RECURSE SOURCES src/*.cc src/*.c)
 
@@ -48,8 +52,10 @@ target_link_libraries(sidecar yaml-cpp::yaml-cpp)
 # link nghttp2
 target_link_libraries(sidecar ${NGHTTP2_LIBRARIES})
 # link nanolog
-target_link_libraries(sidecar ${CMAKE_CURRENT_SOURCE_DIR}/NanoLog/runtime/libNanoLog.a)
+target_link_libraries(sidecar ${CMAKE_CURRENT_SOURCE_DIR}/external/NanoLog/runtime/libNanoLog.a)
 # link pthread
 target_link_libraries(sidecar pthread)
 # link rt
 target_link_libraries(sidecar rt)
+# link HdrHistogram
+target_link_libraries(sidecar hdr_histogram_static)
