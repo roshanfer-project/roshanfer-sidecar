@@ -290,7 +290,9 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                 // submit the response
                 if (rpc->is_error()) {
                     conn->submit_error_response(*rpc);
-                    rpc_mapper.remove_rpc(type, rpc);
+                    if (!rpc->is_http()) {
+                        rpc_mapper.remove_rpc(type, rpc);
+                    }
                 } else {
                     conn->submit_response(*rpc);
                 }
@@ -443,6 +445,7 @@ void State::send_dn(HTTPConnection* conn, const std::string& service) {
 }
 
 void State::ingress_admit() {
+    // update ingress's p95 estimate
     if (std::chrono::steady_clock::now() >= next_hist_update) {
         ingress.update_p95(hdr_value_at_percentile(hist, 95.0));
         hdr_reset(hist);
@@ -471,6 +474,11 @@ void State::ingress_admit() {
 
     if (admit) {
         forward(ConnectionType::INGRESS, ConnectionDirection::DOWNSTREAM);
+    }
+
+    // check for any potential dropping
+    if (ingress.check_drop(rpc_queue, rpc_mapper)) {
+        forward(ConnectionType::INGRESS, ConnectionDirection::UPSTREAM);
     }
     
 }

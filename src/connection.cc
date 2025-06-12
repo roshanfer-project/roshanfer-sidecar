@@ -845,36 +845,51 @@ int HTTP1Connection::http_write(Buffer* buffer) {
         size_t written = 0;
         auto rpc = get_rpc_message();
 
-        written += snprintf(buffer->data.get()+written, buffer->get_size()-written,
+        if (rpc->is_error()) {
+            // return a 503 error response
+            written += snprintf(buffer->data.get()+written, buffer->get_size()-written,
+                            "HTTP/1.%d 503 Service Unavailable\r\n"
+                            "Content-Type: text/plain\r\n"
+                            "Content-Length: 0\r\n"
+                            "\r\n", rpc->get_minor());
+            buffer->set_filled(written + buffer->get_filled());
+            if (buffer->get_filled() > buffer->get_size()) {
+                LOG(FATAL) << "Buffer overflow";
+            }
+            VLOG(1) << "Write " << written << " bytes to HTTP/1.1 error response on fd: " << fd;
+        } else {
+            written += snprintf(buffer->data.get()+written, buffer->get_size()-written,
                             "HTTP/1.%d %d %.*s\r\n",
                             rpc->get_minor(), rpc->get_status(),
                             (int)rpc->get_msg().length(), rpc->get_msg().c_str());
         
-        auto& headers = rpc->get_res_headers();
-        for (size_t i = 0; i < rpc->get_res_header_count(); i++) {
-            written += snprintf(buffer->data.get()+written, buffer->get_size()-written,
-                            "%.*s: %.*s\r\n",
-                            (int)headers[i]->name_len,   headers[i]->name,
-                            (int)headers[i]->value_len,  headers[i]->value);
+            auto& headers = rpc->get_res_headers();
+            for (size_t i = 0; i < rpc->get_res_header_count(); i++) {
+                written += snprintf(buffer->data.get()+written, buffer->get_size()-written,
+                                "%.*s: %.*s\r\n",
+                                (int)headers[i]->name_len,   headers[i]->name,
+                                (int)headers[i]->value_len,  headers[i]->value);
+            }
+            
+            written += snprintf(buffer->data.get()+written, buffer->get_size()-written, "\r\n");
+
+            auto body = rpc->get_res_data();
+            memcpy(buffer->data.get()+written, body.data, body.offset);
+            written += body.offset;
+
+            // update the buffer size
+            buffer->set_filled(written + buffer->get_filled());
+
+            if (buffer->get_filled() > buffer->get_size()) {
+                LOG(FATAL) << "Buffer overflow";
+            }
+            VLOG(1) << "Write " << written << " bytes to HTTP/1.1 response on fd: " << fd;
         }
-        
-        written += snprintf(buffer->data.get()+written, buffer->get_size()-written, "\r\n");
-
-        auto body = rpc->get_res_data();
-        memcpy(buffer->data.get()+written, body.data, body.offset);
-        written += body.offset;
-
-        // update the buffer size
-        buffer->set_filled(written + buffer->get_filled());
-
-        if (buffer->get_filled() > buffer->get_size()) {
-            LOG(FATAL) << "Buffer overflow";
-        }
-        VLOG(1) << "Write " << written << " bytes to HTTP/1.1 response on fd: " << fd;
 
         if (config.report_latency) {
             report_latency(*rpc, type, hist);
         }
+
         auto orig_rpc = static_cast<RPCMessage*>(rpc);
         mapper->remove_rpc(type, orig_rpc);
 
@@ -898,7 +913,7 @@ void HTTP1Connection::submit_response(RPCMessage& rpc) {
 }
 
 void HTTP1Connection::submit_error_response(RPCMessage& rpc) {
-    LOG(FATAL) << "Not implemented yet";
+    submit_response(rpc);
 }
 
 bool HTTP1Connection::available() {

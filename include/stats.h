@@ -33,16 +33,29 @@ void inline report_latency(RPCMessage& rpc, ConnectionType type, struct hdr_hist
         hdr_record_value(hist, static_cast<int64_t>(duration.count()));
     }
     
-    
-    // template: M# <sidecar name> <metric name> <connection type> <service>:<method> <value>
-    NANO_LOG(NOTICE, "M# %s E2E %s %s:%s %ld",
-        config.name.c_str(), type_to_str(type).c_str(), rpc.get_service().c_str(), rpc.get_method().c_str(), duration.count());
-    
-    NANO_LOG(NOTICE, "M# %s REQ-FOR %s %s:%s %ld",
-        config.name.c_str(), type_to_str(type).c_str(), rpc.get_service().c_str(), rpc.get_method().c_str(), 
-        std::chrono::duration_cast<std::chrono::microseconds>(rpc.req_for_time - rpc.req_rcv_time).count());
+    if (!rpc.is_error()) {
+        // template: M# <sidecar name> <metric name> <connection type> <service>:<method> <value>
+        NANO_LOG(NOTICE, "M# %s E2E %s %s:%s %ld",
+            config.name.c_str(), type_to_str(type).c_str(), rpc.get_service().c_str(), rpc.get_method().c_str(), duration.count());
+        
+        NANO_LOG(NOTICE, "M# %s REQ-FOR %s %s:%s %ld",
+            config.name.c_str(), type_to_str(type).c_str(), rpc.get_service().c_str(), rpc.get_method().c_str(), 
+            std::chrono::duration_cast<std::chrono::microseconds>(rpc.req_for_time - rpc.req_rcv_time).count());
 
-    NANO_LOG(NOTICE, "M# %s RES-FOR %s %s:%s %ld",
-        config.name.c_str(), type_to_str(type).c_str(), rpc.get_service().c_str(), rpc.get_method().c_str(), 
-        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - rpc.res_rcv_time).count());
+        NANO_LOG(NOTICE, "M# %s RES-FOR %s %s:%s %ld",
+            config.name.c_str(), type_to_str(type).c_str(), rpc.get_service().c_str(), rpc.get_method().c_str(), 
+            std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - rpc.res_rcv_time).count());
+    } else {
+        if (rpc.is_http()) {
+
+            NANO_LOG(NOTICE, "M# %s DROP %s %s:%d 1",
+                config.name.c_str(), type_to_str(type).c_str(), rpc.get_service().c_str(), static_cast<HTTPMessage*>(&rpc)->get_status());
+        } else {
+            NANO_LOG(NOTICE, "M# %s DROP %s %s:%s 1",
+                config.name.c_str(), type_to_str(type).c_str(), rpc.get_service().c_str(), rpc.get_method().c_str());
+        }
+        
+    }
+    
+    
 }
