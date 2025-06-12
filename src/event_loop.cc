@@ -64,7 +64,8 @@ void EventLoop::run() {
                         cqe->res,
                         std::addressof(rpc_mapper),
                         std::addressof(rpc_queue),
-                        listener->type == ConnectionType::INGRESS ? config.is_ingress : false
+                        listener->type == ConnectionType::INGRESS ? config.is_ingress : false,
+                        state.get_histogram()
                     );
 
                     VLOG(1) << "Accepted connection on " << listener->type_to_str() << " listener"

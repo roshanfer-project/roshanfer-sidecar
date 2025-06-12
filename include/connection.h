@@ -30,6 +30,7 @@ typedef struct CallbackData {
     RPCQueue* queue;
     RPCMapper* mapper;
     ConnectionStatus* status;
+    struct hdr_histogram* hist;
 } CallbackData;
 
 class HTTPConnection {
@@ -39,13 +40,13 @@ class HTTPConnection {
          * @brief Construct an upstream connection
          * @note This is used by state
          */
-        HTTPConnection(std::string, uint16_t, ConnectionType);
+        HTTPConnection(std::string, uint16_t, ConnectionType, struct hdr_histogram*);
 
         /*
          * @brief Construct an downstream connection
          * @note This is used by listeners
          */
-        HTTPConnection(int, ConnectionType);
+        HTTPConnection(int, ConnectionType, struct hdr_histogram*);
         virtual ~HTTPConnection() = default;
         int get_fd() { return fd; }
         sockaddr* get_addr();
@@ -73,6 +74,7 @@ class HTTPConnection {
         ConnectionStatus status;
         std::string host;
         uint16_t port;
+        struct hdr_histogram* hist;
 
     public:
         ConnectionType type;
@@ -83,8 +85,8 @@ class HTTPConnection {
 class HTTP2Connection : public HTTPConnection {
 
     public:
-        HTTP2Connection(std::string, uint16_t, ConnectionType, RPCQueue*, RPCMapper*);
-        HTTP2Connection(int, ConnectionType, RPCMapper*, RPCQueue*);
+        HTTP2Connection(std::string, uint16_t, ConnectionType, RPCQueue*, RPCMapper*, struct hdr_histogram*);
+        HTTP2Connection(int, ConnectionType, RPCMapper*, RPCQueue*, struct hdr_histogram*);
         ~HTTP2Connection();
 
         void http_read(Buffer*, Ingress&);
@@ -115,8 +117,8 @@ const size_t HTTP1Connection_MAX_HEADERS = 20;
 class HTTP1Connection : public HTTPConnection {
 
     public:
-        HTTP1Connection(std::string, uint16_t, RPCMapper*, RPCQueue*);
-        HTTP1Connection(int, RPCMapper*, RPCQueue*);
+        HTTP1Connection(std::string, uint16_t, RPCMapper*, RPCQueue*, struct hdr_histogram*);
+        HTTP1Connection(int, RPCMapper*, RPCQueue*, struct hdr_histogram*);
         ~HTTP1Connection();
 
         void http_read(Buffer*, Ingress&);
@@ -159,7 +161,8 @@ class ConnectionPool {
         /**
          * @brief Add a connection to the pool
          */
-        std::unique_ptr<HTTPConnection>& add_connection(const std::string&, int, RPCMapper*, RPCQueue*, bool);
+        std::unique_ptr<HTTPConnection>& add_connection(const std::string&, int, RPCMapper*, RPCQueue*, bool,
+             struct hdr_histogram*);
         std::unique_ptr<HTTPConnection>& get_connection(int fd) { return connections[fd]; }
         std::unique_ptr<HTTPConnection>& get_any_connection();
         bool has_connection(int fd);

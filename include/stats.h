@@ -2,7 +2,10 @@
 
 #include "NanoLog.h"
 #include "connection_enums.h"
+#include "hdr/hdr_histogram.h"
 #include "rpc_message.h"
+#include <chrono>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -20,10 +23,16 @@ class Stats {
         std::unordered_map<std::string, bool> new_response_in;
 };
 
-void inline report_latency(RPCMessage& rpc, ConnectionType type) {
+void inline report_latency(RPCMessage& rpc, ConnectionType type, struct hdr_histogram* hist) {
     // calculate the duration
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::system_clock::now() - rpc.req_rcv_time);
+        std::chrono::steady_clock::now() - rpc.req_rcv_time);
+    
+    // update hist only if we are Ingress and also just for E2E Ingress requests
+    if (config.is_ingress == 1 && type == ConnectionType::INGRESS) {
+        hdr_record_value(hist, static_cast<int64_t>(duration.count()));
+    }
+    
     
     // template: M# <sidecar name> <metric name> <connection type> <service>:<method> <value>
     NANO_LOG(NOTICE, "M# %s E2E %s %s:%s %ld",

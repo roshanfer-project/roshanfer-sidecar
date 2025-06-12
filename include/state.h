@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -8,6 +9,7 @@
 #include "connection.h"
 #include "buffer_manager.h"
 #include "connection_enums.h"
+#include "hdr/hdr_histogram.h"
 #include "ingress.h"
 #include "ppm_queue.h"
 #include "ring_wrapper.h"
@@ -67,6 +69,7 @@ class State {
         void queue_multiplexer(Buffer*, Buffer*);
         void ppm_client(bool, Buffer*);
         void ingress_admit();
+        struct hdr_histogram* get_histogram() { return hist; }
         
         void write_http(HTTPConnection*);
         bool forward_request(HTTPConnection*, RPCMessage*);
@@ -92,6 +95,9 @@ class State {
         std::unordered_map<ConnectionType, Listener>& listeners;
         PPMQueue ppm_queue;
         Ingress& ingress;
+        struct hdr_histogram* hist;
+        std::chrono::steady_clock::time_point next_hist_update;
+
     
     public:
         Stats stats;

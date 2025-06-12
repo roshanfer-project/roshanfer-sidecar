@@ -16,3 +16,8 @@ RPCMessage* Ingress::dequeue() {
     queue.pop();
     return rpc;
 }
+
+void Ingress::update_p95(int64_t p95) {
+    this->p95 = p95;
+    VLOG(1) << "Updated ingress p95 to " << p95;
+}

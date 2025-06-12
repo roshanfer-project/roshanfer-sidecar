@@ -5,6 +5,7 @@
 #include "connection.h"
 #include "connection_enums.h"
 #include "glog/logging.h"
+#include "hdr/hdr_histogram.h"
 #include "ppm_queue.h"
 #include "ring_wrapper.h"
 #include "rpc_mapper.h"
@@ -70,7 +71,8 @@ State::State(Config config, RingWrapper& ring, BufferManager& buffer_manager,
             route.upstream.port,
             &rpc_mapper,
             &rpc_queue,
-            false // HTTP/2 connection
+            false, // HTTP/2 connection
+            hist
         );
 
         // prepare connect
@@ -93,7 +95,8 @@ State::State(Config config, RingWrapper& ring, BufferManager& buffer_manager,
             config.ingress_upstream_port,
             &rpc_mapper,
             &rpc_queue,
-            config.is_ingress
+            config.is_ingress,
+            hist
         );
 
         // prepare connect
@@ -105,6 +108,9 @@ State::State(Config config, RingWrapper& ring, BufferManager& buffer_manager,
     if (sockfd < 0) {
         LOG(FATAL) << "Failed to create socket";
     }
+
+    hdr_init(1, 50000, 3, &hist);
+    next_hist_update = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 }
 
 void State::write_http(HTTPConnection* conn) {
@@ -437,6 +443,12 @@ void State::send_dn(HTTPConnection* conn, const std::string& service) {
 }
 
 void State::ingress_admit() {
+    if (std::chrono::steady_clock::now() >= next_hist_update) {
+        ingress.update_p95(hdr_value_at_percentile(hist, 95.0));
+        hdr_reset(hist);
+        next_hist_update = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    }
+
     bool admit = false;
     for (int i = 0; i < ingress.size(); i++) {
         if (config.ppm_limit > ppm_state.sent_credits - 

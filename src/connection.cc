@@ -364,7 +364,7 @@ ssize_t data_read_callback_response(nghttp2_session* session,
 
             // report latency
             if (config.report_latency) {
-                report_latency(*rpc, callback_data->type);
+                report_latency(*rpc, callback_data->type, callback_data->hist);
             }
             
             // remove the RPC message from memory
@@ -381,12 +381,12 @@ ConnectionPool::ConnectionPool(ConnectionType type)
       type(type) {};
 
 std::unique_ptr<HTTPConnection>& ConnectionPool::add_connection(const std::string& host,
-     int port, RPCMapper* mapper, RPCQueue* queue, bool is_http1) {
+     int port, RPCMapper* mapper, RPCQueue* queue, bool is_http1, struct hdr_histogram* hist) {
     std::unique_ptr<HTTPConnection> c;
     if (is_http1) {
-        c = std::make_unique<HTTP1Connection>(host, port, mapper, queue);
+        c = std::make_unique<HTTP1Connection>(host, port, mapper, queue, hist);
     } else {
-        c = std::make_unique<HTTP2Connection>(host, port, type, queue, mapper);
+        c = std::make_unique<HTTP2Connection>(host, port, type, queue, mapper, hist);
     }
     int fd = c->get_fd();
     connections[fd] = std::move(c);
@@ -416,14 +416,15 @@ std::unique_ptr<HTTPConnection>& ConnectionPool::get_any_connection() {
 
 ///// HTTPConnection implementation
 
-HTTPConnection::HTTPConnection(int fd, ConnectionType type) 
+HTTPConnection::HTTPConnection(int fd, ConnectionType type, struct hdr_histogram* hist) 
     :   fd(fd),
         type(type),
         addr(0),
         direction(ConnectionDirection::DOWNSTREAM),
         status(ConnectionStatus::UP),
         host(""),
-        port(0) 
+        port(0),
+        hist(hist) 
 {
     
     // set non-blocking
@@ -441,14 +442,15 @@ HTTPConnection::HTTPConnection(int fd, ConnectionType type)
     }
 };
 
-HTTPConnection::HTTPConnection(std::string host, uint16_t port, ConnectionType type) 
+HTTPConnection::HTTPConnection(std::string host, uint16_t port, ConnectionType type, struct hdr_histogram* hist) 
     :   type(type),
         addr(0),
         fd(0),
         direction(ConnectionDirection::UPSTREAM),
         status(ConnectionStatus::DOWN),
         host(host),
-        port(port) 
+        port(port),
+        hist(hist)
 {
 
     fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
@@ -517,8 +519,9 @@ sockaddr* HTTPConnection::get_addr() {
 
 //////// HTTP1Connection implementation
 
-HTTP1Connection::HTTP1Connection(std::string host, uint16_t port, RPCMapper* mapper, RPCQueue* queue)
-    : HTTPConnection(host, port, ConnectionType::INGRESS),
+HTTP1Connection::HTTP1Connection(std::string host, uint16_t port, RPCMapper* mapper, RPCQueue* queue,
+                                 struct hdr_histogram* hist)
+    : HTTPConnection(host, port, ConnectionType::INGRESS, hist),
       mapper(mapper),
       queue(queue),
       last_id(0),
@@ -534,8 +537,8 @@ HTTP1Connection::HTTP1Connection(std::string host, uint16_t port, RPCMapper* map
     buf = new char[HTTP1Connection_BUF_SIZE];
 }
 
-HTTP1Connection::HTTP1Connection(int fd, RPCMapper* mapper, RPCQueue* queue)
-    : HTTPConnection(fd, ConnectionType::INGRESS),
+HTTP1Connection::HTTP1Connection(int fd, RPCMapper* mapper, RPCQueue* queue, struct hdr_histogram* hist)
+    : HTTPConnection(fd, ConnectionType::INGRESS, hist),
       mapper(mapper),
       queue(queue),
       last_id(0),
@@ -870,7 +873,7 @@ int HTTP1Connection::http_write(Buffer* buffer) {
         VLOG(1) << "Write " << written << " bytes to HTTP/1.1 response on fd: " << fd;
 
         if (config.report_latency) {
-            report_latency(*rpc, type);
+            report_latency(*rpc, type, hist);
         }
         auto orig_rpc = static_cast<RPCMessage*>(rpc);
         mapper->remove_rpc(type, orig_rpc);
@@ -921,8 +924,9 @@ HTTPMessage* HTTP1Connection::get_rpc_message() {
 /////// HTTP2Connection implementation
 
 
-HTTP2Connection::HTTP2Connection(std::string host, uint16_t port, ConnectionType type, RPCQueue* queue, RPCMapper* mapper)
-    :   HTTPConnection(host, port, type),
+HTTP2Connection::HTTP2Connection(std::string host, uint16_t port, ConnectionType type, RPCQueue* queue, RPCMapper* mapper,
+                                 struct hdr_histogram* hist)
+    :   HTTPConnection(host, port, type, hist),
         session(nullptr),
         callbacks(nullptr)
 {
@@ -944,8 +948,9 @@ HTTP2Connection::HTTP2Connection(std::string host, uint16_t port, ConnectionType
     } 
 }
 
-HTTP2Connection::HTTP2Connection(int fd, ConnectionType type, RPCMapper* mapper, RPCQueue* queue)
-    :   HTTPConnection(fd, type),
+HTTP2Connection::HTTP2Connection(int fd, ConnectionType type, RPCMapper* mapper, RPCQueue* queue,
+                                struct hdr_histogram* hist)
+    :   HTTPConnection(fd, type, hist),
         session(nullptr),
         callbacks(nullptr)
 {
