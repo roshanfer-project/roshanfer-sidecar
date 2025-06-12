@@ -1,3 +1,4 @@
+#include <chrono>
 #include <connection.h>
 #include <cstddef>
 #include <cstdint>
@@ -111,14 +112,14 @@ int frame_recv_callback(nghttp2_session* session,
 
             // record receive time for the RPC
             data->mapper->get_ds_rpc(data->type, frame->hd.stream_id, data->fd)->req_rcv_time
-             = std::chrono::system_clock::now();
+             = std::chrono::steady_clock::now();
         }
         else if (frame->hd.type == NGHTTP2_HEADERS) {
             // we have a response
             VLOG(1) << "RPC response received on fd: " << data->fd << " stream id: " << frame->hd.stream_id;
             data->queue->enqueue(data->type, data->direction, data->fd, frame->hd.stream_id);
             auto rpc = static_cast<gRPCMessage*>(data->mapper->get_us_rpc(data->type, frame->hd.stream_id, data->fd));
-            rpc->res_rcv_time = std::chrono::system_clock::now();
+            rpc->res_rcv_time = std::chrono::steady_clock::now();
             if (rpc->get_data_map().at(1).offset == 0) {
                 // This is an error response
                 VLOG(1) << "RPC error detected on fd: " << data->fd  << " stream id: " << frame->hd.stream_id;
@@ -242,7 +243,7 @@ int on_begin_headers_callback(nghttp2_session* session,
 
     // calculate the duration
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::system_clock::now() - rpc->get_rcv_time());
+        std::chrono::steady_clock::now() - rpc->get_rcv_time());
 
     LOG(INFO) << "Latency: " << duration.count() << " us" 
             << " type: " << type_to_str(data->type);
@@ -297,7 +298,7 @@ ssize_t data_read_callback_request(nghttp2_session*,
 
     // record the time
     callback_data->mapper->get_us_rpc(callback_data->type, stream_id, callback_data->fd)->req_for_time
-     = std::chrono::system_clock::now();
+     = std::chrono::steady_clock::now();
 
     return res_len;
 };
@@ -635,7 +636,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
         last_id++;
         mapper->allocate_rpc(type, last_id, fd, true);
         auto rpc = static_cast<HTTPMessage*>(mapper->get_ds_rpc(type, last_id, fd));
-        rpc->req_rcv_time = std::chrono::system_clock::now();
+        rpc->req_rcv_time = std::chrono::steady_clock::now();
         
         // fill the RPCMessage
         for (size_t i = 0; i < num_headers; i++) {
@@ -753,7 +754,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
 
         // add the data
         auto rpc = static_cast<HTTPMessage*>(mapper->get_us_rpc(type, last_id, fd));
-        rpc->res_rcv_time = std::chrono::system_clock::now();
+        rpc->res_rcv_time = std::chrono::steady_clock::now();
         rpc->add_data(reinterpret_cast<const uint8_t*>(body), content_length, false);
 
         // push the RPC to RPCQueue
@@ -828,7 +829,7 @@ int HTTP1Connection::http_write(Buffer* buffer) {
             VLOG(2) << "HTTP/1.1 request on fd: " << fd << "\n" << request;
         }
 
-        rpc->req_for_time = std::chrono::system_clock::now();
+        rpc->req_for_time = std::chrono::steady_clock::now();
 
         // update connection's internal state
         idle = false;

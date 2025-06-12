@@ -35,5 +35,5 @@ void inline report_latency(RPCMessage& rpc, ConnectionType type) {
 
     NANO_LOG(NOTICE, "M# %s RES-FOR %s %s:%s %ld",
         config.name.c_str(), type_to_str(type).c_str(), rpc.get_service().c_str(), rpc.get_method().c_str(), 
-        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now() - rpc.res_rcv_time).count());
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - rpc.res_rcv_time).count());
 }

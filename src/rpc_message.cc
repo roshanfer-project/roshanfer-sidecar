@@ -1,4 +1,5 @@
 #include "rpc_message.h"
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -143,9 +144,9 @@ void gRPCMessage::clear() {
         header->value_len = 0;
     }
     res_trailer_count = 0;
-    req_for_time = std::chrono::time_point<std::chrono::system_clock>();
-    req_rcv_time = std::chrono::time_point<std::chrono::system_clock>();
-    res_rcv_time = std::chrono::time_point<std::chrono::system_clock>();
+    req_for_time = std::chrono::time_point<std::chrono::steady_clock>();
+    req_rcv_time = std::chrono::time_point<std::chrono::steady_clock>();
+    res_rcv_time = std::chrono::time_point<std::chrono::steady_clock>();
 }
 
 gRPCMessage::~gRPCMessage() {
@@ -289,9 +290,9 @@ void HTTPMessage::clear() {
     msg.clear();
     minor = 0;
     status = 0;
-    req_for_time = std::chrono::time_point<std::chrono::system_clock>();
-    req_rcv_time = std::chrono::time_point<std::chrono::system_clock>();
-    res_rcv_time = std::chrono::time_point<std::chrono::system_clock>();
+    req_for_time = std::chrono::time_point<std::chrono::steady_clock>();
+    req_rcv_time = std::chrono::time_point<std::chrono::steady_clock>();
+    res_rcv_time = std::chrono::time_point<std::chrono::steady_clock>();
 }
 
 HTTPMessage::~HTTPMessage() {

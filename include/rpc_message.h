@@ -66,9 +66,9 @@ class RPCMessage {
         int us_fd;
 
     public:
-        std::chrono::time_point<std::chrono::system_clock> req_rcv_time;
-        std::chrono::time_point<std::chrono::system_clock> req_for_time;
-        std::chrono::time_point<std::chrono::system_clock> res_rcv_time;
+        std::chrono::time_point<std::chrono::steady_clock> req_rcv_time;
+        std::chrono::time_point<std::chrono::steady_clock> req_for_time;
+        std::chrono::time_point<std::chrono::steady_clock> res_rcv_time;
 };
 
 class gRPCMessage : public RPCMessage {
