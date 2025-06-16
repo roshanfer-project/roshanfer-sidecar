@@ -55,6 +55,7 @@ class RPCMessage {
         virtual bool is_error() = 0;
         virtual void set_error(bool) = 0;
         virtual bool is_http() = 0;
+        virtual bool is_drop() = 0;
     
     protected:
         // downstream identifiers
@@ -85,6 +86,7 @@ class gRPCMessage : public RPCMessage {
         std::string& get_service() { return service; }
         std::string& get_method() { return method; }
         bool is_http() { return false; }
+        bool is_drop() { return false; } // gRPC messages are never dropped
 
         
         std::unordered_map<uint8_t, DataReadStruct>& get_data_map() { return data_map; }
@@ -126,6 +128,7 @@ class HTTPMessage : public RPCMessage {
         std::string& get_service() { return service; }
         std::string& get_method() { return method; }
         bool is_http() { return true; }
+        bool is_drop() { return error && status == 503; }
 
         void set_method(const char* m, size_t m_len) {
             method.assign(m, m_len);

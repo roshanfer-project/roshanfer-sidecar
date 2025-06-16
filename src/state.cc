@@ -287,7 +287,9 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                 auto& conn = listeners.at(type).get_connections().at(rpc->get_ds_fd());
 
                 // update stats
-                stats.sidecar_resp_in[type]++;
+                if (!rpc->is_drop()) {
+                    stats.sidecar_resp_in[type]++;
+                }
                 if (type == ConnectionType::EGRESS) {
                     stats.new_response_in[rpc->get_service()] = true;
                 }
