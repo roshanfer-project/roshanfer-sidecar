@@ -166,7 +166,7 @@ HTTPConnection* State::route_request(ConnectionType type, uint32_t ds_stream_id,
 
         if (conn->get_status() == ConnectionStatus::TEARDOWN) {
             LOG(WARNING) << "Connection is in TEARDOWN state. Starting a new connection.";
-            throw NoConnectionException();
+            throw NoConnectionException("Connection is in TEARDOWN state");
         } else if (conn->get_status() == ConnectionStatus::DOWN) {
             LOG(WARNING) << "Connection is in DOWN state.";
             // put the RPC message back in the queue
@@ -180,6 +180,12 @@ HTTPConnection* State::route_request(ConnectionType type, uint32_t ds_stream_id,
         VLOG(1) << "Routing message (" << ds_fd << "," << ds_stream_id << ") to fd: " << conn->get_fd();
 
         return conn;
+    }
+    catch (NoConnectionException& e) {
+        LOG(FATAL) << "No connection available for routing request: " << e.what()
+                   << " type: " << type_to_str(type)
+                   << " in_flight: " << stats.in_flight[type]
+                   << " ingress_size: " << ingress.size();
     }
     catch (const std::exception& e) {
         LOG(FATAL) << "Error in routing, " << e.what();

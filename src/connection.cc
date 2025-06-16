@@ -401,7 +401,7 @@ bool ConnectionPool::has_connection(int fd) {
 // HTTP/1.1 connections doen't allow multiplexing.
 std::unique_ptr<HTTPConnection>& ConnectionPool::get_any_connection() {
     if (connections.empty()) {
-        throw NoConnectionException();
+        throw NoConnectionException("Pool is empty");
     }
 
     // return first available connection
@@ -410,7 +410,7 @@ std::unique_ptr<HTTPConnection>& ConnectionPool::get_any_connection() {
             return conn.second;
         }
     }
-    LOG(FATAL) << "No available connections in the pool of type: " << type_to_str(type);
+    throw NoConnectionException("No available connections in the pool");
 };
 
 

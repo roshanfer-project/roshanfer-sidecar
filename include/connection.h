@@ -20,7 +20,7 @@
 
 class NoConnectionException : public std::runtime_error {
     public:
-        NoConnectionException() : std::runtime_error("No connection available") {}
+        NoConnectionException(std::string msg) : std::runtime_error(msg) {}
 };
 
 typedef struct CallbackData {
