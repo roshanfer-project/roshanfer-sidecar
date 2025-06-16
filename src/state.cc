@@ -184,7 +184,6 @@ HTTPConnection* State::route_request(ConnectionType type, uint32_t ds_stream_id,
     catch (NoConnectionException& e) {
         LOG(FATAL) << "No connection available for routing request: " << e.what()
                    << " type: " << type_to_str(type)
-                   << " in_flight: " << stats.in_flight[type]
                    << " ingress_size: " << ingress.size();
     }
     catch (const std::exception& e) {
