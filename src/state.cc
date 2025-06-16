@@ -459,7 +459,8 @@ void State::ingress_admit() {
     }
 
     bool admit = false;
-    for (int i = 0; i < ingress.size(); i++) {
+    auto tmp_size = ingress.size();
+    for (int i = 0; i < tmp_size; i++) {
         if (config.ppm_limit > ppm_state.sent_credits - 
             stats.sidecar_resp_in[ConnectionType::INGRESS]) {
             
