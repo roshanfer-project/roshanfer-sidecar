@@ -36,7 +36,9 @@ Listener::Listener(uint16_t port, ConnectionType type)
     }
 
     // Listen on the socket
-    if (listen(fd, 10) < 0) {
+    // NOTE: if backlog of connections (here is 100) is small, you will see Invalid Argument 
+    // errors in cqe of io_uring_prep_accept
+    if (listen(fd, 100) < 0) {
         LOG(FATAL) << "Failed to listen on socket: " << port;
     }
 
