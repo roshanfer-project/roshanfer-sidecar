@@ -811,32 +811,49 @@ bool HTTP1Connection::want_write() {
     LOG(FATAL) << "HTTP/1.1 connection does not support want_read";
 } */
 
+void static inline snprintf_ret_check(int ret, size_t size) {
+    if (ret < 0 || (size_t)ret >= size) {
+        LOG(FATAL) << "snprintf failed or buffer overflow, ret: " << ret << ", size: " << size;
+    }
+}
 
 int HTTP1Connection::http_write(Buffer* buffer) {
     if (direction == ConnectionDirection::UPSTREAM) {
         // we are serializing a request
 
-        size_t written = 0;
+        int written = 0;
         auto rpc = get_rpc_message();
+        int ret, size;
 
-        written += snprintf(buffer->data.get()+written, buffer->get_size()-written,
+        size = buffer->get_size()-buffer->get_filled();
+        ret = snprintf(buffer->data.get()+written, size,
                             "%.*s %.*s HTTP/1.%d\r\n",
                             (int)rpc->get_method().length(), rpc->get_method().c_str(),
                             (int)rpc->get_path().length(),   rpc->get_path().c_str(),
                             rpc->get_minor());
+        
+        snprintf_ret_check(ret, size);
+        written += ret;
+        buffer->set_filled(ret + buffer->get_filled());
 
         auto& headers = rpc->get_req_headers();
         for (size_t i = 0; i < rpc->get_req_header_count(); i++) {
-            written += snprintf(buffer->data.get()+written, buffer->get_size()-written,
+            size = buffer->get_size()-buffer->get_filled();
+            ret = snprintf(buffer->data.get()+written,
+                        size,
                             "%.*s: %.*s\r\n",
                             (int)headers[i]->name_len,   headers[i]->name,
                             (int)headers[i]->value_len,  headers[i]->value);
+            snprintf_ret_check(ret, size);
+            written += ret;
+            buffer->set_filled(ret + buffer->get_filled());
         }
 
-        written += snprintf(buffer->data.get()+written, buffer->get_size()-written, "\r\n");
-
-        // update the buffer size
-        buffer->set_filled(written + buffer->get_filled());
+        size = buffer->get_size()-buffer->get_filled();
+        ret = snprintf(buffer->data.get()+written, size, "\r\n");
+        snprintf_ret_check(ret, size);
+        written += ret;
+        buffer->set_filled(ret + buffer->get_filled());
 
         if (buffer->get_filled() > buffer->get_size()) {
             LOG(FATAL) << "Buffer overflow";
@@ -863,43 +880,65 @@ int HTTP1Connection::http_write(Buffer* buffer) {
     else {
         // we are serializing a response
        
-        size_t written = 0;
+        int written = 0;
         auto rpc = get_rpc_message();
+        int ret, size;
 
         if (rpc->is_error()) {
             // return a 503 error response
-            written += snprintf(buffer->data.get()+written, buffer->get_size()-written,
+            size = buffer->get_size()-buffer->get_filled();
+            ret = snprintf(buffer->data.get()+written, 
+                            size,
                             "HTTP/1.%d 503 Service Unavailable\r\n"
                             "Content-Type: text/plain\r\n"
                             "Content-Length: 0\r\n"
                             "\r\n", rpc->get_minor());
-            buffer->set_filled(written + buffer->get_filled());
+            snprintf_ret_check(ret, size);
+            written += ret;
+            buffer->set_filled(ret + buffer->get_filled());
             if (buffer->get_filled() > buffer->get_size()) {
                 LOG(FATAL) << "Buffer overflow";
             }
             VLOG(1) << "Write " << written << " bytes to HTTP/1.1 error response on fd: " << fd;
         } else {
-            written += snprintf(buffer->data.get()+written, buffer->get_size()-written,
+            size = buffer->get_size()-buffer->get_filled();
+            ret = snprintf(buffer->data.get()+written, size,
                             "HTTP/1.%d %d %.*s\r\n",
                             rpc->get_minor(), rpc->get_status(),
                             (int)rpc->get_msg().length(), rpc->get_msg().c_str());
+            snprintf_ret_check(ret, size);
+            written += ret;
+            buffer->set_filled(ret + buffer->get_filled());
         
             auto& headers = rpc->get_res_headers();
             for (size_t i = 0; i < rpc->get_res_header_count(); i++) {
-                written += snprintf(buffer->data.get()+written, buffer->get_size()-written,
+                size = buffer->get_size()-buffer->get_filled();
+                ret = snprintf(buffer->data.get()+written, size,
                                 "%.*s: %.*s\r\n",
                                 (int)headers[i]->name_len,   headers[i]->name,
                                 (int)headers[i]->value_len,  headers[i]->value);
+                snprintf_ret_check(ret, size);
+                written += ret;
+                buffer->set_filled(ret + buffer->get_filled());
             }
             
-            written += snprintf(buffer->data.get()+written, buffer->get_size()-written, "\r\n");
+            size = buffer->get_size()-buffer->get_filled();
+            ret = snprintf(buffer->data.get()+written, size, "\r\n");
+            snprintf_ret_check(ret, size);
+            written += ret;
+            buffer->set_filled(ret + buffer->get_filled());
 
             auto body = rpc->get_res_data();
-            memcpy(buffer->data.get()+written, body.data, body.offset);
+            if (body.offset >= buffer->get_size()-buffer->get_filled()) {
+                LOG(FATAL) << "Buffer overflow, body size: " << body.offset
+                    << ", buffer size: " << buffer->get_size()
+                    << ", filled: " << buffer->get_filled();
+            }
+            memcpy(buffer->data.get()+buffer->get_filled(), body.data, body.offset);
             written += body.offset;
 
             // update the buffer size
-            buffer->set_filled(written + buffer->get_filled());
+            buffer->set_filled(body.offset + buffer->get_filled());
 
             if (buffer->get_filled() > buffer->get_size()) {
                 LOG(FATAL) << "Buffer overflow";
