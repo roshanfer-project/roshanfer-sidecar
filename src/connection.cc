@@ -662,6 +662,12 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
 
         // Send RPC to Ingress
         ingress.enqueue(rpc);
+
+        // update idle
+        if (idle == false) {
+            LOG(FATAL) << "Reading a request from non-idle INGRESS-DOWNSTREAM connection, fd: " << fd;
+        }
+        idle = false;
         
         // reset state
         buf_len = 0;
@@ -776,8 +782,13 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
                 << ", content_length: " << content_length;
         }
 
-        // reset state
+        // update idle
+        if (idle == true) {
+            LOG(FATAL) << "Reading a response from idle INGRESS-UPSTREAM connection, fd: " << fd;
+        }
         idle = true;
+
+        // reset state
         buf_len = 0;
         prev_buf_len = 0;
         hdr_complete = false;
@@ -841,7 +852,10 @@ int HTTP1Connection::http_write(Buffer* buffer) {
 
         rpc->req_for_time = std::chrono::steady_clock::now();
 
-        // update connection's internal state
+        // update idle
+        if (idle == false) {
+            LOG(FATAL) << "Writing a request to non-idle INGRESS-UPSTREAM connection, fd: " << fd;
+        }
         idle = false;
 
         return written;
@@ -892,6 +906,12 @@ int HTTP1Connection::http_write(Buffer* buffer) {
             }
             VLOG(1) << "Write " << written << " bytes to HTTP/1.1 response on fd: " << fd;
         }
+
+        // update idle
+        if (idle == true) {
+            LOG(FATAL) << "Writing a response to idle INGRESS-DOWNSTREAM connection, fd: " << fd;
+        }
+        idle = true;
 
         if (config.report_latency) {
             report_latency(*rpc, type, hist);
