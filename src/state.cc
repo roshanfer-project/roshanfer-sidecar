@@ -117,14 +117,10 @@ void State::write_http(HTTPConnection* conn) {
     if (conn->want_write() == 0) {
         return;
     }
-    VLOG(1) << "Starting to write batch of HTTP/2 data on fd: " << conn->get_fd();
+    VLOG(1) << "Starting to write batch of HTTP data on fd: " << conn->get_fd();
 
-    Buffer* send_buffer = nullptr;
-    bool write_flag = false;
     while (conn->want_write()) {
-        if (send_buffer == nullptr) {
-            send_buffer = buffer_manager.get_buffer();
-        }
+        Buffer* send_buffer = buffer_manager.get_buffer();
 
         conn->http_write(send_buffer);
 
@@ -132,10 +128,7 @@ void State::write_http(HTTPConnection* conn) {
             buffer_manager.free_buffer(send_buffer);
             break;
         }
-        write_flag = true;
-    }
 
-    if (write_flag) {
         auto write_ud = buffer_manager.get_user_data();
         prepare_write(write_ud, send_buffer, conn);
 
@@ -147,7 +140,7 @@ void State::write_http(HTTPConnection* conn) {
         );
     }
 
-    VLOG(1) << "Finished writing batch of HTTP/2 data written on fd: " << conn->get_fd();
+    VLOG(1) << "Finished writing batch of HTTP data written on fd: " << conn->get_fd();
 }
 
 
