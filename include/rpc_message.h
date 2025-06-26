@@ -10,15 +10,17 @@
 #include <vector>
 #include <chrono>
 
+const size_t MAX_HEADER_FIELD_SIZE = 60;
+
 class HeaderField {
     public:
         HeaderField();
         void set(const uint8_t* name, size_t name_len, const uint8_t* value, size_t value_len);
 
     public:
-        uint8_t name[60];
+        uint8_t* name;
         size_t name_len;
-        uint8_t value[60];
+        uint8_t* value;
         size_t value_len;
 };
 

@@ -15,10 +15,13 @@ RPCMessage::RPCMessage()
 //////// gRPCMessage Implementation
 
 HeaderField::HeaderField()
-: name(), name_len(0), value(), value_len(0) {}
+: name(), name_len(0), value(), value_len(0) {
+    name = new uint8_t[MAX_HEADER_FIELD_SIZE + 1];
+    value = new uint8_t[MAX_HEADER_FIELD_SIZE + 1];
+}
 
 void HeaderField::set(const uint8_t* name, size_t name_len, const uint8_t* value, size_t value_len) {
-    if (name_len > sizeof(this->name) || value_len > sizeof(this->value)) {
+    if (name_len >= MAX_HEADER_FIELD_SIZE || value_len >= MAX_HEADER_FIELD_SIZE) {
         LOG(FATAL) << "HeaderField name or value too long";
     }
     std::memcpy(this->name, name, name_len);
