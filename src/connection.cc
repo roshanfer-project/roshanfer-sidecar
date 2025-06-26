@@ -624,10 +624,14 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
             }
         }
 
-        for (size_t i = 0; i < num_headers; i++)
-            if (strncmp(headers[i].name, "Content-Length", 14) == 0)
-                content_length = strtoul(headers[i].value, NULL, 10);
-        
+        for (size_t i = 0; i < num_headers; i++) {
+            if (headers[i].name_len >= 14) {
+                if (strncmp(headers[i].name, "Content-Length", 14) == 0) {
+                    content_length = strtoul(headers[i].value, NULL, 10);
+                }
+            }
+        }
+            
         if (content_length >= 0) {
             LOG(FATAL) << "Content-Length header is not supported in HTTP/1.1 requests, fd: " << fd
                 << ", content_length: " << content_length;
@@ -711,18 +715,18 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
 
             if (header_body_allowed(status)) {
                 for (size_t i = 0; i < num_headers; i++) {
-                    if (headers[i].name_len == 14 &&
-                            strncasecmp(headers[i].name, "Content-Length", 14) == 0) {
-                        content_length = strtoul(headers[i].value, NULL, 10);
+                    if (headers[i].name_len == 14) {
+                        if (strncasecmp(headers[i].name, "Content-Length", 14) == 0) {
+                            content_length = strtoul(headers[i].value, NULL, 10);
+                        }
                     }
 
-                    if (headers[i].name_len == 17 &&
-                        strncasecmp(headers[i].name, "Transfer-Encoding", 17) == 0 &&
-                        headers[i].value_len >= 7 &&
-                        strncasecmp(headers[i].value, "chunked", 7) == 0) {
-                    
-                        LOG(FATAL) << "Chunked transfer encoding is not supported in HTTP/1.1 responses, fd: " << fd
-                            << ", value: " << std::string(headers[i].value, headers[i].value_len);
+                    if (headers[i].name_len == 17 && headers[i].value_len >= 7) {
+                        if (strncasecmp(headers[i].name, "Transfer-Encoding", 17) == 0 &&
+                            strncasecmp(headers[i].value, "chunked", 7) == 0) {
+                                LOG(FATAL) << "Chunked transfer encoding is not supported in HTTP/1.1 responses, fd: " << fd
+                                            << ", value: " << std::string(headers[i].value, headers[i].value_len);
+                            }
                     }
                 }
                 
