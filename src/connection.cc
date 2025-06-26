@@ -1,3 +1,4 @@
+#include <array>
 #include <chrono>
 #include <connection.h>
 #include <cstddef>
@@ -531,10 +532,11 @@ HTTP1Connection::HTTP1Connection(std::string host, uint16_t port, RPCMapper* map
       rpc_message(nullptr),
       hdr_complete(false),
       content_length(-1),
-      hdr_size(0) {
+      hdr_size(0),
+      buf(std::array<char, HTTP1Connection_BUF_SIZE>()) {
 
 
-    buf = new char[HTTP1Connection_BUF_SIZE];
+    //buf = new char[HTTP1Connection_BUF_SIZE];
 }
 
 HTTP1Connection::HTTP1Connection(int fd, RPCMapper* mapper, RPCQueue* queue, struct hdr_histogram* hist)
@@ -548,15 +550,16 @@ HTTP1Connection::HTTP1Connection(int fd, RPCMapper* mapper, RPCQueue* queue, str
       rpc_message(nullptr),
       hdr_complete(false),
       content_length(-1),
-      hdr_size(0) {
+      hdr_size(0),
+      buf(std::array<char, HTTP1Connection_BUF_SIZE>()) {
     
-    buf = new char[HTTP1Connection_BUF_SIZE];
+    //buf = new char[HTTP1Connection_BUF_SIZE];
 }
 
 HTTP1Connection::~HTTP1Connection() {
     VLOG(1) << "HTTP2Connection deconstructor on fd: " << fd;
     close(fd);
-    delete[] buf;
+    //delete[] buf;
 }
 
 static inline bool header_body_allowed(int code)
@@ -577,7 +580,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
         LOG(FATAL) << "Buffer overflow, buf_len: " << buf_len 
                     << ", buffer filled: " << buffer->get_filled();
     }
-    std::memcpy(buf + buf_len, buffer->data.get(), buffer->get_filled());
+    std::memcpy(buf.data() + buf_len, buffer->data.get(), buffer->get_filled());
     prev_buf_len = buf_len;
     buf_len += buffer->get_filled();
 
@@ -593,7 +596,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
         int minor;
         
         hdr_size = phr_parse_request(
-            buf, buf_len,
+            buf.data(), buf_len,
             &method, &method_len,
             &path,   &path_len,
             &minor,
@@ -680,7 +683,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
             const char *msg;
             size_t msg_len;
 
-            hdr_size = phr_parse_response(buf, buf_len,
+            hdr_size = phr_parse_response(buf.data(), buf_len,
                         &minor, &status,
                         &msg, &msg_len,
                         headers, &num_headers,
@@ -753,7 +756,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
         }
 
         // we have a full body
-        const char* body = buf + hdr_size;
+        const char* body = buf.data() + hdr_size;
 
         // add the data
         auto rpc = static_cast<HTTPMessage*>(mapper->get_us_rpc(type, last_id, fd));

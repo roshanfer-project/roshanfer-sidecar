@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -138,7 +139,7 @@ class HTTP1Connection : public HTTPConnection {
         
     private:
         // internal state for parsing
-        char* buf;
+        std::array<char, HTTP1Connection_BUF_SIZE> buf;
         size_t buf_len;
         size_t prev_buf_len;
         bool hdr_complete;
