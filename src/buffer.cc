@@ -3,6 +3,7 @@
 #include <cstring>
 #include <memory>
 #include <netinet/in.h>
+#include "glog/logging.h"
 
 Buffer::Buffer(int size, int index)
  :  size(size),
@@ -19,6 +20,13 @@ void Buffer::clear() {
     addr = nullptr;
     iov = nullptr;
     filled = 0;
+}
+
+void Buffer::set_filled(int f) {
+    if (f >= size) {
+        LOG(FATAL) << "Buffer overflow, filled: " << f << ", size: " << size;
+    }
+    filled = f;
 }
 
 void Buffer::prepare_recvmsg() {

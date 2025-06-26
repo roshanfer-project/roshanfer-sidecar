@@ -12,7 +12,7 @@ class Buffer {
         int get_index() { return index; }
         //HTTPConnection& get_conn() { return *conn; }
         //Listener& get_listener() { return *listener; }
-        void set_filled(int f) { filled = f; }
+        void set_filled(int f);
         //void prepare_read(HTTPConnection*, Listener*);
         //void prepare_write(HTTPConnection*);
         void prepare_recvmsg();
