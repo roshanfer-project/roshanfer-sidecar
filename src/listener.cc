@@ -49,7 +49,7 @@ HTTPConnection& Listener::add_connection(int new_fd, RPCMapper* mapper, RPCQueue
     if (is_http1) {
         connections.emplace(new_fd, std::make_unique<HTTP1Connection>(new_fd, mapper, queue, hist));
     } else {
-        connections.emplace(new_fd, std::make_unique<HTTP2Connection>(fd, type, mapper, queue, hist));
+        connections.emplace(new_fd, std::make_unique<HTTP2Connection>(new_fd, type, mapper, queue, hist));
     }
     return *connections.at(new_fd);
 };
