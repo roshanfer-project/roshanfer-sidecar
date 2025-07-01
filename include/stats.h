@@ -1,6 +1,6 @@
 #pragma once
 
-//#include "NanoLog.h"
+#include "NanoLog.h"
 #include "connection_enums.h"
 #include "hdr/hdr_histogram.h"
 #include "rpc_message.h"
@@ -10,9 +10,9 @@
 #include <unordered_map>
 #include <vector>
 #include "config.h"
-//#include "NanoLogCpp17.h"
+#include "NanoLogCpp17.h"
 
-//using namespace NanoLog::LogLevels;
+using namespace NanoLog::LogLevels;
 
 class Stats {
     public:
@@ -25,7 +25,7 @@ class Stats {
 
 void inline report_latency(RPCMessage& rpc, ConnectionType type, struct hdr_histogram* hist) {
     // calculate the duration
-    /* auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - rpc.req_rcv_time);
     
     // update hist only if we are Ingress and also just for E2E Ingress requests
@@ -55,7 +55,7 @@ void inline report_latency(RPCMessage& rpc, ConnectionType type, struct hdr_hist
                 config.name.c_str(), type_to_str(type).c_str(), rpc.get_service().c_str(), rpc.get_method().c_str());
         }
         
-    } */
+    }
     
     
 }
