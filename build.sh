@@ -10,6 +10,11 @@ BUILD_TYPE=$1
 echo "Build type set to: $BUILD_TYPE"
 
 # Build the sidecar
+# Create build directory if it doesn't exist
+if [ ! -d "./build" ]; then
+    mkdir ./build
+    echo "Created build directory"
+fi
 cd ./build
 cmake ..   -DCMAKE_BUILD_TYPE=$BUILD_TYPE
 cmake --build .
