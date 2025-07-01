@@ -107,6 +107,7 @@ struct io_uring_sqe* RingWrapper::get_sqe() {
     if (!sqe) {
         LOG(FATAL) << "Failed to get SQE";
     }
+    std::memset(sqe, 0, sizeof(*sqe));
     return sqe;
 }
 
