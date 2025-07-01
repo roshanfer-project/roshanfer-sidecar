@@ -1,6 +1,7 @@
 #pragma once
 
 #include "connection_enums.h"
+#include <cstddef>
 #include <cstdint>
 #include <tuple>
 #include <unordered_map>
@@ -9,12 +10,12 @@
 class RPCQueue {
     public:
         RPCQueue();
-        void enqueue(ConnectionType, ConnectionDirection, int, uint32_t);
-        std::tuple<int, uint32_t> dequeue(ConnectionType, ConnectionDirection);
+        void enqueue(ConnectionType, ConnectionDirection, int, int32_t);
+        std::tuple<int, int32_t> dequeue(ConnectionType, ConnectionDirection);
         bool empty(ConnectionType, ConnectionDirection);
-        int size(ConnectionType, ConnectionDirection);
+        size_t size(ConnectionType, ConnectionDirection);
     
     private:
         std::unordered_map<ConnectionType, 
-            std::unordered_map<ConnectionDirection, std::queue<std::tuple<int, uint32_t>>>> queue_map;
+            std::unordered_map<ConnectionDirection, std::queue<std::tuple<int, int32_t>>>> queue_map;
 };

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -15,13 +17,13 @@ struct RoutingEntry {
 
 struct Config
 {
-    int ring_size;
-    int buffer_count;
-    int buffer_size;
-    int egress_listener_port;
-    int ingress_listener_port;
+    size_t ring_size;
+    size_t buffer_count;
+    size_t buffer_size;
+    uint16_t egress_listener_port;
+    uint16_t ingress_listener_port;
     std::string ingress_upstream_host;
-    int ingress_upstream_port;
+    uint16_t ingress_upstream_port;
     int ppm_limit;
     std::string name;
     std::vector<RoutingEntry> routing;

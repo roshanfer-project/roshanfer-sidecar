@@ -9,8 +9,8 @@
 
 
 
-Listener::Listener(uint16_t port, ConnectionType type) 
-    : port(port), type(type) {
+Listener::Listener(uint16_t lis_port, ConnectionType lis_type) 
+    : port(lis_port), addr({}), type(lis_type) {
     
     // Create a socket
     fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -19,7 +19,6 @@ Listener::Listener(uint16_t port, ConnectionType type)
     }
 
     // Bind the socket
-    struct sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = INADDR_ANY;
@@ -45,14 +44,14 @@ Listener::Listener(uint16_t port, ConnectionType type)
     VLOG(1) << "Listener created on port: " << port << " with fd: " << fd;
 };
 
-HTTPConnection& Listener::add_connection(int fd, RPCMapper* mapper, RPCQueue* queue, bool is_http1, 
+HTTPConnection& Listener::add_connection(int new_fd, RPCMapper* mapper, RPCQueue* queue, bool is_http1, 
                                          struct hdr_histogram* hist) {
     if (is_http1) {
-        connections[fd] = std::make_unique<HTTP1Connection>(fd, mapper, queue, hist);
+        connections.emplace(new_fd, std::make_unique<HTTP1Connection>(new_fd, mapper, queue, hist));
     } else {
-        connections[fd] = std::make_unique<HTTP2Connection>(fd, type, mapper, queue, hist);
+        connections.emplace(new_fd, std::make_unique<HTTP2Connection>(fd, type, mapper, queue, hist));
     }
-    return *connections[fd];
+    return *connections.at(new_fd);
 };
 
 std::string Listener::type_to_str() {

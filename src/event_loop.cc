@@ -5,6 +5,7 @@
 #include "ring_helper.h"
 #include "buffer.h"
 #include <cassert>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <event_loop.h>
@@ -20,7 +21,7 @@
 void EventLoop::run() {
     // Pointers to accept and identify completion events
     struct io_uring_cqe *cqe;
-    struct UserData *ud;
+    UserData *ud;
 
     // Add accept submissions
     for (auto& listener : listeners) {
@@ -92,16 +93,19 @@ void EventLoop::run() {
             }
             
             case Operation::READ: {
+                VLOG(1) << "Read completion event";
                 // get the buffer from the user data
-                Buffer* buffer = ud->buffer;
-                buffer->set_filled(cqe->res);
+                Buffer* buffer = ud->get_buffer();
+                if (buffer == nullptr) {
+                    LOG(FATAL) << "Buffer is null in read completion event";
+                }
 
                 // get the original connection and listener
-                auto orig_conn = ud->conn;
-                auto orig_listener = ud->listener;
+                HTTPConnection* orig_conn = ud->conn;
+                Listener* orig_listener = ud->listener;
 
                 // log the read event
-                VLOG(1) << "Read completion event, fd: " << orig_conn->get_fd();
+                VLOG(1) << "fd: " << orig_conn->get_fd();
                 VLOG(1) << "Read " << cqe->res << " bytes from buffer";
                 VLOG(1) << "Connection type: " << orig_conn->type_to_str();
                 VLOG(1) << "Connection direction: " << orig_conn->direction_to_str();
@@ -128,9 +132,12 @@ void EventLoop::run() {
                     );
                     break;
                 }
+                buffer->set_filled((size_t)cqe->res);
 
                 // feed data to nghttp2
+                assert(orig_conn != nullptr && "orig_conn should not be null here");
                 orig_conn->http_read(buffer, ingress);
+                assert(orig_conn != nullptr && "orig_conn should not be null here");
 
                 // send out http2-related data
                 state.write_http(orig_conn);
@@ -206,7 +213,8 @@ void EventLoop::run() {
                 VLOG(1) << "Wrote " << cqe->res << " bytes to fd: " << ud->conn->get_fd();
 
                 // free buffer
-                buffer_manager.free_buffer(ud->buffer);
+                Buffer* buffer = ud->get_buffer();
+                buffer_manager.free_buffer(buffer);
 
                 break;
             }
@@ -241,9 +249,12 @@ void EventLoop::run() {
                 VLOG(1) << "Recvmsg completion event";
 
                 // get the buffer from the user data
-                Buffer* old_buffer = ud->buffer;
+                Buffer* old_buffer = ud->get_buffer();
                 auto udp_type = ud->udp_type;
-                old_buffer->set_filled(cqe->res);
+                if (cqe->res <= 0) {
+                    LOG(FATAL) << "unhandled scenario";
+                }
+                old_buffer->set_filled((size_t)cqe->res);
 
                 // TODO: check if the received message is a request for QM,
                 // or is a response for DN (In the second case, there is no need
@@ -282,7 +293,7 @@ void EventLoop::run() {
                     case UDPType::RESPONSE: {
                         VLOG(1) << "Response for DN";
 
-                        Buffer* buffer = ud->buffer;
+                        Buffer* buffer = ud->get_buffer();
 
                         // We have a response for DN (potentially a request unblock)
                         state.ppm_client(true, buffer);
@@ -294,6 +305,11 @@ void EventLoop::run() {
                         // everytime we send a DN request we also post a recvmsg sqe
                         break;
                     }
+
+                    case UDPType::CLEAR: {
+                        LOG(FATAL) << "Received a CLEAR UDPType, this should not happen";
+                        break;
+                    }
                 }
                 break;
             }
@@ -302,7 +318,7 @@ void EventLoop::run() {
                 VLOG(1) << "Sendmsg completion event";
 
                 // get the buffer from the user data
-                Buffer* buffer = ud->buffer;
+                Buffer* buffer = ud->get_buffer();
 
                 // free the buffer
                 buffer_manager.free_buffer(buffer);
@@ -310,8 +326,11 @@ void EventLoop::run() {
                 break;
             }
             
-            default:
+            case Operation::CLEAR: {
+                LOG(FATAL) << "Received a CLEAR operation, index: " << ud->index;
                 break;
+            }
+
             }
 
             // free the user data
@@ -323,16 +342,16 @@ void EventLoop::run() {
     }
 };
 
-EventLoop::EventLoop(Config config)
-:   ring(config.ring_size),
+EventLoop::EventLoop(Config parsed_config)
+:   config(parsed_config),
+    ring(config.ring_size),
     buffer_manager(config.buffer_count, config.buffer_size),
-    state(config, ring, buffer_manager, rpc_mapper, rpc_queue, listeners, ingress),
     listeners(),
     udp_listener(config.ingress_listener_port),
     rpc_mapper(),
     rpc_queue(),
-    config(config),
-    ingress()
+    ingress(),
+    state(config, ring, buffer_manager, rpc_mapper, rpc_queue, listeners, ingress)
     {
         listeners.emplace(
             ConnectionType::EGRESS,

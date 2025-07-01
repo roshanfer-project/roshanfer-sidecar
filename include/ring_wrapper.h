@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <liburing.h>
 #include <listener.h>
 #include <connection.h>
@@ -7,7 +8,7 @@
 
 class RingWrapper {
 public:
-    RingWrapper(int);
+    RingWrapper(size_t);
     ~RingWrapper();
 
     /**
@@ -41,8 +42,9 @@ public:
 
 private:
     struct io_uring_sqe* get_sqe();
+    void set_user_data(struct io_uring_sqe *, UserData*);
 
 private:
     struct io_uring ring;
-    int size;
+    size_t size;
 };

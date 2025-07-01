@@ -29,7 +29,7 @@ bool Ingress::check_drop(RPCQueue& rpc_queue, RPCMapper& rpc_mapper) {
         VLOG(1) << "SLO violation prevention budget: " << 10*p95 - last_req_wait;
 
         // drop the last request
-        auto drop_rpc = static_cast<HTTPMessage*>(queue.back());
+        auto drop_rpc = dynamic_cast<HTTPMessage*>(queue.back());
         drop_rpc->set_error(true);
         drop_rpc->set_status(503);
         queue.pop_back();
@@ -50,7 +50,7 @@ bool Ingress::check_drop(RPCQueue& rpc_queue, RPCMapper& rpc_mapper) {
         return false;
 }
 
-void Ingress::update_p95(int64_t p95) {
-    this->p95 = p95;
+void Ingress::update_p95(int64_t new_p95) {
+    this->p95 = new_p95;
     VLOG(1) << "Updated ingress p95 to " << p95;
 }

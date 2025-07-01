@@ -11,7 +11,9 @@
 #include "rpc_mapper.h"
 #include "rpc_message.h"
 #include "rpc_queue.h"
+#include <algorithm>
 #include <arpa/inet.h>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -22,6 +24,7 @@
 #include <sys/socket.h>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 UpstreamRouteMapper::UpstreamRouteMapper()
 : map() {}
@@ -43,21 +46,21 @@ ConnectionPool& UpstreamRouteMapper::get_pool(const std::string& service) {
     }
 }
 
-State::State(Config config, RingWrapper& ring, BufferManager& buffer_manager,
-    RPCMapper& mapper, RPCQueue& queue, std::unordered_map<ConnectionType,
-    Listener>& listeners, Ingress& ingress)
-:   config(config),
+State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_manager_ref,
+    RPCMapper& mapper_ref, RPCQueue& queue_ref, std::unordered_map<ConnectionType,
+    Listener>& listeners_ref, Ingress& ingress_ref)
+:   config(parsed_config),
     ingress_pool(ConnectionType::INGRESS),
     upstream_route_mapper(),
-    stats(config.routing),
-    ppm_state(),
-    buffer_manager(buffer_manager),
-    ring(ring),
-    rpc_mapper(mapper),
-    rpc_queue(queue),
-    listeners(listeners),
+    ring(ring_ref),
+    buffer_manager(buffer_manager_ref),
+    rpc_mapper(mapper_ref),
+    rpc_queue(queue_ref),
+    listeners(listeners_ref),
     ppm_queue(),
-    ingress(ingress)
+    ingress(ingress_ref),
+    stats(config.routing),
+    ppm_state()
 {
 
     if (config.buffer_size > HTTP1Connection_BUF_SIZE) {
@@ -144,7 +147,7 @@ void State::write_http(HTTPConnection* conn) {
 }
 
 
-HTTPConnection* State::route_request(ConnectionType type, uint32_t ds_stream_id, int ds_fd) {
+HTTPConnection* State::route_request(ConnectionType type, int32_t ds_stream_id, int ds_fd) {
     // get the RPC message
     auto rpc = rpc_mapper.get_ds_rpc(type, ds_stream_id, ds_fd);
 
@@ -257,7 +260,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
             } */
 
             HTTPConnection* conn = route_request(type, src_stream_id, src_fd);
-            auto rpc = rpc_mapper.get_ds_rpc(type, src_stream_id, src_fd);
+            RPCMessage* rpc = rpc_mapper.get_ds_rpc(type, src_stream_id, src_fd);
 
             if (!forward_request(conn, rpc)) {
                 break;
@@ -273,18 +276,18 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
             }
 
             // get the RPC message
-            auto rpc = rpc_mapper.get_us_rpc(type, src_stream_id, src_fd);
-            auto ds_stream_id = rpc->get_ds_stream_id();
-            auto ds_fd = rpc->get_ds_fd();
+            RPCMessage* rpc = rpc_mapper.get_us_rpc(type, src_stream_id, src_fd);
+            int32_t ds_stream_id = rpc->get_ds_stream_id();
+            int ds_fd = rpc->get_ds_fd();
             try {
-                auto& conn = listeners.at(type).get_connections().at(rpc->get_ds_fd());
+                std::unique_ptr<HTTPConnection>& conn = listeners.at(type).get_connections().at(rpc->get_ds_fd());
 
                 // update stats
                 if (!rpc->is_drop()) {
-                    stats.sidecar_resp_in[type]++;
+                    stats.sidecar_resp_in.at(type)++;
                 }
                 if (type == ConnectionType::EGRESS) {
-                    stats.new_response_in[rpc->get_service()] = true;
+                    stats.new_response_in.at(rpc->get_service()) = true;
                 }
 
                 // submit the response
@@ -304,6 +307,12 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                 
             } catch (const std::out_of_range& e) {
                 LOG(FATAL) << "No connection found for fd: " << ds_fd;
+            } catch (const std::exception& e) {
+                LOG(FATAL) << "Error in routing response: " << e.what()
+                           << " type: " << type_to_str(type)
+                           << " direction: " << direction_to_str(direction)
+                           << " stream_id: " << src_stream_id
+                           << " fd: " << src_fd;
             }
             
         }
@@ -324,7 +333,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
     return *pools.at(type).get_any_connection().get();
 } */
 
-void State::remove_connection(HTTPConnection& conn) {
+void State::remove_connection(HTTPConnection& /*conn*/) {
     LOG(FATAL) << "Removing connection for upstream is not implemented";
     //pools.at(conn.type).remove_connection(conn.get_fd());
 }
@@ -337,7 +346,10 @@ std::pair<const std::string&, bool> State::valid_credit(const char* data) {
     if (data[2] != 0x01) {
         LOG(FATAL) << "Expected a response";
     }
-    std::string_view key(data+4, data[0] - 4);
+    if (data[0] < 4) {
+        LOG(FATAL) << "Invalid message length: " << (int)data[0];
+    }
+    std::string_view key(data+4, (size_t)data[0] - 4);
     if (data[3] == 0x01) {
         
         return {ppm_queue.check(key), true};
@@ -382,7 +394,7 @@ std::pair<const std::string&, bool> State::valid_credit(const char* data) {
 void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
     if (dn_resp) {
         // we have received a demand notification response
-        auto [service, ok] = valid_credit(dn_resp_buffer->data.get());
+        auto [service, ok] = valid_credit(dn_resp_buffer->data.data());
         if (!ok) {
             // we have received a demand notification response but no credit
             VLOG(1) << "PPMClient: Credit denied for service " << service;
@@ -410,8 +422,8 @@ void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
             }
         }
 
-        int size = rpc_queue.size(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM);
-        for (int i = 0; i < size; i++) {
+        size_t size = rpc_queue.size(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM);
+        for (size_t i = 0; i < size; i++) {
             // send a demand notification
             auto [ds_fd, ds_stream_id] = rpc_queue.dequeue(
                 ConnectionType::EGRESS,
@@ -432,15 +444,16 @@ void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
 
 void State::send_dn(HTTPConnection* conn, const std::string& service) {
     // send a demand notification
-    char len = 4 + service.length();
-    char msg[len];
-    msg[0] = len;
-    msg[1] = 0x01; // demand notification (0x01)
-    msg[2] = 0x00; // request (0x00), response (0x01)
-    msg[3] = 0x01; // number of credits
-    std::memcpy(msg + 4, service.c_str(), service.length());
-    udp_send(std::span<char>(msg, len), reinterpret_cast<struct sockaddr_in*>(conn->get_addr()));
-    //ppm_state.sent_dns++;
+
+    size_t len = 4 + service.length();
+    std::vector<char> msg(len);
+    msg.at(0) = (char)len;
+    msg.at(1) = 0x01; // demand notification (0x01)
+    msg.at(2) = 0x00; // request (0x00), response (0x01)
+    msg.at(3) = 0x01; // number of credits
+
+    std::copy_n(service.begin(), service.length(), msg.begin() + 4);
+    udp_send(msg, reinterpret_cast<struct sockaddr_in*>(conn->get_addr()));
     VLOG(1) << "Sent demand notification";
 }
 
@@ -454,7 +467,7 @@ void State::ingress_admit() {
 
     bool admit = false;
     auto tmp_size = ingress.size();
-    for (int i = 0; i < tmp_size; i++) {
+    for (size_t i = 0; i < tmp_size; i++) {
         if (config.ppm_limit > ppm_state.sent_credits - 
             stats.sidecar_resp_in[ConnectionType::INGRESS]) {
             
@@ -486,21 +499,20 @@ void State::ingress_admit() {
 
 inline static void write_dn_response(int result, Buffer* req, Buffer* resp) {
     // copy request to response
-    std::memcpy(resp->data.get(), req->data.get(), req->get_filled());
-    //resp->data.get()[1] = 0x01; // demand notification
-    resp->data.get()[2] = 0x01; // response
-    resp->data.get()[3] = result;
+    std::copy_n(req->data.begin(), req->get_filled(), resp->data.begin());
+    resp->data.at(2) = 0x01; // response
+    resp->data.at(3) = (char)result;
     resp->set_filled(req->get_filled());
     VLOG(1) << "Wrote a DN response";
 }
 
 void State::queue_multiplexer(Buffer* req, Buffer* resp) {
     // read the request
-    if (req->data.get()[1] == 0x01) {
+    if (req->data.at(1) == 0x01) {
         // we have demand notification
 
         // check if it's a request
-        if (req->data.get()[2] != 0x00) {
+        if (req->data.at(2) != 0x00) {
             LOG(FATAL) << "QM only handles DN requests";
         }
 
@@ -519,11 +531,11 @@ void State::queue_multiplexer(Buffer* req, Buffer* resp) {
     }
 }
 
-void State::udp_send(std::span<char> msg, struct sockaddr_in* addr) {
+void State::udp_send(std::vector<char> msg, struct sockaddr_in* addr) {
 
     // write the message to a buffer
     Buffer* buffer = buffer_manager.get_buffer();
-    std::memcpy(buffer->data.get(), msg.data(), msg.size());
+    std::copy_n(msg.begin(), msg.size(), buffer->data.begin());
     buffer->set_filled(msg.size());
     
     // send the request using the ring

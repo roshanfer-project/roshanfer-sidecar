@@ -1,4 +1,6 @@
 #include "config.h"
+#include <cstddef>
+#include <cstdint>
 #include <yaml-cpp/yaml.h>
 #include "glog/logging.h"
 
@@ -17,13 +19,13 @@ Config load_config(const std::string &filename) {
         LOG(FATAL) << "Error parsing config file: " << config_path << " - " << e.what();
    }
 
-    local_config.ring_size            = node["ring_size"].as<int>();
-    local_config.buffer_count         = node["buffer_count"].as<int>();
-    local_config.buffer_size          = node["buffer_size"].as<int>();
-    local_config.egress_listener_port = node["egress_listener_port"].as<int>();
-    local_config.ingress_listener_port= node["ingress_listener_port"].as<int>();
+    local_config.ring_size            = node["ring_size"].as<size_t>();
+    local_config.buffer_count         = node["buffer_count"].as<size_t>();
+    local_config.buffer_size          = node["buffer_size"].as<size_t>();
+    local_config.egress_listener_port = node["egress_listener_port"].as<uint16_t>();
+    local_config.ingress_listener_port= node["ingress_listener_port"].as<uint16_t>();
     local_config.ingress_upstream_host= node["ingress_upstream_host"].as<std::string>();
-    local_config.ingress_upstream_port= node["ingress_upstream_port"].as<int>();
+    local_config.ingress_upstream_port= node["ingress_upstream_port"].as<uint16_t>();
     local_config.ppm_limit            = node["ppm_limit"].as<int>();
     local_config.name                 = node["name"].as<std::string>();
 

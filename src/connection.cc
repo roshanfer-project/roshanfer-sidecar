@@ -1,4 +1,6 @@
+#include <algorithm>
 #include <array>
+#include <cassert>
 #include <chrono>
 #include <connection.h>
 #include <cstddef>
@@ -74,7 +76,7 @@ std::string frame_type_to_str(uint8_t type) {
     }
 };
 
-int error_callback(nghttp2_session *session,
+int error_callback(nghttp2_session */*session*/,
                     int lib_error_code,
                     const char *msg,
                     size_t len,
@@ -87,17 +89,17 @@ int error_callback(nghttp2_session *session,
     return 0;
 }
 
-int invalid_frame_callback(nghttp2_session *session,
+int invalid_frame_callback(nghttp2_session */*session*/,
                             const nghttp2_frame *frame,
-                            int lib_error_code,
-                            void *user_data) {
+                            int /*lib_error_code*/,
+                            void */*user_data*/) {
     LOG(WARNING) << "Invalid frame received: " << frame_type_to_str(frame->hd.type);
     return 0;
 }
 
 // This callback is used to detect EOS flag for a stream, which marks the end of a request/response
 // to put in a queue for for forwarding/routing
-int frame_recv_callback(nghttp2_session* session,
+int frame_recv_callback(nghttp2_session* /*session*/,
                         const nghttp2_frame* frame,
                         void* user_data) {
     
@@ -119,9 +121,9 @@ int frame_recv_callback(nghttp2_session* session,
             // we have a response
             VLOG(1) << "RPC response received on fd: " << data->fd << " stream id: " << frame->hd.stream_id;
             data->queue->enqueue(data->type, data->direction, data->fd, frame->hd.stream_id);
-            auto rpc = static_cast<gRPCMessage*>(data->mapper->get_us_rpc(data->type, frame->hd.stream_id, data->fd));
+            auto rpc = dynamic_cast<gRPCMessage*>(data->mapper->get_us_rpc(data->type, frame->hd.stream_id, data->fd));
             rpc->res_rcv_time = std::chrono::steady_clock::now();
-            if (rpc->get_data_map().at(1).offset == 0) {
+            if (rpc->get_data_map().at(1)->offset == 0) {
                 // This is an error response
                 VLOG(1) << "RPC error detected on fd: " << data->fd  << " stream id: " << frame->hd.stream_id;
                 rpc->set_error(true);
@@ -140,8 +142,8 @@ int frame_recv_callback(nghttp2_session* session,
 }
 
 // This callback is used to receive data chunks
-int on_data_chunk_recv_callback(nghttp2_session* session,
-                                uint8_t flags,
+int on_data_chunk_recv_callback(nghttp2_session* /*session*/,
+                                uint8_t /*session*/,
                                 int32_t stream_id,
                                 const uint8_t* data,
                                 size_t len,
@@ -170,11 +172,11 @@ int on_data_chunk_recv_callback(nghttp2_session* session,
 }
 
 // This callback is used to receive headers
-int on_header_callback(nghttp2_session* session,
+int on_header_callback(nghttp2_session* /*session*/,
                         const nghttp2_frame* frame,
                         const uint8_t* name, size_t namelen,
                         const uint8_t* value, size_t valuelen,
-                        uint8_t flags,
+                        uint8_t /*flags*/,
                         void* user_data) {
 
     CallbackData* data = reinterpret_cast<CallbackData*>(user_data);
@@ -214,7 +216,7 @@ int on_header_callback(nghttp2_session* session,
 }
 
 // This callback is used to create the objects to hold request/response
-int on_begin_headers_callback(nghttp2_session* session,
+int on_begin_headers_callback(nghttp2_session* /*session*/,
                             const nghttp2_frame* frame,
                             void* user_data) {
     
@@ -226,7 +228,7 @@ int on_begin_headers_callback(nghttp2_session* session,
 
         // we have a new request
         VLOG(1) << "New request on stream " << frame->hd.stream_id;
-        data->mapper->allocate_rpc(data->type, frame->hd.stream_id, data->fd, false);
+        data->mapper->allocate_rpc(data->type, frame->hd.stream_id, data->fd, HTTP::HTTP2);
     }
 
     VLOG(1) << "Begin headers on stream " << frame->hd.stream_id << " fd: " << data->fd;
@@ -255,7 +257,7 @@ int on_begin_headers_callback(nghttp2_session* session,
     return 0;
 } */
 
-int on_frame_send_callback(nghttp2_session *session,
+int on_frame_send_callback(nghttp2_session */*session*/,
                             const nghttp2_frame *frame,
                             void *user_data) {
     
@@ -286,15 +288,15 @@ ssize_t data_read_callback_request(nghttp2_session*,
     // If the output buffer is too small, copy what fits.
     ssize_t res_len;
     if (length < info->offset - info->read_offset) {
-        LOG(FATAL) << "FIXME: Like data_read_callback_response";
-        std::memcpy(buf, info->data+info->read_offset, length);
+        LOG(FATAL) << "FIXME: Like data_read_callback_response + use copy_n";
+        std::memcpy(buf, info->data.data()+info->read_offset, length);
         info->read_offset += length;
-        res_len = length;
+        res_len = (ssize_t)length;
     } else {
-        std::memcpy(buf, info->data+info->read_offset, info->offset-info->read_offset);
+        std::copy_n(info->data.begin() + info->read_offset, info->offset - info->read_offset, buf);
         info->read_offset += info->offset;
         *data_flags |= NGHTTP2_DATA_FLAG_EOF;
-        res_len = info->offset;
+        res_len = (ssize_t)info->offset;
     }
 
     // record the time
@@ -332,9 +334,9 @@ ssize_t data_read_callback_response(nghttp2_session* session,
         
         size_t remain = info->offset - info->read_offset;
         size_t to_copy = std::min(remain, length);
-        std::memcpy(buf, info->data + info->read_offset, to_copy);
+        std::memcpy(buf, info->data.data() + info->read_offset, to_copy);
         info->read_offset += to_copy;
-        res_len = to_copy;
+        res_len = (ssize_t)to_copy;
 
         VLOG(2) << "After read. offset: " << info->offset
                 << " read_offset: " << info->read_offset
@@ -345,15 +347,15 @@ ssize_t data_read_callback_response(nghttp2_session* session,
             *data_flags |= NGHTTP2_DATA_FLAG_EOF;
             *data_flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
 
-            auto rpc = static_cast<gRPCMessage*>(callback_data->mapper->get_ds_rpc(callback_data->type, stream_id, callback_data->fd));
+            auto rpc = dynamic_cast<gRPCMessage*>(callback_data->mapper->get_ds_rpc(callback_data->type, stream_id, callback_data->fd));
 
-            nghttp2_nv* nva_trailers = new nghttp2_nv[rpc->get_res_trailer_count()];
+            nghttp2_nv* nva_trailers = new nghttp2_nv[(size_t)rpc->get_res_trailer_count()];
             auto& res_trailers = rpc->get_res_trailers();
-            for (int i = 0; i < rpc->get_res_trailer_count(); i++) {
-                nva_trailers[i].name = res_trailers[i]->name;
-                nva_trailers[i].value = res_trailers[i]->value;
-                nva_trailers[i].namelen = res_trailers[i]->name_len;
-                nva_trailers[i].valuelen = res_trailers[i]->value_len;
+            for (size_t i = 0; i < rpc->get_res_trailer_count(); i++) {
+                nva_trailers[i].name = res_trailers.at(i)->name.data();
+                nva_trailers[i].value = res_trailers.at(i)->value.data();
+                nva_trailers[i].namelen = res_trailers.at(i)->name_len;
+                nva_trailers[i].valuelen = res_trailers.at(i)->value_len;
                 nva_trailers[i].flags = NGHTTP2_NV_FLAG_NONE;
             }
 
@@ -369,7 +371,7 @@ ssize_t data_read_callback_response(nghttp2_session* session,
             }
             
             // remove the RPC message from memory
-            auto orig_rpc = static_cast<RPCMessage*>(rpc);
+            auto orig_rpc = dynamic_cast<RPCMessage*>(rpc);
             callback_data->mapper->remove_rpc(callback_data->type, orig_rpc);
         }
     }
@@ -377,9 +379,9 @@ ssize_t data_read_callback_response(nghttp2_session* session,
     return res_len;
 };
 
-ConnectionPool::ConnectionPool(ConnectionType type) 
+ConnectionPool::ConnectionPool(ConnectionType conn_type) 
     : connections(std::unordered_map<int, std::unique_ptr<HTTPConnection>>()),
-      type(type) {};
+      type(conn_type) {};
 
 std::unique_ptr<HTTPConnection>& ConnectionPool::add_connection(const std::string& host,
      int port, RPCMapper* mapper, RPCQueue* queue, bool is_http1, struct hdr_histogram* hist) {
@@ -390,8 +392,8 @@ std::unique_ptr<HTTPConnection>& ConnectionPool::add_connection(const std::strin
         c = std::make_unique<HTTP2Connection>(host, port, type, queue, mapper, hist);
     }
     int fd = c->get_fd();
-    connections[fd] = std::move(c);
-    return connections[fd];
+    connections.emplace(fd, std::move(c));
+    return connections.at(fd);
 };
 
 bool ConnectionPool::has_connection(int fd) {
@@ -417,15 +419,15 @@ std::unique_ptr<HTTPConnection>& ConnectionPool::get_any_connection() {
 
 ///// HTTPConnection implementation
 
-HTTPConnection::HTTPConnection(int fd, ConnectionType type, struct hdr_histogram* hist) 
-    :   fd(fd),
-        type(type),
-        addr(0),
-        direction(ConnectionDirection::DOWNSTREAM),
+HTTPConnection::HTTPConnection(int conn_fd, ConnectionType conn_type, struct hdr_histogram* hist_struct) 
+    :   fd(conn_fd),
+        addr({}),
         status(ConnectionStatus::UP),
         host(""),
         port(0),
-        hist(hist) 
+        hist(hist_struct),
+        type(conn_type),
+        direction(ConnectionDirection::DOWNSTREAM) 
 {
     
     // set non-blocking
@@ -443,15 +445,15 @@ HTTPConnection::HTTPConnection(int fd, ConnectionType type, struct hdr_histogram
     }
 };
 
-HTTPConnection::HTTPConnection(std::string host, uint16_t port, ConnectionType type, struct hdr_histogram* hist) 
-    :   type(type),
-        addr(0),
-        fd(0),
-        direction(ConnectionDirection::UPSTREAM),
+HTTPConnection::HTTPConnection(std::string conn_host, uint16_t conn_port, ConnectionType conn_type, struct hdr_histogram* hist_struct) 
+    :   fd(0),
+        addr({}),
         status(ConnectionStatus::DOWN),
-        host(host),
-        port(port),
-        hist(hist)
+        host(conn_host),
+        port(conn_port),
+        hist(hist_struct),
+        type(conn_type),
+        direction(ConnectionDirection::UPSTREAM)
 {
 
     fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
@@ -520,44 +522,44 @@ sockaddr* HTTPConnection::get_addr() {
 
 //////// HTTP1Connection implementation
 
-HTTP1Connection::HTTP1Connection(std::string host, uint16_t port, RPCMapper* mapper, RPCQueue* queue,
-                                 struct hdr_histogram* hist)
-    : HTTPConnection(host, port, ConnectionType::INGRESS, hist),
-      mapper(mapper),
-      queue(queue),
-      last_id(0),
-      idle(true),
+HTTP1Connection::HTTP1Connection(std::string conn_host, uint16_t conn_port, RPCMapper* rpc_mapper, RPCQueue* rpc_queue,
+                                 struct hdr_histogram* hist_struct)
+    : HTTPConnection(conn_host, conn_port, ConnectionType::INGRESS, hist_struct),
+      buf(std::array<char, HTTP1Connection_BUF_SIZE>()),
       buf_len(0),
       prev_buf_len(0),
-      rpc_message(nullptr),
       hdr_complete(false),
       content_length(-1),
       hdr_size(0),
-      buf(std::array<char, HTTP1Connection_BUF_SIZE>()) {
+      idle(true),
+      mapper(rpc_mapper),
+      queue(rpc_queue),
+      last_id(0),
+      rpc_message(nullptr) {
 
 
     //buf = new char[HTTP1Connection_BUF_SIZE];
 }
 
-HTTP1Connection::HTTP1Connection(int fd, RPCMapper* mapper, RPCQueue* queue, struct hdr_histogram* hist)
-    : HTTPConnection(fd, ConnectionType::INGRESS, hist),
-      mapper(mapper),
-      queue(queue),
-      last_id(0),
-      idle(true),
+HTTP1Connection::HTTP1Connection(int conn_fd, RPCMapper* rpc_mapper, RPCQueue* rpc_queue, struct hdr_histogram* hist_struct)
+    : HTTPConnection(conn_fd, ConnectionType::INGRESS, hist_struct),
+      buf(std::array<char, HTTP1Connection_BUF_SIZE>()),
       buf_len(0),
       prev_buf_len(0),
-      rpc_message(nullptr),
       hdr_complete(false),
       content_length(-1),
       hdr_size(0),
-      buf(std::array<char, HTTP1Connection_BUF_SIZE>()) {
+      idle(true),
+      mapper(rpc_mapper),
+      queue(rpc_queue),
+      last_id(0),
+      rpc_message(nullptr) {
     
     //buf = new char[HTTP1Connection_BUF_SIZE];
 }
 
 HTTP1Connection::~HTTP1Connection() {
-    VLOG(1) << "HTTP2Connection deconstructor on fd: " << fd;
+    VLOG(1) << "HTTP1Connection deconstructor on fd: " << fd;
     close(fd);
     //delete[] buf;
 }
@@ -576,11 +578,11 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
         return;
     }
 
-    if (buf_len + buffer->get_filled() > HTTP1Connection_BUF_SIZE) {
+    if (buf_len + buffer->get_filled() >= HTTP1Connection_BUF_SIZE) {
         LOG(FATAL) << "Buffer overflow, buf_len: " << buf_len 
                     << ", buffer filled: " << buffer->get_filled();
     }
-    std::memcpy(buf.data() + buf_len, buffer->data.get(), buffer->get_filled());
+    std::copy_n(buffer->data.begin(), buffer->get_filled(), buf.begin() + buf_len);
     prev_buf_len = buf_len;
     buf_len += buffer->get_filled();
 
@@ -608,7 +610,8 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
             VLOG(1) << "Not enough data to parse HTTP/1.1 request on fd: " << fd;
             return;
         } else if (hdr_size == -1) {
-            LOG(FATAL) << "Failed to parse HTTP/1.1 request on fd: " << fd;
+            LOG(FATAL) << "Failed to parse HTTP/1.1 request on fd: " << fd
+                << ", buf: " << std::string(buf.data(), buf_len);
         }
 
         // we have a complete headers
@@ -618,7 +621,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
                 << ", lenght: " << hdr_size;
         
         if (VLOG_IS_ON(2)) {
-            for (int i = 0; i < num_headers; i++) {
+            for (size_t i = 0; i < num_headers; i++) {
             VLOG(2) << "Header: " << std::string(headers[i].name, headers[i].name_len)
                 << ": " << std::string(headers[i].value, headers[i].value_len);
             }
@@ -627,7 +630,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
         for (size_t i = 0; i < num_headers; i++) {
             if (headers[i].name_len >= 14) {
                 if (strncmp(headers[i].name, "Content-Length", 14) == 0) {
-                    content_length = strtoul(headers[i].value, NULL, 10);
+                    content_length = (int)strtoul(headers[i].value, NULL, 10);
                 }
             }
         }
@@ -637,15 +640,15 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
                 << ", content_length: " << content_length;
         }
 
-        if (buf_len > hdr_size) {
+        if (buf_len > (size_t)hdr_size) {
             LOG(FATAL) << "We have more data than headers size in request parsing, buf_len: " << buf_len
                 << ", hdr_size: " << hdr_size;
         }
 
         // create a new RPCMessage object
         last_id++;
-        mapper->allocate_rpc(type, last_id, fd, true);
-        auto rpc = static_cast<HTTPMessage*>(mapper->get_ds_rpc(type, last_id, fd));
+        mapper->allocate_rpc(type, last_id, fd, HTTP::HTTP1);
+        HTTPMessage* rpc = dynamic_cast<HTTPMessage*>(mapper->get_ds_rpc(type, last_id, fd));
         rpc->req_rcv_time = std::chrono::steady_clock::now();
         
         // fill the RPCMessage
@@ -665,7 +668,10 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
 
         // update idle
         if (idle == false) {
-            LOG(FATAL) << "Reading a request from non-idle INGRESS-DOWNSTREAM connection, fd: " << fd;
+            VLOG(1) << "Reading a request on non-idle connection, fd: " << fd
+                << ", type: " << type_to_str() 
+                << ", direction: " << direction_to_str()
+                << ", buf: " << std::string(buf.data(), buf_len);
         }
         idle = false;
         
@@ -689,12 +695,12 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
 
         if (!hdr_complete) {
 
-            int minor, status;
+            int minor, parse_status;
             const char *msg;
             size_t msg_len;
 
             hdr_size = phr_parse_response(buf.data(), buf_len,
-                        &minor, &status,
+                        &minor, &parse_status,
                         &msg, &msg_len,
                         headers, &num_headers,
                         prev_buf_len);
@@ -707,23 +713,29 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
             }
 
             VLOG(1) << "HTTP/1.1 response parsed on fd: " << fd 
-                    << ", status: " << status
+                    << ", status: " << parse_status
                     << ", msg: " << std::string(msg, msg_len)
                     << ", minor: " << minor
                     << ", lenght: " << hdr_size;
 
             if (VLOG_IS_ON(2)) {
-                for (int i = 0; i < num_headers; i++) {
+                for (size_t i = 0; i < num_headers; i++) {
                 VLOG(2) << "Header: " << std::string(headers[i].name, headers[i].name_len)
                     << ": " << std::string(headers[i].value, headers[i].value_len);
                 }
             }
 
-            if (header_body_allowed(status)) {
+            if (header_body_allowed(parse_status)) {
                 for (size_t i = 0; i < num_headers; i++) {
                     if (headers[i].name_len == 14) {
                         if (strncasecmp(headers[i].name, "Content-Length", 14) == 0) {
-                            content_length = strtoul(headers[i].value, NULL, 10);
+                            auto [_, ec] = std::from_chars(headers[i].value,
+                                 headers[i].value + headers[i].value_len, content_length);
+                            if (ec != std::errc() && content_length != -1) {
+                                LOG(FATAL) << "Failed to parse Content-Length header, fd: " << fd
+                                            << ", value: " << std::string(headers[i].value, headers[i].value);
+                                
+                            }
                         }
                     }
 
@@ -735,29 +747,25 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
                             }
                     }
                 }
-                
-                if (content_length < 0) {
-                    LOG(FATAL) << "Content-Length header is not present in HTTP/1.1 response, fd: " << fd;
-                }
             }
 
             // we have a complete headers
             hdr_complete = true;
 
             // fill the RPCMessage
-            auto rpc = static_cast<HTTPMessage*>(mapper->get_us_rpc(type, last_id, fd));
+            HTTPMessage* rpc = dynamic_cast<HTTPMessage*>(mapper->get_us_rpc(type, last_id, fd));
             for (size_t i = 0; i < num_headers; i++) {
                 rpc->add_header_field(
                     reinterpret_cast<const uint8_t*>(headers[i].name), headers[i].name_len,
                     reinterpret_cast<const uint8_t*>(headers[i].value), headers[i].value_len,
                     false, false);
             }
-            rpc->set_status(status);
+            rpc->set_status(parse_status);
             rpc->set_msg(msg, msg_len);
             rpc->set_minor(minor);
         }
 
-        if (buf_len-hdr_size < content_length) {
+        if ((int)buf_len-hdr_size < content_length) {
             VLOG(1) << "Not enough data to parse HTTP/1.1 response on fd: " << fd
                     << ", buf_len: " << buf_len
                     << ", hdr_size: " << hdr_size
@@ -766,17 +774,21 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
         }
 
         // we have a full body
-        const char* body = buf.data() + hdr_size;
+        if (content_length > 0) {
+            const char* body = buf.data() + hdr_size;
 
-        // add the data
-        auto rpc = static_cast<HTTPMessage*>(mapper->get_us_rpc(type, last_id, fd));
-        rpc->res_rcv_time = std::chrono::steady_clock::now();
-        rpc->add_data(reinterpret_cast<const uint8_t*>(body), content_length, false);
+            // add the data
+            HTTPMessage* rpc = dynamic_cast<HTTPMessage*>(mapper->get_us_rpc(type, last_id, fd));
+            rpc->res_rcv_time = std::chrono::steady_clock::now();
+            rpc->add_data(reinterpret_cast<const uint8_t*>(body), (size_t)content_length, false);
+        } else {
+            content_length = 0;
+        }
 
         // push the RPC to RPCQueue
         queue->enqueue(type, direction, fd, last_id);
         
-        if (buf_len > hdr_size + content_length) {
+        if ((int)buf_len > hdr_size + content_length) {
             LOG(FATAL) << "We have more data than headers size + body size in response parsing, buf_len: " << buf_len
                 << ", hdr_size: " << hdr_size
                 << ", content_length: " << content_length;
@@ -784,7 +796,10 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
 
         // update idle
         if (idle == true) {
-            LOG(FATAL) << "Reading a response from idle INGRESS-UPSTREAM connection, fd: " << fd;
+            VLOG(1) << "Reading a response from idle connection, fd: " << fd
+                << ", type: " << type_to_str() 
+                << ", direction: " << direction_to_str()
+                << ", buf: " << std::string(buf.data(), buf_len);
         }
         idle = true;
 
@@ -822,11 +837,12 @@ int HTTP1Connection::http_write(Buffer* buffer) {
         // we are serializing a request
 
         int written = 0;
-        auto rpc = get_rpc_message();
-        int ret, size;
+        HTTPMessage* rpc = get_rpc_message();
+        int ret;
+        size_t size;
 
         size = buffer->get_size()-buffer->get_filled();
-        ret = snprintf(buffer->data.get()+written, size,
+        ret = snprintf(buffer->data.data()+written, size,
                             "%.*s %.*s HTTP/1.%d\r\n",
                             (int)rpc->get_method().length(), rpc->get_method().c_str(),
                             (int)rpc->get_path().length(),   rpc->get_path().c_str(),
@@ -834,26 +850,26 @@ int HTTP1Connection::http_write(Buffer* buffer) {
         
         snprintf_ret_check(ret, size);
         written += ret;
-        buffer->set_filled(ret + buffer->get_filled());
+        buffer->set_filled((size_t)ret + buffer->get_filled());
 
         auto& headers = rpc->get_req_headers();
         for (size_t i = 0; i < rpc->get_req_header_count(); i++) {
             size = buffer->get_size()-buffer->get_filled();
-            ret = snprintf(buffer->data.get()+written,
+            ret = snprintf(buffer->data.data()+written,
                         size,
                             "%.*s: %.*s\r\n",
-                            (int)headers[i]->name_len,   headers[i]->name,
-                            (int)headers[i]->value_len,  headers[i]->value);
+                            (int)headers.at(i)->name_len,   headers.at(i)->name.data(),
+                            (int)headers.at(i)->value_len,  headers.at(i)->value.data());
             snprintf_ret_check(ret, size);
             written += ret;
-            buffer->set_filled(ret + buffer->get_filled());
+            buffer->set_filled((size_t)ret + buffer->get_filled());
         }
 
         size = buffer->get_size()-buffer->get_filled();
-        ret = snprintf(buffer->data.get()+written, size, "\r\n");
+        ret = snprintf(buffer->data.data()+written, size, "\r\n");
         snprintf_ret_check(ret, size);
         written += ret;
-        buffer->set_filled(ret + buffer->get_filled());
+        buffer->set_filled((size_t)ret + buffer->get_filled());
 
         if (buffer->get_filled() > buffer->get_size()) {
             LOG(FATAL) << "Buffer overflow";
@@ -863,7 +879,7 @@ int HTTP1Connection::http_write(Buffer* buffer) {
 
         if (VLOG_IS_ON(2)) {
             // log the entire request
-            std::string request(buffer->data.get(), buffer->get_filled());
+            std::string request(buffer->data.data(), buffer->get_filled());
             VLOG(2) << "HTTP/1.1 request on fd: " << fd << "\n" << request;
         }
 
@@ -871,7 +887,10 @@ int HTTP1Connection::http_write(Buffer* buffer) {
 
         // update idle
         if (idle == false) {
-            LOG(FATAL) << "Writing a request to non-idle INGRESS-UPSTREAM connection, fd: " << fd;
+            VLOG(1) << "Writing a request to non-idle connection, fd: " << fd
+                << ", type: " << type_to_str() 
+                << ", direction: " << direction_to_str()
+                << ", buf: " << std::string(buf.data(), buf_len);
         }
         idle = false;
 
@@ -882,12 +901,13 @@ int HTTP1Connection::http_write(Buffer* buffer) {
        
         int written = 0;
         auto rpc = get_rpc_message();
-        int ret, size;
+        int ret;
+        size_t size;
 
         if (rpc->is_error()) {
             // return a 503 error response
             size = buffer->get_size()-buffer->get_filled();
-            ret = snprintf(buffer->data.get()+written, 
+            ret = snprintf(buffer->data.data()+written, 
                             size,
                             "HTTP/1.%d 503 Service Unavailable\r\n"
                             "Content-Type: text/plain\r\n"
@@ -895,38 +915,38 @@ int HTTP1Connection::http_write(Buffer* buffer) {
                             "\r\n", rpc->get_minor());
             snprintf_ret_check(ret, size);
             written += ret;
-            buffer->set_filled(ret + buffer->get_filled());
+            buffer->set_filled((size_t)ret + buffer->get_filled());
             if (buffer->get_filled() > buffer->get_size()) {
                 LOG(FATAL) << "Buffer overflow";
             }
             VLOG(1) << "Write " << written << " bytes to HTTP/1.1 error response on fd: " << fd;
         } else {
             size = buffer->get_size()-buffer->get_filled();
-            ret = snprintf(buffer->data.get()+written, size,
+            ret = snprintf(buffer->data.data()+written, size,
                             "HTTP/1.%d %d %.*s\r\n",
                             rpc->get_minor(), rpc->get_status(),
                             (int)rpc->get_msg().length(), rpc->get_msg().c_str());
             snprintf_ret_check(ret, size);
             written += ret;
-            buffer->set_filled(ret + buffer->get_filled());
+            buffer->set_filled((size_t)ret + buffer->get_filled());
         
             auto& headers = rpc->get_res_headers();
             for (size_t i = 0; i < rpc->get_res_header_count(); i++) {
                 size = buffer->get_size()-buffer->get_filled();
-                ret = snprintf(buffer->data.get()+written, size,
+                ret = snprintf(buffer->data.data()+written, size,
                                 "%.*s: %.*s\r\n",
-                                (int)headers[i]->name_len,   headers[i]->name,
-                                (int)headers[i]->value_len,  headers[i]->value);
+                                (int)headers.at(i)->name_len,   headers.at(i)->name.data(),
+                                (int)headers.at(i)->value_len,  headers.at(i)->value.data());
                 snprintf_ret_check(ret, size);
                 written += ret;
-                buffer->set_filled(ret + buffer->get_filled());
+                buffer->set_filled((size_t)ret + buffer->get_filled());
             }
             
             size = buffer->get_size()-buffer->get_filled();
-            ret = snprintf(buffer->data.get()+written, size, "\r\n");
+            ret = snprintf(buffer->data.data()+written, size, "\r\n");
             snprintf_ret_check(ret, size);
             written += ret;
-            buffer->set_filled(ret + buffer->get_filled());
+            buffer->set_filled((size_t)ret + buffer->get_filled());
 
             auto body = rpc->get_res_data();
             if (body.offset >= buffer->get_size()-buffer->get_filled()) {
@@ -934,8 +954,8 @@ int HTTP1Connection::http_write(Buffer* buffer) {
                     << ", buffer size: " << buffer->get_size()
                     << ", filled: " << buffer->get_filled();
             }
-            memcpy(buffer->data.get()+buffer->get_filled(), body.data, body.offset);
-            written += body.offset;
+            std::copy_n(body.data.begin(), body.offset, buffer->data.begin() + (long)buffer->get_filled());
+            written += (int)body.offset;
 
             // update the buffer size
             buffer->set_filled(body.offset + buffer->get_filled());
@@ -948,7 +968,10 @@ int HTTP1Connection::http_write(Buffer* buffer) {
 
         // update idle
         if (idle == true) {
-            LOG(FATAL) << "Writing a response to idle INGRESS-DOWNSTREAM connection, fd: " << fd;
+            LOG(FATAL) << "Writing a response to idle connection, fd: " << fd
+                << ", type: " << type_to_str() 
+                << ", direction: " << direction_to_str()
+                << ", buf: " << std::string(buf.data(), buf_len); 
         }
         idle = true;
 
@@ -956,7 +979,7 @@ int HTTP1Connection::http_write(Buffer* buffer) {
             report_latency(*rpc, type, hist);
         }
 
-        auto orig_rpc = static_cast<RPCMessage*>(rpc);
+        RPCMessage* orig_rpc = dynamic_cast<RPCMessage*>(rpc);
         mapper->remove_rpc(type, orig_rpc);
 
         return written;
@@ -969,13 +992,13 @@ void HTTP1Connection::submit_settings() {
 }
 
 int32_t HTTP1Connection::submit_request(RPCMessage& rpc) {
-    set_rpc_message(static_cast<HTTPMessage*>(&rpc));
+    set_rpc_message(dynamic_cast<HTTPMessage*>(&rpc));
     last_id++;
     return last_id;
 }
 
 void HTTP1Connection::submit_response(RPCMessage& rpc) {
-    set_rpc_message(static_cast<HTTPMessage*>(&rpc));
+    set_rpc_message(dynamic_cast<HTTPMessage*>(&rpc));
 }
 
 void HTTP1Connection::submit_error_response(RPCMessage& rpc) {
@@ -1005,9 +1028,9 @@ HTTPMessage* HTTP1Connection::get_rpc_message() {
 /////// HTTP2Connection implementation
 
 
-HTTP2Connection::HTTP2Connection(std::string host, uint16_t port, ConnectionType type, RPCQueue* queue, RPCMapper* mapper,
-                                 struct hdr_histogram* hist)
-    :   HTTPConnection(host, port, type, hist),
+HTTP2Connection::HTTP2Connection(std::string conn_host, uint16_t conn_port, ConnectionType conn_type, RPCQueue* rpc_queue, RPCMapper* rpc_mapper,
+                                 struct hdr_histogram* hist_struct)
+    :   HTTPConnection(conn_host, conn_port, conn_type, hist_struct),
         session(nullptr),
         callbacks(nullptr)
 {
@@ -1015,12 +1038,12 @@ HTTP2Connection::HTTP2Connection(std::string host, uint16_t port, ConnectionType
         type,
         direction,
         fd,
-        queue,
-        mapper,
-        &status
+        rpc_queue,
+        rpc_mapper,
+        &status,
+        hist
     });
 
-    nghttp2_session_callbacks* callbacks;
     nghttp2_session_callbacks_new(&callbacks);
     set_callbacks(callbacks);
     if (nghttp2_session_client_new(&session, callbacks,
@@ -1029,9 +1052,9 @@ HTTP2Connection::HTTP2Connection(std::string host, uint16_t port, ConnectionType
     } 
 }
 
-HTTP2Connection::HTTP2Connection(int fd, ConnectionType type, RPCMapper* mapper, RPCQueue* queue,
-                                struct hdr_histogram* hist)
-    :   HTTPConnection(fd, type, hist),
+HTTP2Connection::HTTP2Connection(int conn_fd, ConnectionType conn_type, RPCMapper* rpc_mapper, RPCQueue* rpc_queue,
+                                struct hdr_histogram* hist_struct)
+    :   HTTPConnection(conn_fd, conn_type, hist_struct),
         session(nullptr),
         callbacks(nullptr)
 {
@@ -1039,9 +1062,10 @@ HTTP2Connection::HTTP2Connection(int fd, ConnectionType type, RPCMapper* mapper,
         type,
         direction,
         fd,
-        queue,
-        mapper,
-        &status
+        rpc_queue,
+        rpc_mapper,
+        &status,
+        hist
     });
 
     // setup nghttp2 session
@@ -1065,10 +1089,10 @@ void HTTP2Connection::set_callbacks(nghttp2_session_callbacks* callbacks) {
     nghttp2_session_callbacks_set_on_invalid_frame_recv_callback(callbacks, invalid_frame_callback);
 }
 
-void HTTP2Connection::http_read(Buffer* buffer, Ingress& ingress) {
+void HTTP2Connection::http_read(Buffer* buffer, Ingress& /*ingress*/) {
     VLOG(1) << "Start reading HTTP/2 data on fd: " << fd;
-    if (nghttp2_session_mem_recv(session, reinterpret_cast<const uint8_t*>(buffer->data.get()),
-        buffer->get_filled()) != buffer->get_filled()) {
+    if (nghttp2_session_mem_recv(session, reinterpret_cast<const uint8_t*>(buffer->data.data()),
+        buffer->get_filled()) != (ssize_t)buffer->get_filled()) {
             LOG(FATAL) << "Failed to fully process received HTTP/2 data";
         }
     VLOG(1) << "Finish reading HTTP/2 data on fd: " << fd;
@@ -1084,20 +1108,20 @@ bool HTTP2Connection::want_write() {
 
 int HTTP2Connection::http_write(Buffer* buffer) {
     const uint8_t* outbuf_ptr = nullptr;
-    int written = nghttp2_session_mem_send(session, &outbuf_ptr);
+    ssize_t written = nghttp2_session_mem_send(session, &outbuf_ptr);
     if (written < 0) {
         LOG(FATAL) << "Failed to send HTTP/2 data";
     }
 
-    std::memcpy(buffer->data.get()+buffer->get_filled(), outbuf_ptr, written);
-    buffer->set_filled(written + buffer->get_filled());
+    std::copy_n(outbuf_ptr, written, buffer->data.begin() + (long)buffer->get_filled());
+    buffer->set_filled((size_t)written + buffer->get_filled());
 
     if (buffer->get_filled() > buffer->get_size()) {
         LOG(FATAL) << "Buffer overflow";
     }
 
     VLOG(1) << "HTTP/2 data written on fd: " << fd;
-    return written;
+    return (int)written;
 }
 
 void HTTP2Connection::submit_settings() {
@@ -1108,14 +1132,14 @@ void HTTP2Connection::submit_settings() {
 }
 
 int32_t HTTP2Connection::submit_request(RPCMessage& rpc) {
-    auto grpc = static_cast<gRPCMessage*>(&rpc);
+    gRPCMessage* grpc = dynamic_cast<gRPCMessage*>(&rpc);
     nghttp2_nv* nva = new nghttp2_nv[grpc->get_req_header_count()];
     auto& req_headers = grpc->get_req_headers();
-    for (int i = 0; i < grpc->get_req_header_count(); i++) {
-        nva[i].name = req_headers[i]->name;
-        nva[i].value = req_headers[i]->value;
-        nva[i].namelen = req_headers[i]->name_len;
-        nva[i].valuelen = req_headers[i]->value_len;
+    for (size_t i = 0; i < grpc->get_req_header_count(); i++) {
+        nva[i].name = req_headers.at(i)->name.data();
+        nva[i].value = req_headers.at(i)->value.data();
+        nva[i].namelen = req_headers.at(i)->name_len;
+        nva[i].valuelen = req_headers.at(i)->value_len;
         nva[i].flags = NGHTTP2_NV_FLAG_NONE;
     }
 
@@ -1138,14 +1162,14 @@ int32_t HTTP2Connection::submit_request(RPCMessage& rpc) {
 }
 
 void HTTP2Connection::submit_response(RPCMessage& rpc) {
-    auto grpc = static_cast<gRPCMessage*>(&rpc);
+    gRPCMessage* grpc = dynamic_cast<gRPCMessage*>(&rpc);
     nghttp2_nv* nva_res = new nghttp2_nv[grpc->get_res_header_count()];
     auto& res_headers = grpc->get_res_headers();
-    for (int i = 0; i < grpc->get_res_header_count(); i++) {
-        nva_res[i].name = res_headers[i]->name;
-        nva_res[i].value = res_headers[i]->value;
-        nva_res[i].namelen = res_headers[i]->name_len;
-        nva_res[i].valuelen = res_headers[i]->value_len;
+    for (size_t i = 0; i < grpc->get_res_header_count(); i++) {
+        nva_res[i].name = res_headers.at(i)->name.data();
+        nva_res[i].value = res_headers.at(i)->value.data();
+        nva_res[i].namelen = res_headers.at(i)->name_len;
+        nva_res[i].valuelen = res_headers.at(i)->value_len;
         nva_res[i].flags = NGHTTP2_NV_FLAG_NONE;
     }
 
@@ -1155,7 +1179,7 @@ void HTTP2Connection::submit_response(RPCMessage& rpc) {
     data_prd.source.ptr = reinterpret_cast<void*>(&grpc->get_data_map()[1]);
     data_prd.read_callback = data_read_callback_response;
 
-    if (grpc->get_data_map()[1].offset == 0) {
+    if (grpc->get_data_map().at(1)->offset == 0) {
         LOG(WARNING) << "No data to send";
     }
 
@@ -1167,14 +1191,14 @@ void HTTP2Connection::submit_response(RPCMessage& rpc) {
 }
 
 void HTTP2Connection::submit_error_response(RPCMessage& rpc) {
-    auto grpc = static_cast<gRPCMessage*>(&rpc);
+    gRPCMessage* grpc = dynamic_cast<gRPCMessage*>(&rpc);
     nghttp2_nv* nva_res = new nghttp2_nv[grpc->get_res_header_count()];
     auto& res_headers = grpc->get_res_headers();
-    for (int i = 0; i < grpc->get_res_header_count(); i++) {
-        nva_res[i].name = res_headers[i]->name;
-        nva_res[i].value = res_headers[i]->value;
-        nva_res[i].namelen = res_headers[i]->name_len;
-        nva_res[i].valuelen = res_headers[i]->value_len;
+    for (size_t i = 0; i < grpc->get_res_header_count(); i++) {
+        nva_res[i].name = res_headers.at(i)->name.data();
+        nva_res[i].value = res_headers.at(i)->value.data();
+        nva_res[i].namelen = res_headers.at(i)->name_len;
+        nva_res[i].valuelen = res_headers.at(i)->value_len;
         nva_res[i].flags = NGHTTP2_NV_FLAG_NONE;
     }
 

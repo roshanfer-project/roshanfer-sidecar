@@ -19,6 +19,7 @@ public:
     void run();
 
 public:
+    Config config;
     RingWrapper ring;
     BufferManager buffer_manager;
     std::unordered_map<ConnectionType, Listener> listeners;
@@ -27,5 +28,4 @@ public:
     RPCQueue rpc_queue;
     Ingress ingress;
     State state;
-    Config config;
 };

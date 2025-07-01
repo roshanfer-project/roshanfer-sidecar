@@ -28,12 +28,12 @@ int main(int argc, char* argv[]) {
     google::InstallPrefixFormatter(&MyPrefixFormatter);
     google::InstallFailureSignalHandler();
 
-    Config config = load_config(argv[1]);
+    Config parsed_config = load_config(argv[1]);
 
     LOG(INFO) << "Starting event loop"; 
     try
     {
-        EventLoop event_loop(config);
+        EventLoop event_loop(parsed_config);
         event_loop.run();
     }
     catch(const std::exception& e)

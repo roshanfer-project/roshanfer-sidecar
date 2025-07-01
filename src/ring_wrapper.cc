@@ -1,3 +1,5 @@
+#include <cstddef>
+#include <cstdint>
 #include <ring_wrapper.h>
 #include <liburing.h>
 #include <connection.h>
@@ -6,15 +8,17 @@
 #include <memory>
 #include <buffer_manager.h>
 #include <unistd.h>
+#include "buffer.h"
 #include "glog/logging.h"
+#include "ring_helper.h"
 
-RingWrapper::RingWrapper(int size)
-: size(size) {
+RingWrapper::RingWrapper(size_t ring_size)
+: size(ring_size) {
     // Initialize the ring
     // TODO: we should use the IORING_SETUP_SINGLE_ISSUER flag
     // which tells the kernel that only one thread will submit SQEs
     // the installed iouring (2.1) does not support it.
-    int ret = io_uring_queue_init(size, &ring, 0);
+    int ret = io_uring_queue_init((uint32_t)size, &ring, 0);
     if (ret < 0) {
         throw std::runtime_error("Failed to initialize ring");
     }
@@ -28,41 +32,41 @@ RingWrapper::~RingWrapper() {
 void RingWrapper::prepare_accept(Listener& listener, UserData* ud) {
     struct io_uring_sqe *sqe = get_sqe();
     
-    struct sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(listener.get_port());
-    addr.sin_addr.s_addr = INADDR_ANY;
-    socklen_t server_addr_len = sizeof(addr);
+    ud->accept_addr = std::make_unique<struct sockaddr_in>();
+    ud->accept_addr->sin_family = AF_INET;
+    ud->accept_addr->sin_port = htons(listener.get_port());
+    ud->accept_addr->sin_addr.s_addr = INADDR_ANY;
+    socklen_t server_addr_len = sizeof(*ud->accept_addr.get());
 
     io_uring_prep_accept(
         sqe,
         listener.get_fd(),
-        reinterpret_cast<sockaddr*>(&addr),
+        reinterpret_cast<sockaddr*>(ud->accept_addr.get()),
         &server_addr_len, 
         0);
     
     ud->listener = std::addressof(listener);
     ud->op = Operation::ACCEPT;
-    io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
+    set_user_data(sqe, ud);
     VLOG(1) << "Prepared accept, fd: " << listener.get_fd();
 }
 
 void RingWrapper::prepare_read(Buffer* buffer, int fd, UserData* ud) {
     struct io_uring_sqe *sqe = get_sqe();
 
-    ud->buffer = buffer;
+    ud->set_buffer(buffer);
     ud->op = Operation::READ;
 
     io_uring_prep_read(
         sqe,
         fd,
-        buffer->data.get(),
-        buffer->get_size(),
+        buffer->data.data(),
+        (uint32_t)buffer->get_size(),
         0);
     
     // Set the buffer as the data for the SQE.
     // This will help us identify connection and buffer index after completion
-    io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
+    set_user_data(sqe, ud);
     
     VLOG(1) << "Prepared read, fd: " << fd;
 }
@@ -93,7 +97,34 @@ void RingWrapper::seen_cqe(struct io_uring_cqe* cqe) {
 }
 
 UserData* RingWrapper::get_user_data(struct io_uring_cqe* cqe) {
-    return static_cast<UserData*>(io_uring_cqe_get_data(cqe));
+    UserData* ret = static_cast<UserData*>(io_uring_cqe_get_data(cqe));
+    if (ret == nullptr) {
+        LOG(FATAL) << "UserData is null, cqe: " << cqe;
+    }
+    if (ret->op == Operation::CLEAR) {
+        LOG(FATAL) << "UserData is in CLEAR state, index: " << ret->index;
+    }
+    if (ret->in_ring == false) {
+        LOG(FATAL) << "UserData is not in ring, this should not happen";
+    }
+    ret->in_ring = false;
+    VLOG(2) << "get ud " << ret->index;
+    return ret;
+}
+
+void RingWrapper::set_user_data(struct io_uring_sqe * sqe, UserData* ud) {
+    if (ud == nullptr) {
+        LOG(FATAL) << "UserData cannot be null";
+    }
+    if (ud->op == Operation::CLEAR) {
+        LOG(FATAL) << "UserData is in CLEAR state, this should not happen";
+    }
+    if (ud->in_ring) {
+        LOG(FATAL) << "UserData is already in ring, this should not happen";
+    }
+    ud->in_ring = true;
+    io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
+    VLOG(2) << "set ud " << ud->index;
 }
 
 struct io_uring_sqe* RingWrapper::get_sqe() {
@@ -123,7 +154,7 @@ void RingWrapper::prepare_connect(std::unique_ptr<HTTPConnection>& conn, UserDat
 
     ud->conn = conn.get();
     ud->op = Operation::CONNECT;
-    io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
+    set_user_data(sqe, ud);
 
     VLOG(1) << "Prepared connect, fd: " << conn->get_fd();
 
@@ -136,13 +167,13 @@ void RingWrapper::prepare_write(int fd, Buffer* buffer, UserData* ud) {
     io_uring_prep_write(
         sqe,
         fd,
-        buffer->data.get(),
-        buffer->get_filled(),
+        buffer->data.data(),
+        (uint32_t)buffer->get_filled(),
         0);
     
-    ud->buffer = buffer;
+    ud->set_buffer(buffer);
     ud->op = Operation::WRITE;
-    io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
+    set_user_data(sqe, ud);
     VLOG(1) << "Prepared write, fd: " << fd;
 }
 
@@ -153,7 +184,7 @@ void RingWrapper::prepare_cancel(HTTPConnection& conn, UserData* ud) {
 
     ud->conn = &conn;
     ud->op = Operation::CANCEL;
-    io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
+    set_user_data(sqe, ud);
 
     VLOG(1) << "Prepared cancel, fd: " << conn.get_fd();
 }
@@ -172,10 +203,10 @@ void RingWrapper::prepare_rcvmsg(int fd, Buffer* buffer, UserData* ud, UDPType u
 
     //io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 
-    ud->buffer = buffer;
+    ud->set_buffer(buffer);
     ud->op = Operation::RCVMSG;
     ud->udp_type = udp_type;
-    io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
+    set_user_data(sqe, ud);
 
     VLOG(1) << "Prepared rcvmsg, fd: " << fd;
 }
@@ -195,9 +226,9 @@ void RingWrapper::prepare_reply_sendmsg(int fd, Buffer* old_buffer,
 
     //io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 
-    ud->buffer = new_buffer;
+    ud->set_buffer(new_buffer);
     ud->op = Operation::SENDMSG;
-    io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
+    set_user_data(sqe, ud);
 
     VLOG(1) << "Prepared sendmsg (reply), fd: " << fd;
 }
@@ -210,9 +241,9 @@ void RingWrapper::prepare_req_sendmsg(int fd, Buffer* buffer, UserData* ud,
 
     io_uring_prep_sendmsg(sqe, fd, buffer->get_msg().get(), 0);
 
-    ud->buffer = buffer;
+    ud->set_buffer(buffer);
     ud->op = Operation::SENDMSG;
-    io_uring_sqe_set_data(sqe, static_cast<void*>(ud));
+    set_user_data(sqe, ud);
 
     VLOG(1) << "Prepared sendmsg (req), fd: " << fd;
 }

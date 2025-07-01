@@ -4,6 +4,7 @@
 #include "connection.h"
 #include "listener.h"
 #include "rpc_message.h"
+#include <cstddef>
 #include <memory>
 
 enum class Operation {
@@ -13,34 +14,71 @@ enum class Operation {
     CONNECT,
     CANCEL,
     RCVMSG,
-    SENDMSG
+    SENDMSG,
+    CLEAR
 };
+
+inline std::string operation_to_str(Operation op) {
+    switch (op) {
+        case Operation::ACCEPT: return "ACCEPT";
+        case Operation::READ: return "READ";
+        case Operation::WRITE: return "WRITE";
+        case Operation::CONNECT: return "CONNECT";
+        case Operation::CANCEL: return "CANCEL";
+        case Operation::RCVMSG: return "RCVMSG";
+        case Operation::SENDMSG: return "SENDMSG";
+        case Operation::CLEAR: return "CLEAR";
+        default: return "UNKNOWN";
+    }
+}
 
 enum class UDPType {
     REQUEST,
-    RESPONSE
+    RESPONSE,
+    CLEAR
 };
 
-struct UserData {
-    Buffer* buffer;
-    Listener* listener;
-    HTTPConnection* conn;
-    enum Operation op;
-    int index;
-    UDPType udp_type;
-    std::unique_ptr<RPCMessage> rpc_message;
+inline std::string udp_type_to_str(UDPType type) {
+    switch (type) {
+        case UDPType::REQUEST: return "REQUEST";
+        case UDPType::RESPONSE: return "RESPONSE";
+        case UDPType::CLEAR: return "CLEAR";
+        default: return "UNKNOWN";
+    }
+}
+
+class UserData {
+    public:
+        UserData(size_t);
+
+        Buffer* get_buffer();
+        void set_buffer(Buffer*);
+        void clear();
+    
+    private:
+        Buffer* buffer;
+    
+    public:
+        bool in_ring;
+        Listener* listener;
+        HTTPConnection* conn;
+        enum Operation op;
+        size_t index;
+        UDPType udp_type;
+        std::unique_ptr<RPCMessage> rpc_message;
+        std::unique_ptr<struct sockaddr_in> accept_addr;
 };
 
 void inline prepare_read(UserData* ud, Buffer* buffer,
      Listener* listener, HTTPConnection* conn) {
-    ud->buffer = buffer;
+    ud->set_buffer(buffer);
     ud->op = Operation::READ;
     ud->conn = conn;
     ud->listener = listener;
 }
 
 void inline prepare_write(UserData* ud, Buffer* buffer, HTTPConnection* conn) {
-    ud->buffer = buffer;
+    ud->set_buffer(buffer);
     ud->op = Operation::WRITE;
     ud->conn = conn;
 }

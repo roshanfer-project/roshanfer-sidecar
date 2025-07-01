@@ -18,12 +18,11 @@
 #include "rpc_queue.h"
 #include "stats.h"
 #include <unordered_map>
-#include <span>
 
 class AddConnectionException : public std::runtime_error {
     public:
-        AddConnectionException(std::unique_ptr<HTTPConnection>& conn)
-         : std::runtime_error(""), conn(conn) {
+        AddConnectionException(std::unique_ptr<HTTPConnection>& ex_conn)
+         : std::runtime_error(""), conn(ex_conn) {
         }
     
         std::unique_ptr<HTTPConnection>& conn;
@@ -31,8 +30,8 @@ class AddConnectionException : public std::runtime_error {
 
 class ConnectionNotUPException: public std::runtime_error {
     public:
-        ConnectionNotUPException(std::unique_ptr<HTTPConnection>& conn) 
-            : std::runtime_error(""), conn(conn) {}
+        ConnectionNotUPException(std::unique_ptr<HTTPConnection>& ex_conn) 
+            : std::runtime_error(""), conn(ex_conn) {}
 
 
         std::unique_ptr<HTTPConnection>& conn;
@@ -73,9 +72,9 @@ class State {
         
         void write_http(HTTPConnection*);
         bool forward_request(HTTPConnection*, RPCMessage*);
-        HTTPConnection* route_request(ConnectionType, uint32_t, int);
+        HTTPConnection* route_request(ConnectionType, int32_t, int);
     private:
-        void udp_send(std::span<char>, struct sockaddr_in*);
+        void udp_send(std::vector<char>, struct sockaddr_in*);
 
         // PPM-related functions
         void send_dn(HTTPConnection*, const std::string&);
@@ -84,9 +83,9 @@ class State {
 
 
     private:
+        Config config;
         ConnectionPool ingress_pool;
         UpstreamRouteMapper upstream_route_mapper;
-        Config config;
         RingWrapper& ring;
         BufferManager& buffer_manager;
         int sockfd; // UDP socket file descriptor

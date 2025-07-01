@@ -1,24 +1,22 @@
 #pragma once
 
+#include <cstddef>
 #include <sys/socket.h>
-#include <vector>
 #include "buffer.h"
 #include "ring_helper.h"
 
 class BufferManager {
 
 public:
-    BufferManager(int, int);
+    BufferManager(size_t, size_t);
     Buffer* get_buffer();
-    void free_buffer(Buffer*);
+    void free_buffer(Buffer*&);
     UserData* get_user_data();
-    void free_user_data(UserData*);
+    void free_user_data(UserData*&);
 
 private:
-    int count;
-    int size;
-    std::vector<Buffer*> buffers;
-    std::vector<UserData*> user_data_vec;
-    std::vector<bool> used_buffer;
-    std::vector<bool> used_user_data;
+    size_t count;
+    size_t size;
+    std::queue<Buffer*> buffer_queue;
+    std::queue<UserData*> user_data_queue;
 };

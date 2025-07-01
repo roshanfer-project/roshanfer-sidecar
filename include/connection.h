@@ -112,7 +112,7 @@ class HTTP2Connection : public HTTPConnection {
 
 
 const size_t HTTP1Connection_BUF_SIZE = 200000;
-const size_t HTTP1Connection_MAX_HEADERS = 20;
+const size_t HTTP1Connection_MAX_HEADERS = 10;
 
 
 class HTTP1Connection : public HTTPConnection {
@@ -144,13 +144,13 @@ class HTTP1Connection : public HTTPConnection {
         size_t prev_buf_len;
         bool hdr_complete;
         int content_length;
-        size_t hdr_size;
+        int hdr_size;
 
 
         bool idle;
         RPCMapper* mapper;
         RPCQueue* queue;
-        uint32_t last_id;
+        int32_t last_id;
         HTTPMessage* rpc_message;
 };
 
@@ -164,7 +164,7 @@ class ConnectionPool {
          */
         std::unique_ptr<HTTPConnection>& add_connection(const std::string&, int, RPCMapper*, RPCQueue*, bool,
              struct hdr_histogram*);
-        std::unique_ptr<HTTPConnection>& get_connection(int fd) { return connections[fd]; }
+        std::unique_ptr<HTTPConnection>& get_connection(int fd) { return connections.at(fd); }
         std::unique_ptr<HTTPConnection>& get_any_connection();
         bool has_connection(int fd);
         void remove_connection(int fd) { connections.erase(fd); }

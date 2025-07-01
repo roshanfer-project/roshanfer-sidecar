@@ -1,5 +1,7 @@
 #pragma once
 
+#include "connection_enums.h"
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -18,20 +20,24 @@ class HeaderField {
         void set(const uint8_t* name, size_t name_len, const uint8_t* value, size_t value_len);
 
     public:
-        uint8_t* name;
+        std::array<uint8_t, MAX_HEADER_FIELD_SIZE> name;
         size_t name_len;
-        uint8_t* value;
+        std::array<uint8_t, MAX_HEADER_FIELD_SIZE> value;
         size_t value_len;
 };
 
 const size_t MAX_PAYLOAD_SIZE = 20000;
 const size_t MAX_HEADER_FIELD_NUMBER = 10;
 
-typedef struct DataReadStruct {
-    const uint8_t* data;
-    size_t offset;
-    size_t read_offset;
-} DataReadStruct;
+class DataReadStruct {
+    public:
+        DataReadStruct();
+
+    public:
+        std::array<uint8_t, MAX_PAYLOAD_SIZE> data;
+        size_t offset;
+        size_t read_offset;
+};
 
 class RPCMessage {
 
@@ -39,12 +45,12 @@ class RPCMessage {
         RPCMessage();
 
         // getter and setters
-        uint32_t get_ds_stream_id() const { return ds_stream_id; }
-        void set_ds_stream_id(uint32_t id) { ds_stream_id = id; }
+        int32_t get_ds_stream_id() const { return ds_stream_id; }
+        void set_ds_stream_id(int32_t id) { ds_stream_id = id; }
         int get_ds_fd() const { return ds_fd; }
         void set_ds_fd(int fd) { ds_fd = fd; }
-        uint32_t get_us_stream_id() const { return us_stream_id; }
-        void set_us_stream_id(uint32_t id) { us_stream_id = id; }
+        int32_t get_us_stream_id() const { return us_stream_id; }
+        void set_us_stream_id(int32_t id) { us_stream_id = id; }
         int get_us_fd() const { return us_fd; }
         void set_us_fd(int fd) { us_fd = fd; }
 
@@ -61,11 +67,11 @@ class RPCMessage {
     
     protected:
         // downstream identifiers
-        uint32_t ds_stream_id;
+        int32_t ds_stream_id;
         int ds_fd;
 
         // upstream identifiers
-        uint32_t us_stream_id;
+        int32_t us_stream_id;
         int us_fd;
 
     public:
@@ -91,13 +97,13 @@ class gRPCMessage : public RPCMessage {
         bool is_drop() { return false; } // gRPC messages are never dropped
 
         
-        std::unordered_map<uint8_t, DataReadStruct>& get_data_map() { return data_map; }
+        std::unordered_map<uint8_t, DataReadStruct*>& get_data_map() { return data_map; }
         std::vector<HeaderField*>& get_req_headers() { return req_headers; }
-        int get_req_header_count() const { return req_header_count; }
+        size_t get_req_header_count() const { return req_header_count; }
         std::vector<HeaderField*>& get_res_headers() { return res_headers; }
-        int get_res_header_count() const { return res_header_count; }
+        size_t get_res_header_count() const { return res_header_count; }
         std::vector<HeaderField*>& get_res_trailers() { return res_trailers; }
-        int get_res_trailer_count() const { return res_trailer_count; }
+        size_t get_res_trailer_count() const { return res_trailer_count; }
         void set_method(const std::string& m) { method = m; }
 
 
@@ -107,13 +113,13 @@ class gRPCMessage : public RPCMessage {
         std::string method;
 
         bool error;
-        std::unordered_map<uint8_t, DataReadStruct> data_map; // 0: req, 1: res
+        std::unordered_map<uint8_t, DataReadStruct*> data_map; // 0: req, 1: res
         std::vector<HeaderField*> req_headers;
-        int req_header_count;
+        size_t req_header_count;
         std::vector<HeaderField*> res_headers;
-        int res_header_count;
+        size_t res_header_count;
         std::vector<HeaderField*> res_trailers;
-        int res_trailer_count;
+        size_t res_trailer_count;
 };
 
 class HTTPMessage : public RPCMessage {
@@ -140,11 +146,11 @@ class HTTPMessage : public RPCMessage {
             path.assign(p, p_len);
         }
         const std::string& get_path() const { return path; }
-        DataReadStruct& get_res_data() { return res_data; }
+        DataReadStruct& get_res_data() { return *res_data; }
         std::vector<HeaderField*>& get_req_headers() { return req_headers; }
-        int get_req_header_count() const { return req_header_count; }
+        size_t get_req_header_count() const { return req_header_count; }
         std::vector<HeaderField*>& get_res_headers() { return res_headers; }
-        int get_res_header_count() const { return res_header_count; }
+        size_t get_res_header_count() const { return res_header_count; }
         void set_minor(int m) { minor = m; }
         int get_minor() const { return minor; }
         void set_status(int s) { status = s; }
@@ -166,11 +172,11 @@ class HTTPMessage : public RPCMessage {
         bool error;
 
         std::vector<HeaderField*> req_headers;
-        int req_header_count;
+        size_t req_header_count;
         std::vector<HeaderField*> res_headers;
-        int res_header_count;
+        size_t res_header_count;
 
-        DataReadStruct res_data;
+        DataReadStruct* res_data;
 };
 
 
@@ -178,7 +184,7 @@ class RPCMessagePool {
     public:
         RPCMessagePool(int, int);
         void free_rpc(RPCMessage*);
-        RPCMessage* get_rpc(uint32_t, int, bool);
+        RPCMessage* get_rpc(int32_t, int, HTTP);
     
     private:
         std::queue<RPCMessage*> grpc_pool;
