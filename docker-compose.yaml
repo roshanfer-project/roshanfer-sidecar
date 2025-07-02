@@ -1,0 +1,6 @@
+services:
+  sidecar:
+    image: sidecar-sidecar:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
