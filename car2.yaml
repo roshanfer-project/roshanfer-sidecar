@@ -1,0 +1,11 @@
+ring_size: 6000
+buffer_count: 2000
+buffer_size: 20000
+egress_listener_port: 4001
+ingress_listener_port: 10001
+ingress_upstream_host: 127.0.0.1
+ingress_upstream_port: 10002
+is_ingress: False
+ppm_limit: 10
+report_latency: True
+name: car2
