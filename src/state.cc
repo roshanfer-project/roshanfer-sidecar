@@ -74,7 +74,7 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
             route.upstream.port,
             &rpc_mapper,
             &rpc_queue,
-            false, // HTTP/2 connection
+            HTTP::HTTP2,
             hist
         );
 
@@ -98,7 +98,7 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
             config.ingress_upstream_port,
             &rpc_mapper,
             &rpc_queue,
-            config.is_ingress,
+            config.is_ingress ? HTTP::HTTP1 : HTTP::HTTP2,
             hist
         );
 
@@ -300,7 +300,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                 // submit the response
                 if (rpc->is_error()) {
                     conn->submit_error_response(*rpc);
-                    if (!rpc->is_http()) {
+                    if (rpc->http() == HTTP::HTTP2) {
                         rpc_mapper.remove_rpc(type, rpc);
                     }
                 } else {

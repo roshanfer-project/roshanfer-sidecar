@@ -62,7 +62,7 @@ class RPCMessage {
         virtual std::string& get_method() = 0;
         virtual bool is_error() = 0;
         virtual void set_error(bool) = 0;
-        virtual bool is_http() = 0;
+        virtual HTTP http() = 0;
         virtual bool is_drop() = 0;
     
     protected:
@@ -93,7 +93,7 @@ class gRPCMessage : public RPCMessage {
         void set_error(bool err) { error = err; }
         std::string& get_service() { return service; }
         std::string& get_method() { return method; }
-        bool is_http() { return false; }
+        HTTP http() { return HTTP::HTTP2; }
         bool is_drop() { return false; } // gRPC messages are never dropped
 
         
@@ -135,7 +135,7 @@ class HTTPMessage : public RPCMessage {
         void set_error(bool err) { error = err; }
         std::string& get_service() { return service; }
         std::string& get_method() { return method; }
-        bool is_http() { return true; }
+        HTTP http() { return HTTP::HTTP1; }
         bool is_drop() { return error && status == 503; }
 
         void set_method(const char* m, size_t m_len) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "connection_enums.h"
 #include <connection.h>
 #include <unordered_map>
 #include <memory>
@@ -9,7 +10,7 @@ class Listener {
         Listener(uint16_t, enum ConnectionType);
         int get_fd() { return fd; }
         uint16_t get_port() { return port; }
-        HTTPConnection& add_connection(int fd, RPCMapper*, RPCQueue*, bool, struct hdr_histogram*);
+        HTTPConnection& add_connection(int fd, RPCMapper*, RPCQueue*, HTTP, struct hdr_histogram*);
         void remove_connection(int target_fd) { connections.erase(target_fd); }
         std::unordered_map<int, std::unique_ptr<HTTPConnection>>& get_connections() { return connections; }
         bool no_connections() { return connections.empty(); }

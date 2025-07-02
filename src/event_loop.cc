@@ -65,7 +65,7 @@ void EventLoop::run() {
                         cqe->res,
                         std::addressof(rpc_mapper),
                         std::addressof(rpc_queue),
-                        listener->type == ConnectionType::INGRESS ? config.is_ingress : false,
+                        (listener->type == ConnectionType::INGRESS && config.is_ingress) ? HTTP::HTTP1 : HTTP::HTTP2,
                         state.get_histogram()
                     );
 
@@ -186,7 +186,7 @@ void EventLoop::run() {
                 VLOG(1) << "conn type: " << orig_conn->type_to_str();
                 VLOG(1) << "conn direction: " << orig_conn->direction_to_str();
 
-                if (orig_conn->is_http1()) {
+                if (orig_conn->http() == HTTP::HTTP1) {
                     orig_conn->set_status(ConnectionStatus::UP);
                 }
 

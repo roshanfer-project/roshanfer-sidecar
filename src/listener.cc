@@ -1,3 +1,4 @@
+#include "connection_enums.h"
 #include <listener.h>
 #include <connection.h>
 #include <sys/socket.h>
@@ -44,9 +45,9 @@ Listener::Listener(uint16_t lis_port, ConnectionType lis_type)
     VLOG(1) << "Listener created on port: " << port << " with fd: " << fd;
 };
 
-HTTPConnection& Listener::add_connection(int new_fd, RPCMapper* mapper, RPCQueue* queue, bool is_http1, 
+HTTPConnection& Listener::add_connection(int new_fd, RPCMapper* mapper, RPCQueue* queue, HTTP http, 
                                          struct hdr_histogram* hist) {
-    if (is_http1) {
+    if (http == HTTP::HTTP1) {
         connections.emplace(new_fd, std::make_unique<HTTP1Connection>(new_fd, mapper, queue, hist));
     } else {
         connections.emplace(new_fd, std::make_unique<HTTP2Connection>(new_fd, type, mapper, queue, hist));

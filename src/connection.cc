@@ -384,9 +384,9 @@ ConnectionPool::ConnectionPool(ConnectionType conn_type)
       type(conn_type) {};
 
 std::unique_ptr<HTTPConnection>& ConnectionPool::add_connection(const std::string& host,
-     int port, RPCMapper* mapper, RPCQueue* queue, bool is_http1, struct hdr_histogram* hist) {
+     int port, RPCMapper* mapper, RPCQueue* queue, HTTP http, struct hdr_histogram* hist) {
     std::unique_ptr<HTTPConnection> c;
-    if (is_http1) {
+    if (http == HTTP::HTTP1) {
         c = std::make_unique<HTTP1Connection>(host, port, mapper, queue, hist);
     } else {
         c = std::make_unique<HTTP2Connection>(host, port, type, queue, mapper, hist);

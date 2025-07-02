@@ -331,7 +331,7 @@ RPCMessagePool::RPCMessagePool(int grpc_n, int http_n)
 
 void RPCMessagePool::free_rpc(RPCMessage* rpc) {
     rpc->clear();
-    if (rpc->is_http()) {
+    if (rpc->http() == HTTP::HTTP1) {
         http_pool.push(rpc);
     } else {
         grpc_pool.push(rpc);

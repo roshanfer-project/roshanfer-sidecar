@@ -67,7 +67,7 @@ class HTTPConnection {
         virtual void submit_response(RPCMessage&) = 0;
         virtual void submit_error_response(RPCMessage&) = 0;
         virtual bool available() = 0;
-        virtual bool is_http1() = 0;
+        virtual HTTP http() = 0;
         
     protected:
         int fd; // local socket file descriptor
@@ -98,7 +98,7 @@ class HTTP2Connection : public HTTPConnection {
         void submit_response(RPCMessage&);
         void submit_error_response(RPCMessage&);
         bool available() { return true;}
-        bool is_http1() { return false; }
+        HTTP http() { return HTTP::HTTP2; }
 
     private:
         nghttp2_session* session;
@@ -130,7 +130,7 @@ class HTTP1Connection : public HTTPConnection {
         void submit_response(RPCMessage&);
         void submit_error_response(RPCMessage&);
         bool available();
-        bool is_http1() { return true; }
+        HTTP http() { return HTTP::HTTP1; }
     
     private:
         void set_rpc_message(HTTPMessage* msg);
@@ -162,7 +162,7 @@ class ConnectionPool {
         /**
          * @brief Add a connection to the pool
          */
-        std::unique_ptr<HTTPConnection>& add_connection(const std::string&, int, RPCMapper*, RPCQueue*, bool,
+        std::unique_ptr<HTTPConnection>& add_connection(const std::string&, int, RPCMapper*, RPCQueue*, HTTP,
              struct hdr_histogram*);
         std::unique_ptr<HTTPConnection>& get_connection(int fd) { return connections.at(fd); }
         std::unique_ptr<HTTPConnection>& get_any_connection();

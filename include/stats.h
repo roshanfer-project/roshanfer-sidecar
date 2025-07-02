@@ -46,7 +46,7 @@ void inline report_latency(RPCMessage& rpc, ConnectionType type, struct hdr_hist
             config.name.c_str(), type_to_str(type).c_str(), rpc.get_service().c_str(), rpc.get_method().c_str(), 
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - rpc.res_rcv_time).count());
     } else {
-        if (rpc.is_http()) {
+        if (rpc.http() == HTTP::HTTP1) {
 
             NANO_LOG(NOTICE, "M# %s DROP %s %s:%d 1",
                 config.name.c_str(), type_to_str(type).c_str(), rpc.get_service().c_str(), static_cast<HTTPMessage*>(&rpc)->get_status());
