@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <unordered_map>
 #include <string>
+#include <stdexcept>
 #include "buffer.h"
 #include "connection_enums.h"
 #include "ingress.h"
