@@ -538,7 +538,10 @@ HTTP1Connection::HTTP1Connection(std::string conn_host, uint16_t conn_port, RPCM
       rpc_message(nullptr) {
 
 
-    //buf = new char[HTTP1Connection_BUF_SIZE];
+    VLOG(1) << "Created HTTP1Connection for host: " << host << " port: " << port 
+            << ", fd: " << fd 
+            << ", type: " << type_to_str() 
+            << ", direction: " << direction_to_str();
 }
 
 HTTP1Connection::HTTP1Connection(int conn_fd, RPCMapper* rpc_mapper, RPCQueue* rpc_queue, struct hdr_histogram* hist_struct)
@@ -554,8 +557,10 @@ HTTP1Connection::HTTP1Connection(int conn_fd, RPCMapper* rpc_mapper, RPCQueue* r
       queue(rpc_queue),
       last_id(0),
       rpc_message(nullptr) {
-    
-    //buf = new char[HTTP1Connection_BUF_SIZE];
+
+    VLOG(1) << "Created HTTP1Connection for fd: " << fd 
+            << ", type: " << type_to_str() 
+            << ", direction: " << direction_to_str();
 }
 
 HTTP1Connection::~HTTP1Connection() {
@@ -1049,7 +1054,12 @@ HTTP2Connection::HTTP2Connection(std::string conn_host, uint16_t conn_port, Conn
     if (nghttp2_session_client_new(&session, callbacks,
         reinterpret_cast<void*>(callback_data.get())) != 0) {
         LOG(FATAL) << "nghttp2_session_client_new failed";
-    } 
+    }
+    
+    VLOG(1) << "Created HTTP2Connection for host: " << host << " port: " << port 
+            << ", fd: " << fd 
+            << ", type: " << type_to_str() 
+            << ", direction: " << direction_to_str();
 }
 
 HTTP2Connection::HTTP2Connection(int conn_fd, ConnectionType conn_type, RPCMapper* rpc_mapper, RPCQueue* rpc_queue,
@@ -1075,6 +1085,10 @@ HTTP2Connection::HTTP2Connection(int conn_fd, ConnectionType conn_type, RPCMappe
             reinterpret_cast<void*>(callback_data.get())) != 0) {
         LOG(FATAL) << "nghttp2_session_server_new failed";
     }
+
+    VLOG(1) << "Created HTTP2Connection for fd: " << fd 
+            << ", type: " << type_to_str() 
+            << ", direction: " << direction_to_str();
 }
 
 
@@ -1120,7 +1134,7 @@ int HTTP2Connection::http_write(Buffer* buffer) {
         LOG(FATAL) << "Buffer overflow";
     }
 
-    VLOG(1) << "HTTP/2 data written on fd: " << fd;
+    VLOG(1) << "Wrote " << written << " bytes to HTTP/2 connection on fd: " << fd;
     return (int)written;
 }
 

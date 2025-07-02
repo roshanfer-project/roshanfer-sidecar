@@ -113,6 +113,10 @@ void gRPCMessage::add_data(const uint8_t* data, size_t len, bool request) {
     }
     std::copy_n(data, len, data_struct->data.begin() + data_struct->offset);
     data_struct->offset += len;
+    if (VLOG_IS_ON(3)) {
+        VLOG(3) << "Data added to gRPCMessage: "
+                << std::string(reinterpret_cast<const char*>(data_struct->data.data()), data_struct->offset);
+    }
     VLOG(1) << "Add data (request:" << request << ") of length: " << len << " for stream id: " << ds_stream_id 
                 << " us_stream_id: " << us_stream_id;
 }
