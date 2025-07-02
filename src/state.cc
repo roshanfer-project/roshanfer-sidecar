@@ -122,8 +122,12 @@ void State::write_http(HTTPConnection* conn) {
     }
     VLOG(1) << "Starting to write batch of HTTP data on fd: " << conn->get_fd();
 
+    Buffer* send_buffer = nullptr;
+    bool write_flag = false;
     while (conn->want_write()) {
-        Buffer* send_buffer = buffer_manager.get_buffer();
+        if (send_buffer == nullptr) {
+            send_buffer = buffer_manager.get_buffer();
+        }
 
         conn->http_write(send_buffer);
 
@@ -131,7 +135,10 @@ void State::write_http(HTTPConnection* conn) {
             buffer_manager.free_buffer(send_buffer);
             break;
         }
+        write_flag = true;
+    }
 
+    if (write_flag) {
         auto write_ud = buffer_manager.get_user_data();
         prepare_write(write_ud, send_buffer, conn);
 
