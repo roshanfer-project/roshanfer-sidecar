@@ -143,7 +143,7 @@ int frame_recv_callback(nghttp2_session* /*session*/,
 
 // This callback is used to receive data chunks
 int on_data_chunk_recv_callback(nghttp2_session* /*session*/,
-                                uint8_t /*session*/,
+                                uint8_t /*flags*/,
                                 int32_t stream_id,
                                 const uint8_t* data,
                                 size_t len,
@@ -1145,7 +1145,7 @@ int32_t HTTP2Connection::submit_request(RPCMessage& rpc) {
 
     // preprae the data provider
     nghttp2_data_provider data_prd;
-    data_prd.source.ptr = reinterpret_cast<void*>(&grpc->get_data_map()[0]);
+    data_prd.source.ptr = reinterpret_cast<void*>(grpc->get_data_map().at(0));
     data_prd.read_callback = data_read_callback_request;
 
     // submit the requets and get the upstream stream id
@@ -1176,7 +1176,7 @@ void HTTP2Connection::submit_response(RPCMessage& rpc) {
 
     // preprae the data provider
     nghttp2_data_provider data_prd;
-    data_prd.source.ptr = reinterpret_cast<void*>(&grpc->get_data_map()[1]);
+    data_prd.source.ptr = reinterpret_cast<void*>(grpc->get_data_map().at(1));
     data_prd.read_callback = data_read_callback_response;
 
     if (grpc->get_data_map().at(1)->offset == 0) {
