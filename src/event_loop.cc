@@ -56,7 +56,7 @@ void EventLoop::run() {
                     Listener* listener = ud->listener;
 
                 if (cqe->res < 0) {
-                    LOG(ERROR) << "Failed to accept connection, error: "
+                    LOG(FATAL) << "Failed to accept connection, error: "
                                << strerror(-cqe->res);
                     //break;
                 } else {
@@ -113,7 +113,7 @@ void EventLoop::run() {
                 // check corner cases (errors, closed connection)
                 if (cqe->res <= 0) {
                     if (cqe->res < 0) {
-                        LOG(ERROR) << "Failed to read from " << orig_conn->get_host() << ":" << orig_conn->get_port()
+                        LOG(FATAL) << "Failed to read from " << orig_conn->get_host() << ":" << orig_conn->get_port()
                                << ", error: " << strerror(-cqe->res);
                     } else if (cqe->res == 0) {
                         LOG(INFO) << "Closing connection on fd: " << orig_conn->get_fd();
