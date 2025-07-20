@@ -70,6 +70,8 @@ class State {
         void ingress_admit();
         struct hdr_histogram* get_histogram() { return hist; }
         
+        /*Write request/response from connection's internal state to buffers. 
+        For HTTP/2 it also writes setting/ping/etc frames.*/
         void write_http(HTTPConnection*);
         bool forward_request(HTTPConnection*, RPCMessage*);
         HTTPConnection* route_request(ConnectionType, int32_t, int);

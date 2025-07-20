@@ -47,6 +47,14 @@ Config load_config(const std::string &filename) {
     }
     LOG(INFO) << "config.report_latency: " << local_config.report_latency;
 
+    // Optional is_frontend
+    if (node["is_frontend"]) {
+        local_config.is_frontend = node["is_frontend"].as<bool>();
+    } else {
+        local_config.is_frontend = false;
+    }
+    LOG(INFO) << "config.is_frontend: " << local_config.is_frontend;
+
     // Parse the routing section
     if (!node["routing"]) {
         LOG(WARNING) << "Routing section not found";

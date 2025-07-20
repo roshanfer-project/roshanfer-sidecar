@@ -58,6 +58,10 @@ class HTTPConnection {
         void set_status(ConnectionStatus s) { status = s; }
         uint16_t get_port() { return port; }
         std::string& get_host() { return host; }
+        void set_reserved(bool new_reserved) {
+            this->reserved = new_reserved;
+        }
+        bool is_reserved() { return reserved; }
 
         // pure virtual functions
         virtual void http_read(Buffer*, Ingress&) = 0;
@@ -77,6 +81,7 @@ class HTTPConnection {
         std::string host;
         uint16_t port;
         struct hdr_histogram* hist;
+        bool reserved;
 
     public:
         ConnectionType type;
@@ -119,8 +124,8 @@ const size_t HTTP1Connection_MAX_HEADERS = 10;
 class HTTP1Connection : public HTTPConnection {
 
     public:
-        HTTP1Connection(std::string, uint16_t, RPCMapper*, RPCQueue*, struct hdr_histogram*);
-        HTTP1Connection(int, RPCMapper*, RPCQueue*, struct hdr_histogram*);
+        HTTP1Connection(std::string, uint16_t, ConnectionType, RPCMapper*, RPCQueue*, struct hdr_histogram*);
+        HTTP1Connection(int, ConnectionType, RPCMapper*, RPCQueue*, struct hdr_histogram*);
         ~HTTP1Connection();
 
         void http_read(Buffer*, Ingress&);

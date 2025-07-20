@@ -387,7 +387,7 @@ std::unique_ptr<HTTPConnection>& ConnectionPool::add_connection(const std::strin
      int port, RPCMapper* mapper, RPCQueue* queue, HTTP http, struct hdr_histogram* hist) {
     std::unique_ptr<HTTPConnection> c;
     if (http == HTTP::HTTP1) {
-        c = std::make_unique<HTTP1Connection>(host, port, mapper, queue, hist);
+        c = std::make_unique<HTTP1Connection>(host, port, type, mapper, queue, hist);
     } else {
         c = std::make_unique<HTTP2Connection>(host, port, type, queue, mapper, hist);
     }
@@ -409,7 +409,10 @@ std::unique_ptr<HTTPConnection>& ConnectionPool::get_any_connection() {
 
     // return first available connection
     for (auto& conn : connections) {
-        if (conn.second->available()) {
+        if (conn.second->available() && !conn.second->is_reserved()) {
+            if (conn.second->http() == HTTP::HTTP1) {
+                conn.second->set_reserved(true);
+            }
             return conn.second;
         }
     }
@@ -426,8 +429,9 @@ HTTPConnection::HTTPConnection(int conn_fd, ConnectionType conn_type, struct hdr
         host(""),
         port(0),
         hist(hist_struct),
+        reserved(false),
         type(conn_type),
-        direction(ConnectionDirection::DOWNSTREAM) 
+        direction(ConnectionDirection::DOWNSTREAM)
 {
     
     // set non-blocking
@@ -452,6 +456,7 @@ HTTPConnection::HTTPConnection(std::string conn_host, uint16_t conn_port, Connec
         host(conn_host),
         port(conn_port),
         hist(hist_struct),
+        reserved(false),
         type(conn_type),
         direction(ConnectionDirection::UPSTREAM)
 {
@@ -522,9 +527,9 @@ sockaddr* HTTPConnection::get_addr() {
 
 //////// HTTP1Connection implementation
 
-HTTP1Connection::HTTP1Connection(std::string conn_host, uint16_t conn_port, RPCMapper* rpc_mapper, RPCQueue* rpc_queue,
+HTTP1Connection::HTTP1Connection(std::string conn_host, uint16_t conn_port, ConnectionType conn_type, RPCMapper* rpc_mapper, RPCQueue* rpc_queue,
                                  struct hdr_histogram* hist_struct)
-    : HTTPConnection(conn_host, conn_port, ConnectionType::INGRESS, hist_struct),
+    : HTTPConnection(conn_host, conn_port, conn_type, hist_struct),
       buf(std::array<char, HTTP1Connection_BUF_SIZE>()),
       buf_len(0),
       prev_buf_len(0),
@@ -544,8 +549,8 @@ HTTP1Connection::HTTP1Connection(std::string conn_host, uint16_t conn_port, RPCM
             << ", direction: " << direction_to_str();
 }
 
-HTTP1Connection::HTTP1Connection(int conn_fd, RPCMapper* rpc_mapper, RPCQueue* rpc_queue, struct hdr_histogram* hist_struct)
-    : HTTPConnection(conn_fd, ConnectionType::INGRESS, hist_struct),
+HTTP1Connection::HTTP1Connection(int conn_fd, ConnectionType conn_type, RPCMapper* rpc_mapper, RPCQueue* rpc_queue, struct hdr_histogram* hist_struct)
+    : HTTPConnection(conn_fd, conn_type, hist_struct),
       buf(std::array<char, HTTP1Connection_BUF_SIZE>()),
       buf_len(0),
       prev_buf_len(0),
@@ -668,12 +673,26 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
         rpc->set_path(path, path_len);
         rpc->set_minor(minor);
 
-        // Send RPC to Ingress
-        ingress.enqueue(rpc);
+        // Send RPC to Ingress if we are Ingress! (as opposed to being frontend's sidecar)
+        if (config.is_frontend) {
+            // send to RPC queue
+            queue->enqueue(type, direction, fd, last_id);
+        } else if (config.is_ingress) {
+            // send to Ingress
+            if (type == ConnectionType::INGRESS) {
+                LOG(FATAL) << "Ingress should be on the EGRESS connection, but got type: " << type_to_str();
+            }
+            ingress.enqueue(rpc);
+        } else {
+            LOG(FATAL) << "HTTP1 connection of type " << type_to_str()
+                << " and direction " << direction_to_str()
+                << " while both config.is_ingress and config.is_frontend are false";
+        }
+        
 
         // update idle
         if (idle == false) {
-            VLOG(1) << "Reading a request on non-idle connection, fd: " << fd
+            LOG(FATAL) << "Reading a request on non-idle connection, fd: " << fd
                 << ", type: " << type_to_str() 
                 << ", direction: " << direction_to_str()
                 << ", buf: " << std::string(buf.data(), buf_len);
@@ -801,7 +820,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
 
         // update idle
         if (idle == true) {
-            VLOG(1) << "Reading a response from idle connection, fd: " << fd
+            LOG(FATAL) << "Reading a response from idle connection, fd: " << fd
                 << ", type: " << type_to_str() 
                 << ", direction: " << direction_to_str()
                 << ", buf: " << std::string(buf.data(), buf_len);
@@ -892,12 +911,13 @@ int HTTP1Connection::http_write(Buffer* buffer) {
 
         // update idle
         if (idle == false) {
-            VLOG(1) << "Writing a request to non-idle connection, fd: " << fd
+            LOG(FATAL) << "Writing a request to non-idle connection, fd: " << fd
                 << ", type: " << type_to_str() 
                 << ", direction: " << direction_to_str()
                 << ", buf: " << std::string(buf.data(), buf_len);
         }
         idle = false;
+        set_reserved(false);
 
         return written;
     }

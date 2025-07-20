@@ -38,9 +38,9 @@ bool Ingress::check_drop(RPCQueue& rpc_queue, RPCMapper& rpc_mapper) {
         drop_id++;
         drop_rpc->set_us_fd(-1);
         drop_rpc->set_us_stream_id(drop_id);
-        rpc_mapper.route(ConnectionType::INGRESS, drop_rpc->get_ds_stream_id(),
+        rpc_mapper.route(ConnectionType::EGRESS, drop_rpc->get_ds_stream_id(),
                            drop_rpc->get_ds_fd(), drop_rpc->get_us_stream_id(), -1);
-        rpc_queue.enqueue(ConnectionType::INGRESS,
+        rpc_queue.enqueue(ConnectionType::EGRESS,
                            ConnectionDirection::UPSTREAM, // we want this to be forwarded to downstream connection
                            drop_rpc->get_us_fd(),
                            drop_rpc->get_us_stream_id());

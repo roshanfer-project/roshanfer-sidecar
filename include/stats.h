@@ -29,7 +29,7 @@ void inline report_latency(RPCMessage& rpc, ConnectionType type, struct hdr_hist
         std::chrono::steady_clock::now() - rpc.req_rcv_time);
     
     // update hist only if we are Ingress and also just for E2E Ingress requests
-    if (config.is_ingress == 1 && type == ConnectionType::INGRESS) {
+    if (config.is_ingress == 1) {
         hdr_record_value(hist, static_cast<int64_t>(duration.count()));
     }
     

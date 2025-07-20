@@ -61,11 +61,20 @@ void EventLoop::run() {
                     //break;
                 } else {
                     // add the connection to the listener
+                    HTTP http_type;
+                    if (config.is_frontend && listener->type == ConnectionType::INGRESS) {
+                        http_type = HTTP::HTTP1;
+                    } else if (config.is_ingress) {
+                        http_type = HTTP::HTTP1;
+                    } else {
+                        http_type = HTTP::HTTP2;
+                    }
+
                     HTTPConnection& conn = listener->add_connection(
                         cqe->res,
                         std::addressof(rpc_mapper),
                         std::addressof(rpc_queue),
-                        (listener->type == ConnectionType::INGRESS && config.is_ingress) ? HTTP::HTTP1 : HTTP::HTTP2,
+                        http_type,
                         state.get_histogram()
                     );
 
@@ -145,13 +154,13 @@ void EventLoop::run() {
                 // free the buffer
                 buffer_manager.free_buffer(buffer);
 
+                // handle req/res send buffers
+                state.forward(orig_conn->type, orig_conn->direction);
+
                 // check ingress admission
                 if (config.is_ingress) {
                     state.ingress_admit();
                 }
-                
-                // handle req/res send buffers
-                state.forward(orig_conn->type, orig_conn->direction);
 
                 state.ppm_client(false, nullptr);
 
@@ -188,10 +197,8 @@ void EventLoop::run() {
 
                 if (orig_conn->http() == HTTP::HTTP1) {
                     orig_conn->set_status(ConnectionStatus::UP);
-                }
-
-                // write http frames
-                if (!config.is_ingress || orig_conn->type == ConnectionType::EGRESS) {
+                } else if (orig_conn->http() == HTTP::HTTP2) {
+                    // write http frames (initial settings, which acts as handshake). Only for HTTP/2 connections
                     state.write_http(orig_conn);
                 }
                 

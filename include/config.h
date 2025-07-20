@@ -28,6 +28,7 @@ struct Config
     std::string name;
     std::vector<RoutingEntry> routing;
     bool is_ingress;
+    bool is_frontend;
     bool report_latency;
 };
 

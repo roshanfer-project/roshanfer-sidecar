@@ -48,7 +48,7 @@ Listener::Listener(uint16_t lis_port, ConnectionType lis_type)
 HTTPConnection& Listener::add_connection(int new_fd, RPCMapper* mapper, RPCQueue* queue, HTTP http, 
                                          struct hdr_histogram* hist) {
     if (http == HTTP::HTTP1) {
-        connections.emplace(new_fd, std::make_unique<HTTP1Connection>(new_fd, mapper, queue, hist));
+        connections.emplace(new_fd, std::make_unique<HTTP1Connection>(new_fd, type, mapper, queue, hist));
     } else {
         connections.emplace(new_fd, std::make_unique<HTTP2Connection>(new_fd, type, mapper, queue, hist));
     }

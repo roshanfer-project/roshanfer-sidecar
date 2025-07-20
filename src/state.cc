@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <exception>
 #include <memory>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -69,17 +70,24 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
 
     for (const auto& route : config.routing) {
         upstream_route_mapper.add_route(route.service);
-        auto& conn = upstream_route_mapper.get_pool(route.service).add_connection(
-            route.upstream.host,
-            route.upstream.port,
-            &rpc_mapper,
-            &rpc_queue,
-            HTTP::HTTP2,
-            hist
-        );
+        auto& pool = upstream_route_mapper.get_pool(route.service);
+        int n_conn = config.is_ingress ? config.ppm_limit : 1;
+        auto http_type = config.is_ingress ? HTTP::HTTP1 : HTTP::HTTP2;
+        for (int i = 0; i < n_conn; i++) {
+            auto& conn = pool.add_connection(
+                route.upstream.host,
+                route.upstream.port,
+                &rpc_mapper,
+                &rpc_queue,
+                http_type,
+                hist
+            );
 
-        // prepare connect
-        ring.prepare_connect(conn, buffer_manager.get_user_data());
+            // prepare connect
+            ring.prepare_connect(conn, buffer_manager.get_user_data());
+        }
+
+        
 
         ppm_state.denied_reqs.emplace(route.service, 0);
     }
@@ -90,7 +98,15 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
     easilly go up to 100 concurrent streams, but ppm_limit will limit the number 
     concurrent streams.
     */
-    int n_conn = config.is_ingress ? config.ppm_limit : 1;
+    int n_conn;
+    if (config.is_frontend) {
+        n_conn = config.ppm_limit;
+    } else if (config.is_ingress) {
+        n_conn = 0;
+    } else {
+        n_conn = 1; // HTTP/2 connections can multiplex multiple streams
+    }
+    
     VLOG(2) << "Creating " << n_conn << " connections for ingress requests";
     for (int i = 0; i< n_conn; i++) {
         auto& conn = ingress_pool.add_connection(
@@ -98,7 +114,7 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
             config.ingress_upstream_port,
             &rpc_mapper,
             &rpc_queue,
-            config.is_ingress ? HTTP::HTTP1 : HTTP::HTTP2,
+            (config.is_ingress || config.is_frontend) ? HTTP::HTTP1 : HTTP::HTTP2,
             hist
         );
 
@@ -185,9 +201,15 @@ HTTPConnection* State::route_request(ConnectionType type, int32_t ds_stream_id, 
         return conn;
     }
     catch (NoConnectionException& e) {
+        int ingress_admitted = -1;
+        if (config.is_ingress) {
+            ingress_admitted = ppm_state.sent_credits - stats.sidecar_resp_in.at(ConnectionType::EGRESS);
+        }
         LOG(FATAL) << "No connection available for routing request: " << e.what()
                    << " type: " << type_to_str(type)
-                   << " ingress_size: " << ingress.size();
+                   << " ingress_size: " << ingress.size()
+                   << " ingress_admitted: " << ingress_admitted
+                   << " response_in: " << stats.sidecar_resp_in.at(type);
     }
     catch (const std::exception& e) {
         LOG(FATAL) << "Error in routing, " << e.what();
@@ -210,32 +232,13 @@ bool State::forward_request(HTTPConnection* conn, RPCMessage* rpc) {
         
         VLOG(1) << "Submitted request on stream " << rpc->get_us_stream_id();
         return true;
-
     } catch (NoConnectionException& e) {
         LOG(FATAL) << "No connection available. Starting a new connection.";
-
-        /* std::string host;
-        int port;
-        if (type == ConnectionType::EGRESS) {
-            host = config.endpoint_host;
-            port = config.endpoint_port;
-        } else if (type == ConnectionType::INGRESS) {
-            host = config.ingress_upstream_host;
-            port = config.ingress_upstream_port;
-        } else {
-            LOG(FATAL) << "Unknown connection type";
-        }
-        std::unique_ptr<HTTPConnection>& conn = pools.at(type).add_connection(
-            host, port, &rpc_mapper, &rpc_queue);
-        VLOG(1) << "New connection established on fd: " << conn->get_fd();
-        
-        // prepare connect
-        ring.prepare_connect(conn, buffer_manager.get_user_data());
-
-        // put the RPC message back in the queue
-        rpc_queue.enqueue(type, ConnectionDirection::DOWNSTREAM, stream_id);
-
-        return false; */
+    } catch (std::exception& e) {
+        LOG(FATAL) << "Error in forwarding request: " << e.what()
+                   << " type: " << type_to_str(conn->type)
+                   << " stream_id: " << rpc->get_ds_stream_id()
+                   << " fd: " << rpc->get_ds_fd();
     }
 }
 
@@ -328,18 +331,6 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
     VLOG(1) << "Finished forwarding on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
 }
 
-/* std::unique_ptr<HTTPConnection>& State::get_connection(int fd, ConnectionType type) {
-    return  pools.at(type).get_connection(fd);
-} */
-
-/* void State::remove_one_connection(ConnectionType type) {
-    pools.at(type).remove_connection(pools.at(type).get_any_connection()->get_fd());
-} */
-
-/* HTTPConnection& State::get_one_connection(ConnectionType type) {
-    return *pools.at(type).get_any_connection().get();
-} */
-
 void State::remove_connection(HTTPConnection& /*conn*/) {
     LOG(FATAL) << "Removing connection for upstream is not implemented";
     //pools.at(conn.type).remove_connection(conn.get_fd());
@@ -371,33 +362,6 @@ std::pair<const std::string&, bool> State::valid_credit(const char* data) {
     }
 }
 
-
-/* void State::send_from_ppm_queue() {
-    if (ppm_queue.size() > 0) {
-        VLOG(1) << "Send a request from PPM queue";
-
-        // send one queued request (from the end of queue)
-        auto& msg = ppm_queue.front();
-
-        // send the request using io-uring
-        // Note that we don't need to do any routing here
-        auto& conn = pools.at(ConnectionType::EGRESS).get_any_connection();
-        msg->get_buffer()->prepare_write(conn.get());
-        auto ud = buffer_manager.get_user_data();
-        ud->rpc_message = std::move(msg);
-        // remove the first element from the queue
-        ppm_queue.erase(ppm_queue.begin());
-
-        ring.prepare_write(
-            conn->get_fd(),
-            ud->rpc_message->get_buffer(),
-            ud
-        );
-    } else {
-        LOG(FATAL) << "Received credit but no queued request";
-    }
-} */
-
 void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
     if (dn_resp) {
         // we have received a demand notification response
@@ -421,7 +385,7 @@ void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
             if (key.second && ppm_state.denied_reqs[key.first] > 0) {
                 VLOG(1) << "PPMClient: Sending demand notification for service " << key.first;
                 send_dn(
-                    upstream_route_mapper.get_pool(key.first).get_any_connection().get(),
+                    upstream_route_mapper.get_pool(key.first).get_connection(ppm_queue.get_fd(key.first)).get(),
                     key.first
                 );
                 key.second = false;
@@ -475,15 +439,14 @@ void State::ingress_admit() {
     bool admit = false;
     auto tmp_size = ingress.size();
     for (size_t i = 0; i < tmp_size; i++) {
-        if (config.ppm_limit > ppm_state.sent_credits - 
-            stats.sidecar_resp_in[ConnectionType::INGRESS]) {
+        if (config.ppm_limit > ppm_state.sent_credits - stats.sidecar_resp_in[ConnectionType::EGRESS]) {
             
             VLOG(1) << "Admitting an ingress request";
             admit = true;
             ppm_state.sent_credits++;
             auto rpc = ingress.dequeue();
             rpc_queue.enqueue(
-                ConnectionType::INGRESS,
+                ConnectionType::EGRESS,
                 ConnectionDirection::DOWNSTREAM,
                 rpc->get_ds_fd(),
                 rpc->get_ds_stream_id()
@@ -494,12 +457,12 @@ void State::ingress_admit() {
     }
 
     if (admit) {
-        forward(ConnectionType::INGRESS, ConnectionDirection::DOWNSTREAM);
+        forward(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM);
     }
 
     // check for any potential dropping
     if (ingress.check_drop(rpc_queue, rpc_mapper)) {
-        forward(ConnectionType::INGRESS, ConnectionDirection::UPSTREAM);
+        forward(ConnectionType::EGRESS, ConnectionDirection::UPSTREAM);
     }
     
 }
