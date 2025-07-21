@@ -10,24 +10,38 @@ PPMQueue::PPMQueue()
     TransparentHash, TransparentEqual>()) {}
 
 void PPMQueue::enqueue(RPCMessage* rpc) {
-    if (ppm_queue.find(rpc->get_service()) == ppm_queue.end()) {
-        ppm_queue.emplace(rpc->get_service(), std::queue<RPCMessage*>());
+    try {
+        ppm_queue.at(rpc->get_service()).push(rpc);
+    } catch (const std::out_of_range&) {
+        try {
+            ppm_queue.emplace(rpc->get_service(), std::queue<RPCMessage*>());
+            ppm_queue.at(rpc->get_service()).push(rpc);
+        } catch (const std::exception& e) {
+            LOG(FATAL) << "Error in initializing PPM queue for service: "
+                       << rpc->get_service() << ", error: " << e.what();
+        }
+    } catch (const std::exception& e) {
+        LOG(FATAL) << "Error in enqueueing RPC message: " << e.what()
+                   << " service: " << rpc->get_service();
     }
-    ppm_queue.at(rpc->get_service()).push(rpc);
     VLOG(1) << "Enqueued RPC message on service " << rpc->get_service();
 }
 
 RPCMessage* PPMQueue::dequeue(const std::string& service) {
-    if (ppm_queue.find(service) == ppm_queue.end()) {
+    try {
+        if (ppm_queue.at(service).empty()) {
+            LOG(FATAL) << "Trying to dequeue from an empty queue for service: " << service;
+        }
+        auto rpc = ppm_queue.at(service).front();
+        ppm_queue.at(service).pop();
+        VLOG(1) << "Dequeued RPC message on service " << service;
+        return rpc;
+    } catch (const std::out_of_range&) {
         LOG(FATAL) << "Service not found in PPM queue: " << service;
+    } catch (const std::exception& e) {
+        LOG(FATAL) << "Error in dequeueing RPC message: " << e.what()
+                   << " service: " << service;
     }
-    if (ppm_queue.at(service).empty()) {
-        LOG(FATAL) << "Trying to dequeue from an empty queue";
-    }
-    auto rpc = ppm_queue.at(service).front();
-    ppm_queue.at(service).pop();
-    VLOG(1) << "Dequeued RPC message on service " << service;
-    return rpc;
 }
 
 const std::string& PPMQueue::check(std::string_view& service) {
@@ -47,12 +61,12 @@ const std::string& PPMQueue::check(std::string_view& service) {
 }
 
 int PPMQueue::get_fd(const std::string& service) {
-    auto it = ppm_queue.find(service);
-    if (it == ppm_queue.end()) {
+    try {
+        return ppm_queue.at(service).front()->get_us_fd();
+    } catch (const std::out_of_range& e) {
         LOG(FATAL) << "Service not found in PPM queue: " << service;
+    } catch (const std::exception& e) {
+        LOG(FATAL) << "Error in getting fd from PPM queue: " << e.what()
+                   << " service: " << service;
     }
-    if (it->second.empty()) {
-        LOG(FATAL) << "Trying to find from an empty queue";
-    }
-    return it->second.front()->get_us_fd();
 }
