@@ -357,7 +357,7 @@ EventLoop::EventLoop(Config parsed_config)
     udp_listener(config.ingress_listener_port),
     rpc_mapper(),
     rpc_queue(),
-    ingress(),
+    ingress(config.routing),
     state(config, ring, buffer_manager, rpc_mapper, rpc_queue, listeners, ingress)
     {
         listeners.emplace(
