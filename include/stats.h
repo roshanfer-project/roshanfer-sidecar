@@ -21,6 +21,8 @@ class Stats {
     public:
         std::unordered_map<ConnectionType, int> sidecar_resp_in;
         std::unordered_map<std::string, bool> new_response_in;
+        std::unordered_map<std::string, uint32_t> egress_resp_in;
+        uint32_t drops;
 };
 
 void inline report_latency(RPCMessage& rpc, ConnectionType type, struct hdr_histogram* hist) {

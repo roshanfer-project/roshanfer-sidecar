@@ -19,8 +19,8 @@ class Ingress {
         ~Ingress();
 
         void enqueue(RPCMessage* rpc);
-        RPCMessage* dequeue();
-        size_t size();
+        RPCMessage* dequeue(std::string);
+        size_t size(std::string);
         void update_p95(int64_t p95);
         bool check_drop(RPCQueue&, RPCMapper&);
     

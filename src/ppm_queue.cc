@@ -1,13 +1,19 @@
 #include "ppm_queue.h"
+#include "config.h"
 #include "glog/logging.h"
 #include "rpc_message.h"
 #include <queue>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
-PPMQueue::PPMQueue()
+PPMQueue::PPMQueue(std::vector<RoutingEntry> routing)
 : ppm_queue(std::unordered_map<std::string, std::queue<RPCMessage*>,
-    TransparentHash, TransparentEqual>()) {}
+    TransparentHash, TransparentEqual>()) {
+    for (const auto& entry : routing) {
+        ppm_queue.emplace(entry.service, std::queue<RPCMessage*>());
+    }
+}
 
 void PPMQueue::enqueue(RPCMessage* rpc) {
     try {
@@ -61,12 +67,22 @@ const std::string& PPMQueue::check(std::string_view& service) {
 }
 
 int PPMQueue::get_fd(const std::string& service) {
+    if (ppm_queue.find(service) == ppm_queue.end()) {
+        LOG(FATAL) << "Service not found in PPM queue: " << service;
+    }
+    if (ppm_queue.at(service).empty()) {
+        LOG(FATAL) << "Trying to get fd from an empty queue for service: " << service;
+    }
+    return ppm_queue.at(service).front()->get_us_fd();
+}
+
+size_t PPMQueue::size(const std::string& service) {
     try {
-        return ppm_queue.at(service).front()->get_us_fd();
+        return ppm_queue.at(service).size();
     } catch (const std::out_of_range& e) {
         LOG(FATAL) << "Service not found in PPM queue: " << service;
     } catch (const std::exception& e) {
-        LOG(FATAL) << "Error in getting fd from PPM queue: " << e.what()
+        LOG(FATAL) << "Error in getting size from PPM queue: " << e.what()
                    << " service: " << service;
     }
 }

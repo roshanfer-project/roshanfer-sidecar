@@ -122,6 +122,7 @@ void EventLoop::run() {
                 // check corner cases (errors, closed connection)
                 if (cqe->res <= 0) {
                     if (cqe->res < 0) {
+                        state.dump_entire_state();
                         LOG(FATAL) << "Failed to read from " << orig_conn->get_host() << ":" << orig_conn->get_port()
                                << ", error: " << strerror(-cqe->res);
                     } else if (cqe->res == 0) {
@@ -162,7 +163,14 @@ void EventLoop::run() {
                     state.ingress_admit();
                 }
 
-                state.ppm_client(false, nullptr);
+                try {
+                    state.ppm_client(false, nullptr);
+                } catch (const std::out_of_range& e) {
+                    LOG(FATAL) << "Out of range error: " << e.what();
+                } catch (const std::exception& e) {
+                    LOG(FATAL) << "Error in PPM client: " << e.what();
+                }
+                
 
                 // flush every HTTP2 frame out
                 state.write_http(orig_conn);
@@ -303,7 +311,14 @@ void EventLoop::run() {
                         Buffer* buffer = ud->get_buffer();
 
                         // We have a response for DN (potentially a request unblock)
-                        state.ppm_client(true, buffer);
+                        try {
+                            state.ppm_client(true, buffer);
+                        } catch (const std::out_of_range& e) {
+                            LOG(FATAL) << "Out of range error: " << e.what();
+                        } catch (const std::exception& e) {
+                            LOG(FATAL) << "Error in PPM client: " << e.what();
+                        }
+                        
 
                         // free the buffer
                         buffer_manager.free_buffer(buffer);

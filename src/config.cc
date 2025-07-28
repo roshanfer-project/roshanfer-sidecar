@@ -56,30 +56,79 @@ Config load_config(const std::string &filename) {
     LOG(INFO) << "config.is_frontend: " << local_config.is_frontend;
 
     // Parse the routing section
-    if (!node["routing"]) {
-        LOG(WARNING) << "Routing section not found";
-        config = local_config;
-        return local_config;
-    }
-    if (node["routing"].IsSequence()) {
-        for (const auto& route_node : node["routing"]) {
-            RoutingEntry entry;
-            if (route_node["service"] && route_node["upstream"]) {
-                entry.service = route_node["service"].as<std::string>();
-                const auto& upstream_node = route_node["upstream"];
-                if (upstream_node["host"] && upstream_node["port"]) {
-                    entry.upstream.host = upstream_node["host"].as<std::string>();
-                    entry.upstream.port = upstream_node["port"].as<int>();
-                    local_config.routing.push_back(entry);
+    if (node["routing"]) {
+        if (node["routing"].IsSequence()) {
+            for (const auto& route_node : node["routing"]) {
+                RoutingEntry entry;
+                if (route_node["service"] && route_node["upstream"]) {
+                    entry.service = route_node["service"].as<std::string>();
+                    const auto& upstream_node = route_node["upstream"];
+                    if (upstream_node["host"] && upstream_node["port"]) {
+                        entry.upstream.host = upstream_node["host"].as<std::string>();
+                        entry.upstream.port = upstream_node["port"].as<int>();
+
+                        if (local_config.name == "ingress") {
+                            if (route_node["limit"]) {
+                                entry.limit = route_node["limit"].as<int>();
+                            } else {
+                                LOG(FATAL) << "Missing limit for service " << entry.service << " in ingress config";
+                            }
+                        }
+
+                        local_config.routing.push_back(entry);
+                    } else {
+                        LOG(FATAL) << "Skipping routing entry: Missing host or port in upstream section for service " << entry.service;
+                    }
                 } else {
-                    LOG(FATAL) << "Skipping routing entry: Missing host or port in upstream section for service " << entry.service;
+                    LOG(FATAL) << "Skipping routing entry: Missing service or upstream section.";
                 }
-            } else {
-                LOG(FATAL) << "Skipping routing entry: Missing service or upstream section.";
-            }
-    }
+        }
+        } else {
+            LOG(FATAL) << "Routing section not a sequence in " << config_path;
+        }
     } else {
-        LOG(FATAL) << "Routing section not a sequence in " << config_path;
+        LOG(WARNING) << "Routing section not found (optional)";
+    }
+
+    // Parse the mapping section
+    if (node["mapping"]) {
+        if (node["mapping"].IsMap()) {
+            for (const auto& mapping_node : node["mapping"]) {
+                std::string upstream = mapping_node.first.as<std::string>();
+                MappingInfo mapping_info;
+
+                if (mapping_node.second["downstreams"]) {
+                    if (mapping_node.second["downstreams"].IsSequence()) {
+                        for (const auto& downstream : mapping_node.second["downstreams"]) {
+                            mapping_info.downstreams.push_back(downstream.as<std::string>());
+                        }
+                    } else {
+                        LOG(FATAL) << "Downstreams for upstream '" << upstream << "' is not a sequence in " << config_path;
+                    }
+                }
+
+                if (mapping_node.second["min_max_concurrency"]) {
+                    mapping_info.min_max_concurrency = mapping_node.second["min_max_concurrency"].as<int>();
+                }
+                
+                local_config.mapping[upstream] = mapping_info;
+            }
+        } else {
+            LOG(FATAL) << "Mapping section is not a map in " << config_path;
+        }
+    } else {
+        LOG(INFO) << "Mapping section not found (optional)";
+    }
+
+    // Log parsed mapping configuration
+    for (const auto& pair : local_config.mapping) {
+        LOG(INFO) << "Mapping: upstream=" << pair.first;
+        LOG(INFO) << "  min_max_concurrency: " << (pair.second.min_max_concurrency.has_value()
+                  ? std::to_string(pair.second.min_max_concurrency.value())
+                  : "not set");
+        for (const auto& downstream : pair.second.downstreams) {
+            LOG(INFO) << "  downstream: " << downstream;
+        }
     }
 
     config = local_config;

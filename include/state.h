@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -42,8 +43,17 @@ class PPMState  {
         PPMState();
     
     public:
-        int sent_credits;
-        std::unordered_map<std::string, uint8_t, TransparentHash, TransparentEqual> denied_reqs;
+        // hosted services and their sent credits
+        std::unordered_map<std::string, uint32_t, TransparentHash, TransparentEqual> sent_credits;
+        std::unordered_map<std::string, uint32_t, TransparentHash, TransparentEqual> per_method_resp_in;
+        std::unordered_map<std::string, uint32_t> downstream_conccurency;
+        // downstream services and their denied requests
+        std::unordered_map<std::string, uint32_t, TransparentHash, TransparentEqual> denied_reqs;
+        std::unordered_map<std::string, uint32_t, TransparentHash, TransparentEqual> ingress_admitted;
+        std::unordered_map<std::string, uint32_t> ingress_transmitted;
+        std::unordered_map<std::string, bool> ppm_client_dn_send;
+        std::unordered_map<std::string, uint32_t> new_ppm_queue_reqs;
+        std::unordered_map<std::string, uint32_t> local_concurrency_limit;
 };
 
 class UpstreamRouteMapper{
@@ -75,12 +85,13 @@ class State {
         void write_http(HTTPConnection*);
         bool forward_request(HTTPConnection*, RPCMessage*);
         HTTPConnection* route_request(ConnectionType, int32_t, int);
+        void dump_entire_state();
     private:
         void udp_send(std::vector<char>, struct sockaddr_in*);
 
         // PPM-related functions
-        void send_dn(HTTPConnection*, const std::string&);
-        std::pair<const std::string&, bool> valid_credit(const char*);
+        void send_dn(HTTPConnection*, const std::string&, size_t);
+        std::tuple<const std::string&, bool, size_t> valid_credit(const char*);
         void send_from_ppm_queue();
 
 

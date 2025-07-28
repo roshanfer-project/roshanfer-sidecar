@@ -170,7 +170,7 @@ class ConnectionPool {
          */
         std::unique_ptr<HTTPConnection>& add_connection(const std::string&, int, RPCMapper*, RPCQueue*, HTTP,
              struct hdr_histogram*);
-        std::unique_ptr<HTTPConnection>& get_connection(int fd) { return connections.at(fd); }
+        std::unique_ptr<HTTPConnection>& get_connection(int fd);
         std::unique_ptr<HTTPConnection>& get_any_connection();
         bool has_connection(int fd);
         void remove_connection(int fd) { connections.erase(fd); }

@@ -1,34 +1,26 @@
 #pragma once
 
+#include "config.h"
 #include "rpc_message.h"
 #include <queue>
 #include <string>
 #include <string_view>
 #include <sys/socket.h>
-#include <unordered_map>
+#include <vector>
+#include "utils.h"
 
 
-struct TransparentHash {
-    using is_transparent = void; // important for heterogeneous lookup
-    std::size_t operator()(std::string_view txt) const noexcept {
-        return std::hash<std::string_view>{}(txt);
-    }
-};
 
-struct TransparentEqual {
-    using is_transparent = void;
-    bool operator()(std::string_view lhs, std::string_view rhs) const noexcept {
-        return lhs == rhs;
-    }
-};
 
 class PPMQueue {
     public:
-        PPMQueue();
+        PPMQueue(std::vector<RoutingEntry>);
         void enqueue(RPCMessage*);
         RPCMessage* dequeue(const std::string&);
+        // checks if the service exists and the queue is not empty
         const std::string& check(std::string_view&);
         int get_fd(const std::string&);
+        size_t size(const std::string&);
     
     private:
         std::unordered_map<std::string, std::queue<RPCMessage*>,

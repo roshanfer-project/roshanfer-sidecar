@@ -2,8 +2,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
+#include "utils.h"
 
 struct Upstream {
     std::string host;
@@ -13,6 +16,12 @@ struct Upstream {
 struct RoutingEntry {
     std::string service;
     Upstream upstream;
+    std::optional<int> limit;
+};
+
+struct MappingInfo {
+    std::vector<std::string> downstreams;
+    std::optional<int> min_max_concurrency;
 };
 
 struct Config
@@ -27,6 +36,7 @@ struct Config
     int ppm_limit;
     std::string name;
     std::vector<RoutingEntry> routing;
+    std::unordered_map<std::string, MappingInfo, TransparentHash, TransparentEqual> mapping;
     bool is_ingress;
     bool is_frontend;
     bool report_latency;

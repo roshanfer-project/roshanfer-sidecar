@@ -31,45 +31,46 @@ void Ingress::enqueue(RPCMessage* rpc) {
     }
 }
 
-RPCMessage* Ingress::dequeue() {
-    if (!queue.at("hotels").empty()) {
-        RPCMessage* rpc = queue.at("hotels").front();
-        queue.at("hotels").pop_front();
-        total_size--;
-        return rpc;
-    } else if (!queue.at("reservation").empty()) {
-        RPCMessage* rpc = queue.at("reservation").front();
-        queue.at("reservation").pop_front();
-        total_size--;
-        return rpc;
-    } else {
-        // log the content of the queue
-        for (const auto& kv : queue) {
-            LOG(INFO) << "Service: " << kv.first << ", size: " << kv.second.size();
-        }
-        LOG(FATAL) << "No RPC message in ingress queue";
+RPCMessage* Ingress::dequeue(std::string service) {
+    if (queue.find(service) == queue.end()) {
+        LOG(FATAL) << "Service not found in ingress queue: " << service;
     }
+    if (queue.at(service).empty()) {
+        LOG(FATAL) << "No RPC message in ingress queue for service: " << service;
+    }
+    RPCMessage* rpc = queue.at(service).front();
+    queue.at(service).pop_front();
+    total_size--;
+    return rpc;
 }
 
 RPCMessage* Ingress::select_drop() {
-    // drop an RPC from "reservation" queue if possible
-    if (!queue.at("reservation").empty()) {
-        RPCMessage* rpc = queue.at("reservation").back();
-        queue.at("reservation").pop_back();
-        total_size--;
-        return rpc;
-    } else if (!queue.at("hotels").empty()) {
-        RPCMessage* rpc = queue.at("hotels").back();
-        queue.at("hotels").pop_back();
-        total_size--;
-        return rpc;
-    } else {
-        LOG(FATAL) << "No RPC message in ingress queue to drop";
+    // drop from the longest queue
+    std::string longest_service;
+    size_t max_size = 0;
+    for (const auto& [service, rpc_queue] : queue) {
+        if (rpc_queue.size() > max_size) {
+            max_size = rpc_queue.size();
+            longest_service = service;
+        }
     }
+
+    if (longest_service.empty()) {
+        LOG(FATAL) << "No service found in ingress queue to drop";
+    }
+    if (queue.at(longest_service).empty()) {
+        LOG(FATAL) << "No RPC message in ingress queue for service: " << longest_service;
+    }
+    RPCMessage* rpc = queue.at(longest_service).back();
+    queue.at(longest_service).pop_back();
+    total_size--;
+    VLOG(1) << "Dropped an RPC message from service: " << longest_service
+            << " total size: " << total_size;
+    return rpc;
 }
 
 bool Ingress::check_drop(RPCQueue& rpc_queue, RPCMapper& rpc_mapper) {
-    if (this->size() > 10) {
+    if (total_size > 10) {
         /* auto last_req_wait = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::steady_clock::now() - queue.front()->req_rcv_time).count());
         VLOG(1) << "SLO violation prevention budget: " << 10*p95 - last_req_wait; */
@@ -77,7 +78,7 @@ bool Ingress::check_drop(RPCQueue& rpc_queue, RPCMapper& rpc_mapper) {
         // drop the last request
         auto drop_rpc = dynamic_cast<HTTPMessage*>(select_drop());
         drop_rpc->set_error(true);
-        drop_rpc->set_status(503);;
+        drop_rpc->set_status(503);
 
         // admit the failure response
         drop_id++;
@@ -100,6 +101,6 @@ void Ingress::update_p95(int64_t new_p95) {
     VLOG(1) << "Updated ingress p95 to " << p95;
 }
 
-size_t  Ingress::size() {
-    return total_size;
+size_t  Ingress::size(std::string service) {
+    return queue.at(service).size();
 }

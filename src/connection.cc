@@ -400,6 +400,14 @@ bool ConnectionPool::has_connection(int fd) {
     return connections.find(fd) != connections.end();
 };
 
+std::unique_ptr<HTTPConnection>& ConnectionPool::get_connection(int fd) {
+    try {
+        return connections.at(fd);
+    } catch (const std::out_of_range& e) {
+        LOG(FATAL) << "Connection with fd: " << fd << " not found in pool of type: " << type_to_str(type);
+    }
+};
+
 // This should return any "available" connections.
 // HTTP/1.1 connections doen't allow multiplexing.
 std::unique_ptr<HTTPConnection>& ConnectionPool::get_any_connection() {

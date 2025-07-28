@@ -3,6 +3,7 @@
 #include <iostream>
 #include <iomanip>
 #include <glog/logging.h>
+#include <stdexcept>
 
 void MyPrefixFormatter(std::ostream& s, const google::LogMessage& m, void* /*data*/) {
     s << google::GetLogSeverityName(m.severity())[0]
@@ -36,9 +37,15 @@ int main(int argc, char* argv[]) {
         EventLoop event_loop(parsed_config);
         event_loop.run();
     }
+    catch (const std::out_of_range& e) {
+        LOG(FATAL) << "Out of range error: " << e.what();
+    }
+    catch (const std::runtime_error& e) {
+        LOG(FATAL) << "Runtime error: " << e.what();
+    }
     catch(const std::exception& e)
     {
-        DLOG(FATAL) << "Error in event loop: " << e.what();
+        LOG(FATAL) << "Error in event loop: " << e.what();
     }
 }
 

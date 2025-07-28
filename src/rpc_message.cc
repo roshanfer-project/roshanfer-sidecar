@@ -63,15 +63,8 @@ void gRPCMessage::add_header_field(const uint8_t* name, size_t name_len,
     const uint8_t* value, size_t value_len, bool request, bool tailer) {
     
     if (std::strcmp(reinterpret_cast<const char*>(name), ":path") == 0) {
-        // split the path by /
-        std::string path(reinterpret_cast<const char*>(value), value_len);
-        size_t pos = path.find("/", 1);
-        if (pos != std::string::npos) {
-            service = path.substr(1, pos-1);
-            method = path.substr(pos+1);
-        } else {
-            LOG(FATAL) << "Invalid path: " << path;
-        }
+        service.assign(reinterpret_cast<const char*>(value+1), value_len-1);
+        method.clear();
         VLOG(1) << "Service: " << service << " Method: " << method;
         //VLOG(1) << "Service: " << service;
     }
