@@ -10,10 +10,12 @@
 
 
 Ingress::Ingress(std::vector<RoutingEntry> routing) 
-    : queue(std::unordered_map<std::string, std::deque<RPCMessage*>>()), drop_id(0), total_size(0)
+    : queue(std::unordered_map<std::string, std::deque<RPCMessage*>>()), p95(0), drop_id(0),
+        total_size(0), drop_service_index(0), services()
     {
         for (const auto& entry : routing) {
             queue.emplace(entry.service, std::deque<RPCMessage*>());
+            services.push_back(entry.service);
         }
     }
 
@@ -45,27 +47,15 @@ RPCMessage* Ingress::dequeue(std::string service) {
 }
 
 RPCMessage* Ingress::select_drop() {
-    // drop from the longest queue
-    std::string longest_service;
-    size_t max_size = 0;
-    for (const auto& [service, rpc_queue] : queue) {
-        if (rpc_queue.size() > max_size) {
-            max_size = rpc_queue.size();
-            longest_service = service;
-        }
+    if (queue.at(services.at(drop_service_index)).empty()) {
+        drop_service_index = (drop_service_index + 1) % services.size();
     }
-
-    if (longest_service.empty()) {
-        LOG(FATAL) << "No service found in ingress queue to drop";
-    }
-    if (queue.at(longest_service).empty()) {
-        LOG(FATAL) << "No RPC message in ingress queue for service: " << longest_service;
-    }
-    RPCMessage* rpc = queue.at(longest_service).back();
-    queue.at(longest_service).pop_back();
+    RPCMessage* rpc = queue.at(services.at(drop_service_index)).back();
+    queue.at(services.at(drop_service_index)).pop_back();
     total_size--;
-    VLOG(1) << "Dropped an RPC message from service: " << longest_service
+    VLOG(1) << "Dropped an RPC message from service: " << services.at(drop_service_index)
             << " total size: " << total_size;
+    drop_service_index = (drop_service_index + 1) % services.size();
     return rpc;
 }
 

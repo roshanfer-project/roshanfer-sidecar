@@ -33,4 +33,6 @@ class Ingress {
         int64_t p95;
         int32_t drop_id;
         size_t total_size;
+        uint8_t drop_service_index;
+        std::vector<std::string> services;
 };
