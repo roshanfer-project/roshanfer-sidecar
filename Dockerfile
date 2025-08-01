@@ -12,6 +12,8 @@ RUN chmod +x /sidecar
 COPY crash_bt.gdb /crash_bt.gdb
 
 # gdb --batch -x /crash_bt.gdb --args
-ENTRYPOINT [ "/bin/bash", "-c", "/sidecar /config.yaml" ]
+#ENTRYPOINT ["gdb", "--batch", "-x", "/crash_bt.gdb", "--args", "/sidecar" ]
+# Use exec -a to tag the process name (defaults to "sidecar" if PROC_NAME not set)
+ENTRYPOINT [ "/bin/bash", "-c", "exec -a \"${PROC_NAME:-sidecar}\" /sidecar \"$@\"", "--" ]
 CMD [ "/config.yaml" ]
 

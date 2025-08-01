@@ -360,6 +360,9 @@ void EventLoop::run() {
 
             // Advance the ring
             ring.seen_cqe(cqe);
+
+            // submit pending SQEs
+            ring.submit();
         }
     }
 };

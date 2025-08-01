@@ -115,7 +115,7 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
     */
     int n_conn;
     if (config.is_frontend) {
-        n_conn = 30;
+        n_conn = 50;
     } else if (config.is_ingress) {
         n_conn = 0;
     } else {

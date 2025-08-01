@@ -27,6 +27,7 @@ public:
     void prepare_read(Buffer*, int, UserData*);
 
     void submit_and_wait();
+    void submit();
 
     struct io_uring_cqe* peek_cqe();
     void seen_cqe(struct io_uring_cqe*);

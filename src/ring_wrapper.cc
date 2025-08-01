@@ -15,10 +15,7 @@
 RingWrapper::RingWrapper(size_t ring_size)
 : size(ring_size) {
     // Initialize the ring
-    // TODO: we should use the IORING_SETUP_SINGLE_ISSUER flag
-    // which tells the kernel that only one thread will submit SQEs
-    // the installed iouring (2.1) does not support it.
-    int ret = io_uring_queue_init((uint32_t)size, &ring, 0);
+    int ret = io_uring_queue_init((uint32_t)size, &ring, IORING_SETUP_SQPOLL|IORING_SETUP_SINGLE_ISSUER);
     if (ret < 0) {
         throw std::runtime_error("Failed to initialize ring");
     }
@@ -77,6 +74,13 @@ void RingWrapper::submit_and_wait() {
         LOG(FATAL) << "Failed to submit and wait, ret: " << ret;
     }
 };
+
+void RingWrapper::submit() {
+    int ret = io_uring_submit(&ring);
+    if (ret < 0) {
+        LOG(FATAL) << "Failed to submit, ret: " << ret;
+    }
+}
 
 struct io_uring_cqe* RingWrapper::peek_cqe() {
     struct io_uring_cqe *cqe;
