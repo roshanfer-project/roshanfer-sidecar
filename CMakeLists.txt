@@ -9,7 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g -fno-omit-frame-pointer")
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -fno-omit-frame-pointer")
-#set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g -fno-omit-frame-pointer -fno-inline")
+set(CMAKE_CXX_FLAGS_RELEASE "-O2")
 # options: "-fsanitize=address": to see memory leaks, stack corruption, etc.
 
 # append -Werror=format to CMAKE_CXX_FLAGS

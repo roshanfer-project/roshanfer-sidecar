@@ -12,7 +12,7 @@ class Listener {
         uint16_t get_port() { return port; }
         HTTPConnection& add_connection(int fd, RPCMapper*, RPCQueue*, HTTP, struct hdr_histogram*);
         void remove_connection(int target_fd) { connections.erase(target_fd); }
-        std::unordered_map<int, std::unique_ptr<HTTPConnection>>& get_connections() { return connections; }
+        std::unique_ptr<HTTPConnection>& get_connection(int);
         bool no_connections() { return connections.empty(); }
         std::string type_to_str();
 

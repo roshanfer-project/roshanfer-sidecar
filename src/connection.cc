@@ -28,6 +28,7 @@
 #include <unistd.h>
 #include <unordered_map>
 #include <netinet/tcp.h>
+#include <cstdarg>
 
 std::string type_to_str(ConnectionType type) {
     if (type == ConnectionType::INGRESS) {
@@ -441,6 +442,10 @@ HTTPConnection::HTTPConnection(int conn_fd, ConnectionType conn_type, struct hdr
         type(conn_type),
         direction(ConnectionDirection::DOWNSTREAM)
 {
+    if (fd < 0) {
+        LOG(FATAL) << "Invalid file descriptor: " << fd;
+        return;
+    }
     
     // set non-blocking
     int flags = fcntl(fd, F_GETFL, 0);
@@ -538,7 +543,7 @@ sockaddr* HTTPConnection::get_addr() {
 HTTP1Connection::HTTP1Connection(std::string conn_host, uint16_t conn_port, ConnectionType conn_type, RPCMapper* rpc_mapper, RPCQueue* rpc_queue,
                                  struct hdr_histogram* hist_struct)
     : HTTPConnection(conn_host, conn_port, conn_type, hist_struct),
-      buf(std::array<char, HTTP1Connection_BUF_SIZE>()),
+      buf(std::make_unique<std::array<char, HTTP1Connection_BUF_SIZE>>()),
       buf_len(0),
       prev_buf_len(0),
       hdr_complete(false),
@@ -559,7 +564,7 @@ HTTP1Connection::HTTP1Connection(std::string conn_host, uint16_t conn_port, Conn
 
 HTTP1Connection::HTTP1Connection(int conn_fd, ConnectionType conn_type, RPCMapper* rpc_mapper, RPCQueue* rpc_queue, struct hdr_histogram* hist_struct)
     : HTTPConnection(conn_fd, conn_type, hist_struct),
-      buf(std::array<char, HTTP1Connection_BUF_SIZE>()),
+      buf(std::make_unique<std::array<char, HTTP1Connection_BUF_SIZE>>()),
       buf_len(0),
       prev_buf_len(0),
       hdr_complete(false),
@@ -600,7 +605,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
         LOG(FATAL) << "Buffer overflow, buf_len: " << buf_len 
                     << ", buffer filled: " << buffer->get_filled();
     }
-    std::copy_n(buffer->data.begin(), buffer->get_filled(), buf.begin() + buf_len);
+    std::copy_n(buffer->data.begin(), buffer->get_filled(), buf->begin() + buf_len);
     prev_buf_len = buf_len;
     buf_len += buffer->get_filled();
 
@@ -616,7 +621,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
         int minor;
         
         hdr_size = phr_parse_request(
-            buf.data(), buf_len,
+            buf->data(), buf_len,
             &method, &method_len,
             &path,   &path_len,
             &minor,
@@ -629,7 +634,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
             return;
         } else if (hdr_size == -1) {
             LOG(FATAL) << "Failed to parse HTTP/1.1 request on fd: " << fd
-                << ", buf: " << std::string(buf.data(), buf_len);
+                << ", buf: " << std::string(buf->data(), buf_len);
         }
 
         // we have a complete headers
@@ -703,7 +708,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
             LOG(FATAL) << "Reading a request on non-idle connection, fd: " << fd
                 << ", type: " << type_to_str() 
                 << ", direction: " << direction_to_str()
-                << ", buf: " << std::string(buf.data(), buf_len);
+                << ", buf: " << std::string(buf->data(), buf_len);
         }
         idle = false;
         
@@ -731,7 +736,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
             const char *msg;
             size_t msg_len;
 
-            hdr_size = phr_parse_response(buf.data(), buf_len,
+            hdr_size = phr_parse_response(buf->data(), buf_len,
                         &minor, &parse_status,
                         &msg, &msg_len,
                         headers, &num_headers,
@@ -807,7 +812,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
 
         // we have a full body
         if (content_length > 0) {
-            const char* body = buf.data() + hdr_size;
+            const char* body = buf->data() + hdr_size;
 
             // add the data
             HTTPMessage* rpc = dynamic_cast<HTTPMessage*>(mapper->get_us_rpc(type, last_id, fd));
@@ -831,7 +836,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
             LOG(FATAL) << "Reading a response from idle connection, fd: " << fd
                 << ", type: " << type_to_str() 
                 << ", direction: " << direction_to_str()
-                << ", buf: " << std::string(buf.data(), buf_len);
+                << ", buf: " << std::string(buf->data(), buf_len);
         }
         idle = true;
 
@@ -858,10 +863,24 @@ bool HTTP1Connection::want_write() {
     LOG(FATAL) << "HTTP/1.1 connection does not support want_read";
 } */
 
-void static inline snprintf_ret_check(int ret, size_t size) {
-    if (ret < 0 || (size_t)ret >= size) {
-        LOG(FATAL) << "snprintf failed or buffer overflow, ret: " << ret << ", size: " << size;
+// snprintf_ret_check no longer used; safe formatting via append_fmt_or_fatal below
+
+// Safely append a formatted string into the Buffer at the current filled offset.
+// Updates 'written_total' and buffer->filled, FATAL on overflow or formatting error.
+static inline void append_fmt_or_fatal(Buffer* buffer, int& written_total, const char* fmt, ...) {
+    size_t remaining = buffer->get_size() - buffer->get_filled();
+    if (remaining == 0) {
+        LOG(FATAL) << "Buffer has no remaining capacity";
     }
+    va_list ap;
+    va_start(ap, fmt);
+    int ret = vsnprintf(buffer->data.data() + written_total, remaining, fmt, ap);
+    va_end(ap);
+    if (ret < 0 || (size_t)ret >= remaining) {
+        LOG(FATAL) << "vsnprintf failed or buffer overflow, ret: " << ret << ", remaining: " << remaining;
+    }
+    written_total += ret;
+    buffer->set_filled(buffer->get_filled() + (size_t)ret);
 }
 
 int HTTP1Connection::http_write(Buffer* buffer) {
@@ -869,39 +888,23 @@ int HTTP1Connection::http_write(Buffer* buffer) {
         // we are serializing a request
 
         int written = 0;
-        HTTPMessage* rpc = get_rpc_message();
-        int ret;
-        size_t size;
+    HTTPMessage* rpc = get_rpc_message();
 
-        size = buffer->get_size()-buffer->get_filled();
-        ret = snprintf(buffer->data.data()+written, size,
-                            "%.*s %.*s HTTP/1.%d\r\n",
-                            (int)rpc->get_method().length(), rpc->get_method().c_str(),
-                            (int)rpc->get_path().length(),   rpc->get_path().c_str(),
-                            rpc->get_minor());
-        
-        snprintf_ret_check(ret, size);
-        written += ret;
-        buffer->set_filled((size_t)ret + buffer->get_filled());
+    append_fmt_or_fatal(buffer, written,
+                "%.*s %.*s HTTP/1.%d\r\n",
+                (int)rpc->get_method().length(), rpc->get_method().c_str(),
+                (int)rpc->get_path().length(),   rpc->get_path().c_str(),
+                rpc->get_minor());
 
         auto& headers = rpc->get_req_headers();
         for (size_t i = 0; i < rpc->get_req_header_count(); i++) {
-            size = buffer->get_size()-buffer->get_filled();
-            ret = snprintf(buffer->data.data()+written,
-                        size,
-                            "%.*s: %.*s\r\n",
-                            (int)headers.at(i)->name_len,   headers.at(i)->name.data(),
-                            (int)headers.at(i)->value_len,  headers.at(i)->value.data());
-            snprintf_ret_check(ret, size);
-            written += ret;
-            buffer->set_filled((size_t)ret + buffer->get_filled());
+        append_fmt_or_fatal(buffer, written,
+                "%.*s: %.*s\r\n",
+                (int)headers.at(i)->name_len,   headers.at(i)->name.data(),
+                (int)headers.at(i)->value_len,  headers.at(i)->value.data());
         }
 
-        size = buffer->get_size()-buffer->get_filled();
-        ret = snprintf(buffer->data.data()+written, size, "\r\n");
-        snprintf_ret_check(ret, size);
-        written += ret;
-        buffer->set_filled((size_t)ret + buffer->get_filled());
+    append_fmt_or_fatal(buffer, written, "\r\n");
 
         if (buffer->get_filled() > buffer->get_size()) {
             LOG(FATAL) << "Buffer overflow";
@@ -922,7 +925,7 @@ int HTTP1Connection::http_write(Buffer* buffer) {
             LOG(FATAL) << "Writing a request to non-idle connection, fd: " << fd
                 << ", type: " << type_to_str() 
                 << ", direction: " << direction_to_str()
-                << ", buf: " << std::string(buf.data(), buf_len);
+                << ", buf: " << std::string(buf->data(), buf_len);
         }
         idle = false;
         set_reserved(false);
@@ -933,53 +936,34 @@ int HTTP1Connection::http_write(Buffer* buffer) {
         // we are serializing a response
        
         int written = 0;
-        auto rpc = get_rpc_message();
-        int ret;
-        size_t size;
+    auto rpc = get_rpc_message();
 
         if (rpc->is_error()) {
             // return a 503 error response
-            size = buffer->get_size()-buffer->get_filled();
-            ret = snprintf(buffer->data.data()+written, 
-                            size,
-                            "HTTP/1.%d 503 Service Unavailable\r\n"
-                            "Content-Type: text/plain\r\n"
-                            "Content-Length: 0\r\n"
-                            "\r\n", rpc->get_minor());
-            snprintf_ret_check(ret, size);
-            written += ret;
-            buffer->set_filled((size_t)ret + buffer->get_filled());
+            append_fmt_or_fatal(buffer, written,
+                                "HTTP/1.%d 503 Service Unavailable\r\n"
+                                "Content-Type: text/plain\r\n"
+                                "Content-Length: 0\r\n"
+                                "\r\n", rpc->get_minor());
             if (buffer->get_filled() > buffer->get_size()) {
                 LOG(FATAL) << "Buffer overflow";
             }
             VLOG(1) << "Write " << written << " bytes to HTTP/1.1 error response on fd: " << fd;
         } else {
-            size = buffer->get_size()-buffer->get_filled();
-            ret = snprintf(buffer->data.data()+written, size,
-                            "HTTP/1.%d %d %.*s\r\n",
-                            rpc->get_minor(), rpc->get_status(),
-                            (int)rpc->get_msg().length(), rpc->get_msg().c_str());
-            snprintf_ret_check(ret, size);
-            written += ret;
-            buffer->set_filled((size_t)ret + buffer->get_filled());
+            append_fmt_or_fatal(buffer, written,
+                                "HTTP/1.%d %d %.*s\r\n",
+                                rpc->get_minor(), rpc->get_status(),
+                                (int)rpc->get_msg().length(), rpc->get_msg().c_str());
         
             auto& headers = rpc->get_res_headers();
             for (size_t i = 0; i < rpc->get_res_header_count(); i++) {
-                size = buffer->get_size()-buffer->get_filled();
-                ret = snprintf(buffer->data.data()+written, size,
-                                "%.*s: %.*s\r\n",
-                                (int)headers.at(i)->name_len,   headers.at(i)->name.data(),
-                                (int)headers.at(i)->value_len,  headers.at(i)->value.data());
-                snprintf_ret_check(ret, size);
-                written += ret;
-                buffer->set_filled((size_t)ret + buffer->get_filled());
+                append_fmt_or_fatal(buffer, written,
+                                    "%.*s: %.*s\r\n",
+                                    (int)headers.at(i)->name_len,   headers.at(i)->name.data(),
+                                    (int)headers.at(i)->value_len,  headers.at(i)->value.data());
             }
             
-            size = buffer->get_size()-buffer->get_filled();
-            ret = snprintf(buffer->data.data()+written, size, "\r\n");
-            snprintf_ret_check(ret, size);
-            written += ret;
-            buffer->set_filled((size_t)ret + buffer->get_filled());
+            append_fmt_or_fatal(buffer, written, "\r\n");
 
             auto body = rpc->get_res_data();
             if (body.offset >= buffer->get_size()-buffer->get_filled()) {
@@ -1004,7 +988,7 @@ int HTTP1Connection::http_write(Buffer* buffer) {
             LOG(FATAL) << "Writing a response to idle connection, fd: " << fd
                 << ", type: " << type_to_str() 
                 << ", direction: " << direction_to_str()
-                << ", buf: " << std::string(buf.data(), buf_len); 
+                << ", buf: " << std::string(buf->data(), buf_len); 
         }
         idle = true;
 

@@ -145,7 +145,7 @@ class HTTP1Connection : public HTTPConnection {
         
     private:
         // internal state for parsing
-        std::array<char, HTTP1Connection_BUF_SIZE> buf;
+        std::unique_ptr<std::array<char, HTTP1Connection_BUF_SIZE>> buf;
         size_t buf_len;
         size_t prev_buf_len;
         bool hdr_complete;

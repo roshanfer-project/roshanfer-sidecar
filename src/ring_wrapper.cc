@@ -30,9 +30,8 @@ void RingWrapper::prepare_accept(Listener& listener, UserData* ud) {
     struct io_uring_sqe *sqe = get_sqe();
     
     ud->accept_addr = std::make_unique<struct sockaddr_in>();
-    ud->accept_addr->sin_family = AF_INET;
-    ud->accept_addr->sin_port = htons(listener.get_port());
-    ud->accept_addr->sin_addr.s_addr = INADDR_ANY;
+    // Ensure the structure is fully zeroed before kernel writes into it
+    *ud->accept_addr = {};
     socklen_t server_addr_len = sizeof(*ud->accept_addr.get());
 
     io_uring_prep_accept(

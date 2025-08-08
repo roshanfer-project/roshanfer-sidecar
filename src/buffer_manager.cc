@@ -64,12 +64,23 @@ Buffer* BufferManager::get_buffer() {
     }
     Buffer* buffer = buffer_queue.front();
     buffer_queue.pop();
+    if (!buffer->is_free) {
+        LOG(FATAL) << "Buffer is not free, index: " << buffer->get_index();
+        return nullptr;
+    }
+    buffer->is_free = false;
     return buffer;
 }
 
 void BufferManager::free_buffer(Buffer*& buffer) {
     if (buffer == nullptr) {
         LOG(FATAL) << "buffer cannot be null";
+        return;
+    }
+
+    if (buffer->is_free) {
+        LOG(FATAL) << "Buffer is already free, index: " << buffer->get_index();
+        return;
     }
     buffer->clear();
     buffer_queue.push(buffer);

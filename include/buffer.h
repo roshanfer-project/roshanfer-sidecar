@@ -22,6 +22,7 @@ class Buffer {
     
     public:
         std::vector<char> data;
+        bool is_free;
     
     private:
         size_t size;

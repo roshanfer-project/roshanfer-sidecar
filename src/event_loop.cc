@@ -339,6 +339,11 @@ void EventLoop::run() {
             case Operation::SENDMSG: {
                 VLOG(1) << "Sendmsg completion event";
 
+                if (cqe->res <= 0) {
+                    LOG(FATAL) << "Failed to send message, error: "
+                               << strerror(-cqe->res);
+                }
+
                 // get the buffer from the user data
                 Buffer* buffer = ud->get_buffer();
 
