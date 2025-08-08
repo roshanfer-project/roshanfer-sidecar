@@ -5,13 +5,12 @@
 #include <queue>
 #include <string>
 #include <unordered_map>
-#include <vector>
 
-PPMQueue::PPMQueue(std::vector<RoutingEntry> routing)
+PPMQueue::PPMQueue(std::unordered_map<std::string, RoutingEntry, TransparentHash, TransparentEqual> routing)
 : ppm_queue(std::unordered_map<std::string, std::queue<RPCMessage*>,
     TransparentHash, TransparentEqual>()) {
-    for (const auto& entry : routing) {
-        ppm_queue.emplace(entry.service, std::queue<RPCMessage*>());
+    for (const auto& [route, _] : routing) {
+        ppm_queue.emplace(route, std::queue<RPCMessage*>());
     }
 }
 

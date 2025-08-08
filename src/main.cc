@@ -1,9 +1,14 @@
+#include "state.h"
+#include <cstdint>
 #include <event_loop.h>
 #include <config.h>
 #include <iostream>
 #include <iomanip>
 #include <glog/logging.h>
 #include <stdexcept>
+#include <string>
+#include <vector>
+#include <pthread.h>
 
 void MyPrefixFormatter(std::ostream& s, const google::LogMessage& m, void* /*data*/) {
     s << google::GetLogSeverityName(m.severity())[0]
@@ -31,21 +36,50 @@ int main(int argc, char* argv[]) {
 
     Config parsed_config = load_config(argv[1]);
 
-    LOG(INFO) << "Starting event loop"; 
-    try
-    {
-        EventLoop event_loop(parsed_config);
-        event_loop.run();
+    std::vector<std::string> hosted_services;
+    for (const auto& [service, _] : parsed_config.mapping) {
+        hosted_services.push_back(service);
     }
-    catch (const std::out_of_range& e) {
-        LOG(FATAL) << "Out of range error: " << e.what();
+
+    std::vector<std::string> downstream_services;
+    for (const auto& [route, _] : parsed_config.routing) {
+        downstream_services.push_back(route);
     }
-    catch (const std::runtime_error& e) {
-        LOG(FATAL) << "Runtime error: " << e.what();
+
+    SharedState shared_state = SharedState(hosted_services, downstream_services);
+
+    // create threads for each event loop
+    std::vector<std::thread> threads;
+    for (uint8_t i = 0; i < parsed_config.num_threads; i++) {
+        threads.emplace_back([&shared_state, parsed_config, i, &downstream_services]() {
+            // Set thread name for identification in htop
+            std::string thread_name = parsed_config.name + "-s-" + std::to_string(i);
+            int ret = pthread_setname_np(pthread_self(), thread_name.c_str());
+            if (ret != 0) {
+                LOG(FATAL) << "Failed to set thread name: " << strerror(ret);
+            }
+            std::string ingress_service = parsed_config.is_ingress ? downstream_services.at(i) : "empty";
+
+            try {
+                EventLoop event_loop(i, ingress_service, parsed_config, shared_state);
+                LOG(INFO) << "Starting event loop with index: " << (int)i;
+                event_loop.run();
+            } catch (const std::out_of_range& e) {
+                LOG(FATAL) << "Out of range error: " << e.what();
+            } catch (const std::runtime_error& e) {
+                LOG(FATAL) << "Runtime error: " << e.what();
+            } catch(const std::exception& e)
+            {
+                LOG(FATAL) << "Error in event loop: " << e.what();
+            }
+        });
     }
-    catch(const std::exception& e)
-    {
-        LOG(FATAL) << "Error in event loop: " << e.what();
+
+    // wait for all threads to finish
+    for (auto& thread : threads) {
+        if (thread.joinable()) {
+            thread.join();
+        }
     }
 }
 

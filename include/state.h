@@ -10,6 +10,7 @@
 #include "connection.h"
 #include "buffer_manager.h"
 #include "connection_enums.h"
+#include "fast_map.hpp"
 #include "hdr/hdr_histogram.h"
 #include "ingress.h"
 #include "ppm_queue.h"
@@ -17,8 +18,10 @@
 #include "rpc_mapper.h"
 #include "rpc_message.h"
 #include "rpc_queue.h"
+#include "snapshot.hpp"
 #include "stats.h"
 #include <unordered_map>
+#include <vector>
 
 class AddConnectionException : public std::runtime_error {
     public:
@@ -38,22 +41,49 @@ class ConnectionNotUPException: public std::runtime_error {
         std::unique_ptr<HTTPConnection>& conn;
 };
 
-class PPMState  {
+class SharedState  {
     public:
-        PPMState();
+        SharedState(std::vector<std::string>, std::vector<std::string>);
     
     public:
+        /*Ingress-side metrics*/
         // hosted services and their sent credits
-        std::unordered_map<std::string, uint32_t, TransparentHash, TransparentEqual> sent_credits;
-        std::unordered_map<std::string, uint32_t, TransparentHash, TransparentEqual> per_method_resp_in;
-        std::unordered_map<std::string, uint32_t> downstream_conccurency;
+        FastMap<uint32_t> sent_credits;
+        // per-method ingress responses in to the sidecar (from the local app)
+        FastMap<uint32_t> per_method_resp_in;
+        // ingress requests admitted to the sidecar
+        FastMap<uint32_t> ingress_admitted;
+
+        /*Egress-side metrics*/
+        // downstream services and their concurrency
+        FastMap<int64_t> downstream_concurrency;
+        // Only if config.is_ingress is true, number of transmitted requests by ppm client
+        FastMap<uint32_t> ingress_transmitted;
+};
+
+class LocalState {
+    public:
+        LocalState(std::vector<std::string>, std::vector<std::string>);
+    
+    public:
+        /*Ingress-side metrics*/
+        // Local concurrency limit for each service
+        LocalMap<uint32_t> local_concurrency_limit;
+        // per-API limit
+        LocalMap<uint32_t> per_api_limit;
+
+        /*Egress-side metrics*/
         // downstream services and their denied requests
-        std::unordered_map<std::string, uint32_t, TransparentHash, TransparentEqual> denied_reqs;
-        std::unordered_map<std::string, uint32_t, TransparentHash, TransparentEqual> ingress_admitted;
-        std::unordered_map<std::string, uint32_t> ingress_transmitted;
+        LocalMap<uint32_t> denied_reqs;
+        // True for downstream services if we have received a response form them or
+        // there is a new request in the PPM queue for that service
         std::unordered_map<std::string, bool> ppm_client_dn_send;
-        std::unordered_map<std::string, uint32_t> new_ppm_queue_reqs;
-        std::unordered_map<std::string, uint32_t> local_concurrency_limit;
+        // Number of new requests in the PPM queue for each service
+        LocalMap<uint32_t> new_ppm_queue_reqs;
+        // Number of received responses for each service
+        LocalMap<uint32_t> egress_resp_in;
+        // number of drops (updated if only config.is_ingress is true)
+        uint32_t drops;
 };
 
 class UpstreamRouteMapper{
@@ -70,7 +100,7 @@ class State {
 
     public:
         State(Config, RingWrapper&, BufferManager&, RPCMapper&, RPCQueue&,
-            std::unordered_map<ConnectionType, Listener>&, Ingress&);
+            std::unordered_map<ConnectionType, Listener>&, Ingress&, SharedState&, std::string&);
         void forward(ConnectionType, ConnectionDirection);
         void remove_connection(HTTPConnection&);
 
@@ -112,7 +142,9 @@ class State {
 
     
     public:
-        Stats stats;
-        PPMState ppm_state;
-
+        SharedState& shared_state;
+        LocalState local_state;
+        Utilization utilization;
+        Snapshot snapshot;
+        std::string& ingress_service;
 };

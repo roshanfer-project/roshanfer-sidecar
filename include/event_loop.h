@@ -10,15 +10,18 @@
 #include <config.h>
 #include <listener.h>
 #include <state.h>
+#include <string>
 #include <unordered_map>
 
 class EventLoop {
 
 public:
-    EventLoop(Config);
+    EventLoop(int, std::string&, Config, SharedState&);
     void run();
 
 public:
+    int index;
+    std::string& ingress_service;
     Config config;
     RingWrapper ring;
     BufferManager buffer_manager;

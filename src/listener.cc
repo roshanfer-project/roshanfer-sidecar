@@ -31,6 +31,11 @@ Listener::Listener(uint16_t lis_port, ConnectionType lis_type)
             LOG(FATAL) << "setsockopt(SO_REUSEADDR) failed";
     }
     
+    // set SO_REUSEPORT to allow multiple threads to bind to the same port
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &enable, sizeof(enable)) < 0) {
+        LOG(FATAL) << "setsockopt(SO_REUSEPORT) failed";
+    }
+    
     if (bind(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
         LOG(FATAL) << "Failed to bind socket: " << port;
     }

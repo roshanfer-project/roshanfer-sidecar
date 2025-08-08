@@ -4,6 +4,7 @@
 #include "config.h"
 #include "connection.h"
 #include "connection_enums.h"
+#include "fast_map.hpp"
 #include "glog/logging.h"
 #include "hdr/hdr_histogram.h"
 #include "ppm_queue.h"
@@ -11,8 +12,11 @@
 #include "rpc_mapper.h"
 #include "rpc_message.h"
 #include "rpc_queue.h"
+#include "snapshot.hpp"
+#include "stats.h"
 #include <algorithm>
 #include <arpa/inet.h>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -49,9 +53,31 @@ ConnectionPool& UpstreamRouteMapper::get_pool(const std::string& service) {
     }
 }
 
+LocalState create_local_state(const Config& local_config) {
+    std::vector<std::string> hosted_services;
+    for (const auto& mapping : local_config.mapping) {
+        hosted_services.push_back(mapping.first);
+    }
+
+    std::vector<std::string> downstream_services;
+    for (const auto& [route, _] : local_config.routing) {
+        downstream_services.push_back(route);
+    }
+
+    return LocalState(hosted_services, downstream_services);
+}
+
+Utilization create_utilization(const Config& local_config) {
+    std::vector<std::string> hosted_services;
+    for (const auto& mapping : local_config.mapping) {
+        hosted_services.push_back(mapping.first);
+    }
+    return Utilization(1000, hosted_services);
+}
+
 State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_manager_ref,
     RPCMapper& mapper_ref, RPCQueue& queue_ref, std::unordered_map<ConnectionType,
-    Listener>& listeners_ref, Ingress& ingress_ref)
+    Listener>& listeners_ref, Ingress& ingress_ref, SharedState& shared_state_ref, std::string& ingress_service_ref)
 :   config(parsed_config),
     ingress_pool(ConnectionType::INGRESS),
     upstream_route_mapper(),
@@ -62,23 +88,26 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
     listeners(listeners_ref),
     ppm_queue(config.routing),
     ingress(ingress_ref),
-    stats(config.routing),
-    ppm_state()
+    shared_state(shared_state_ref),
+    local_state(create_local_state(parsed_config)),
+    utilization(create_utilization(parsed_config)),
+    snapshot(Snapshot(4000, [this]() { this->dump_entire_state(); })),
+    ingress_service(ingress_service_ref)
 {
 
     if (config.buffer_size > HTTP1Connection_BUF_SIZE) {
         LOG(FATAL) << "Buffer size cannot be larger than " << HTTP1Connection_BUF_SIZE;
     }
 
-    for (const auto& route : config.routing) {
-        upstream_route_mapper.add_route(route.service);
-        auto& pool = upstream_route_mapper.get_pool(route.service);
-        int n_conn = config.is_ingress ? 30 : 1;
+    for (const auto& [route, info] : config.routing) {
+        upstream_route_mapper.add_route(route);
+        auto& pool = upstream_route_mapper.get_pool(route);
+        int n_conn = config.is_ingress ? 70 : 1;
         auto http_type = config.is_ingress ? HTTP::HTTP1 : HTTP::HTTP2;
         for (int i = 0; i < n_conn; i++) {
             auto& conn = pool.add_connection(
-                route.upstream.host,
-                route.upstream.port,
+                info.upstream.host,
+                info.upstream.port,
                 &rpc_mapper,
                 &rpc_queue,
                 http_type,
@@ -88,23 +117,10 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
             // prepare connect
             ring.prepare_connect(conn, buffer_manager.get_user_data());
         }
-
-        ppm_state.downstream_conccurency.emplace(route.service, 0);
-        ppm_state.denied_reqs.emplace(route.service, 0);
-        ppm_state.ingress_transmitted.emplace(route.service, 0);
-        ppm_state.ppm_client_dn_send.emplace(route.service, false);
-        ppm_state.new_ppm_queue_reqs.emplace(route.service, 0);
     }
 
-    for (const auto& mapping : config.mapping) {
-        ppm_state.per_method_resp_in.emplace(mapping.first, 0);
-        ppm_state.sent_credits.emplace(mapping.first, 0);
-        ppm_state.ingress_admitted.emplace(mapping.first, 0);
-        if (mapping.second.min_max_concurrency.has_value()) {
-            ppm_state.local_concurrency_limit.emplace(mapping.first, config.ppm_limit + mapping.second.min_max_concurrency.value());
-        } else {
-            ppm_state.local_concurrency_limit.emplace(mapping.first, config.ppm_limit);
-        }
+    for (const auto& [service, info] : config.mapping) {
+        local_state.local_concurrency_limit.set(service, (uint32_t)config.ppm_limit);
     }
 
     /* 
@@ -314,12 +330,13 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
             VLOG(1) << rpc->get_service() << " ---> LOCAL";
 
             if (!config.is_ingress) {
-                ppm_state.ingress_admitted.at(rpc->get_service())++;
-                uint32_t in_local = ppm_state.ingress_admitted.at(rpc->get_service())-ppm_state.per_method_resp_in.at(rpc->get_service());
-                if (in_local > ppm_state.local_concurrency_limit.at(rpc->get_service())) {
+                shared_state.ingress_admitted.add(rpc->get_service(), 1);
+                uint32_t in_local = shared_state.ingress_admitted.get(rpc->get_service()) - shared_state.per_method_resp_in.get(rpc->get_service());
+                utilization.update(in_local, rpc->get_service());
+                if (in_local > local_state.local_concurrency_limit.get(rpc->get_service())) {
                     dump_entire_state();
                     LOG(FATAL) << in_local << " ingress requests in system for service: " << rpc->get_service()
-                               << ", which is more than the configured limit: " << ppm_state.local_concurrency_limit.at(rpc->get_service());
+                               << ", which is more than the configured limit: " << local_state.local_concurrency_limit.get(rpc->get_service());
                 }
             }
         }
@@ -337,18 +354,18 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
             int32_t ds_stream_id = rpc->get_ds_stream_id();
             int ds_fd = rpc->get_ds_fd();
             try {
-                std::unique_ptr<HTTPConnection>& conn = listeners.at(type).get_connections().at(rpc->get_ds_fd());
+                std::unique_ptr<HTTPConnection>& conn = listeners.at(type).get_connection(rpc->get_ds_fd());
 
                 // update stats
                 if (!rpc->is_drop()) {
-                    stats.sidecar_resp_in.at(type)++;
                     if (type == ConnectionType::EGRESS) {
-                        stats.new_response_in.at(rpc->get_service()) = true;
-                        ppm_state.ppm_client_dn_send.at(rpc->get_service()) = true;
-                        stats.egress_resp_in.at(rpc->get_service())++;
-                        ppm_state.downstream_conccurency.at(rpc->get_service())--;
+                        local_state.ppm_client_dn_send.at(rpc->get_service()) = true;
+                        local_state.egress_resp_in.add(rpc->get_service(), 1);
+                        shared_state.downstream_concurrency.add(rpc->get_service(), -1);
                     } else if (type == ConnectionType::INGRESS) {
-                        ppm_state.per_method_resp_in.at(rpc->get_service())++;
+                        shared_state.per_method_resp_in.add(rpc->get_service(), 1);
+                        uint32_t in_local = shared_state.ingress_admitted.get(rpc->get_service()) - shared_state.per_method_resp_in.get(rpc->get_service());
+                        utilization.update(in_local, rpc->get_service());
                     }
 
                     if (VLOG_IS_ON(1)) {
@@ -360,7 +377,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                     }
 
                 } else {
-                    stats.drops++;
+                    local_state.drops++;
                 }
 
                 // submit the response
@@ -379,6 +396,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                 
                 
             } catch (const std::out_of_range& e) {
+                dump_entire_state();
                 LOG(FATAL) << "No connection found for fd: " << ds_fd;
             } catch (const std::exception& e) {
                 LOG(FATAL) << "Error in routing response: " << e.what()
@@ -414,16 +432,12 @@ std::tuple<const std::string&, bool, size_t> State::valid_credit(const char* dat
     auto key = extract_service_from_ppm_req(data);
 
     // add the difference between requested credits and available credits to the denied requests
-    auto it = ppm_state.denied_reqs.find(key);
-    if (it == ppm_state.denied_reqs.end()) {
-        LOG(FATAL) << "Key not found in denied requests: " << key;
-    }
     int credit_diff = (int)(data[3] - data[4]);
     if (credit_diff > 0) {
-        it->second += (uint8_t)credit_diff;
+        local_state.denied_reqs.add(key, (uint32_t)credit_diff);
         VLOG(1) << "PPMClient: Credit denied for service " << key
                 << " with " << credit_diff << " additional credits"
-                << ", total denied requests: " << it->second;
+                << ", total denied requests: " << local_state.denied_reqs.get(key);
     } else if (credit_diff < 0) {
         LOG(FATAL) << "Received more credits than requested: " << (int)data[3] << " vs " << (int)data[4];
     }
@@ -431,7 +445,7 @@ std::tuple<const std::string&, bool, size_t> State::valid_credit(const char* dat
     if (data[4] >= 1) {
         return {ppm_queue.check(key), true, data[4]};
     } else {
-        return {it->first, false, 0};
+        return {local_state.denied_reqs.get_key(key), false, 0};
     }
 }
 
@@ -461,8 +475,8 @@ void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
                 upstream_route_mapper.get_pool(service).get_connection(rpc->get_us_fd()).get(),
                 rpc
             );
-            ppm_state.downstream_conccurency.at(service)++;
-            ppm_state.ingress_transmitted.at(service)++;
+            shared_state.downstream_concurrency.add(service, 1);
+            shared_state.ingress_transmitted.add(service, 1);
             VLOG(1) << "PPMClient: Forwarded request for service: " << service;
         }
     } else {
@@ -482,30 +496,40 @@ void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
                 ds_fd
             );
             ppm_queue.enqueue(rpc);
-
-            // new request, we need to send a demand notification
-            ppm_state.ppm_client_dn_send.at(rpc->get_service()) = true;
-            ppm_state.new_ppm_queue_reqs.at(rpc->get_service())++;
-            VLOG(1) << "LOCAL ---> " << rpc->get_service();
+            send_dn(
+                    upstream_route_mapper.get_pool(rpc->get_service()).get_connection(ppm_queue.get_fd(rpc->get_service())).get(),
+                    rpc->get_service(),
+                    1
+            );
+            VLOG(1) << "PPMClient: DN for new request. "
+                    << ", service: " << rpc->get_service()
+                    << ", credits: " << 1
+                    << ", queue size: " << ppm_queue.size(rpc->get_service());
         }
 
-        for (auto& [service, send] : ppm_state.ppm_client_dn_send) {
+        for (auto& [service, send] : local_state.ppm_client_dn_send) {
             if (send) {
                 if (ppm_queue.size(service) == 0) {
                     send = false;
                     continue;
                 }
-                auto requested_credits = ppm_state.new_ppm_queue_reqs.at(service)+ppm_state.denied_reqs.at(service);
+                auto num_denied = local_state.denied_reqs.get(service);
+                if (num_denied == 0) {
+                    send = false;
+                    continue;
+                }
+                size_t requested_credits = 1;
                 send_dn(
                     upstream_route_mapper.get_pool(service).get_connection(ppm_queue.get_fd(service)).get(),
                     service,
                     requested_credits
                 );
-                ppm_state.new_ppm_queue_reqs.at(service) = 0;
-                ppm_state.denied_reqs.at(service) = 0;
+                local_state.denied_reqs.set(service, num_denied-1);
                 send = false; // reset the flag
-                VLOG(1) << "PPMClient: Sent demand notification for service: " << service
-                        << " for " << requested_credits << " credits";
+                VLOG(1) << "PPMClient: Sent DN after new response for service: " << service
+                        << ", credits: " << requested_credits
+                        << ", denied requests: " << num_denied-1
+                        << ", queue size: " << ppm_queue.size(service);
             }
         }
     }  
@@ -530,46 +554,45 @@ void State::send_dn(HTTPConnection* conn, const std::string& service, size_t num
 void State::dump_entire_state() {
     LOG(INFO) << "Dumping entire state:";
     LOG(INFO) << "PPM State:";
-    LOG(INFO) << "--- PPM State: Sent Credits (ppm_state.sent_credits) ---";
-    for (const auto& [service, credits] : ppm_state.sent_credits) {
-        LOG(INFO) << "  " << service << ": " << credits;
+    LOG(INFO) << "--- Sent Credits (shared_state.sent_credits) ---";
+    for (auto& service : shared_state.sent_credits.get_all_keys()) {
+        LOG(INFO) << "  " << service << ": " << shared_state.sent_credits.get(service);
     }
-    LOG(INFO) << "--- PPM State: (Upstream) Per Method Responses In (ppm_state.per_method_resp_in) ---";
-    for (const auto& [service, resp_in] : ppm_state.per_method_resp_in) {
-        LOG(INFO) << "  " << service << ": " << resp_in;
+    LOG(INFO) << "--- (Upstream) Per Method Responses In (shared_state.per_method_resp_in) ---";
+    for (auto& service : shared_state.per_method_resp_in.get_all_keys()) {
+        LOG(INFO) << "  " << service << ": " << shared_state.per_method_resp_in.get(service);
     }
-    LOG(INFO) << "--- PPM State: Denied Requests (ppm_state.denied_reqs) ---";
-    for (const auto& [service, denied_reqs] : ppm_state.denied_reqs) {
-        LOG(INFO) << "  " << service << ": " << denied_reqs;
+    LOG(INFO) << "--- Denied Requests (local_state.denied_reqs) ---";
+    for (auto& service : local_state.denied_reqs.get_all_keys()) {
+        LOG(INFO) << "  " << service << ": " << local_state.denied_reqs.get(service);
     }
-    LOG(INFO) << "--- PPM State: Ingress Admitted (ppm_state.ingress_admitted) ---";
-    for (const auto& [service, admitted] : ppm_state.ingress_admitted) {
-        LOG(INFO) << "  " << service << ": " << admitted;
+    LOG(INFO) << "--- Ingress Admitted (shared_state.ingress_admitted) ---";
+    for (auto& service : shared_state.ingress_admitted.get_all_keys()) {
+        LOG(INFO) << "  " << service << ": " << shared_state.ingress_admitted.get(service);
     }
-    LOG(INFO) << "--- PPM State: Ingress Transmitted (ppm_state.ingress_transmitted) ---";
-    for (const auto& [service, transmitted] : ppm_state.ingress_transmitted) {
-        LOG(INFO) << "  " << service << ": " << transmitted;
+    LOG(INFO) << "--- Ingress Transmitted (shared_state.ingress_transmitted) ---";
+    for (auto& service : shared_state.ingress_transmitted.get_all_keys()) {
+        LOG(INFO) << "  " << service << ": " << shared_state.ingress_transmitted.get(service);
     }
-    LOG(INFO) << "--- PPM State: Downstream Concurrency (ppm_state.downstream_conccurency) ---";
-    for (const auto& [service, concurrency] : ppm_state.downstream_conccurency) {
-        LOG(INFO) << "  " << service << ": " << concurrency;
+    LOG(INFO) << "--- Downstream Concurrency (shared_state.downstream_concurrency) ---";
+    for (auto& service : shared_state.downstream_concurrency.get_all_keys()) {
+        LOG(INFO) << "  " << service << ": " << shared_state.downstream_concurrency.get(service);
     }
-    LOG(INFO) << "--- PPM State: PPM Client DN Send (ppm_state.ppm_client_dn_send) ---";
-    for (const auto& [service, send] : ppm_state.ppm_client_dn_send) {
+    LOG(INFO) << "--- PPM Client DN Send (local_state.ppm_client_dn_send) ---";
+    for (const auto& [service, send] : local_state.ppm_client_dn_send) {
         LOG(INFO) << "  " << service << ": " << (send ? "true" : "false");
     }
-    LOG(INFO) << "--- PPM State: New PPM Queue Reqs (ppm_state.new_ppm_queue_reqs) ---";
-    for (const auto& [service, reqs] : ppm_state.new_ppm_queue_reqs) {
-        LOG(INFO) << "  " << service << ": " << reqs;
+    LOG(INFO) << "--- New PPM Queue Reqs (local_state.new_ppm_queue_reqs) ---";
+    for (auto& service : local_state.new_ppm_queue_reqs.get_all_keys()) {
+        LOG(INFO) << "  " << service << ": " << local_state.new_ppm_queue_reqs.get(service);
     }
-
     LOG(INFO) << "--- Ingress Queue Sizes (ingress) ---";
-    for (const auto& route : config.routing) {
-        LOG(INFO) << "  " << route.service << ": " << ingress.size(route.service);
+    for (const auto& [route, _] : config.routing) {
+        LOG(INFO) << "  " << route << ": " << ingress.size(route);
     }
     LOG(INFO) << "--- PPM Queue Sizes (ppm_queue) ---";
-    for (const auto& route : config.routing) {
-        LOG(INFO) << "  " << route.service << ": " << ppm_queue.size(route.service);
+    for (const auto& [route, _] : config.routing) {
+        LOG(INFO) << "  " << route << ": " << ppm_queue.size(route);
     }
     LOG(INFO) << "--- RPC Queue Sizes (rpc_queue) ---";
     for (const auto& type : {ConnectionType::INGRESS, ConnectionType::EGRESS}) {
@@ -578,55 +601,50 @@ void State::dump_entire_state() {
                       << ": " << rpc_queue.size(type, direction);
         }
     }
-    LOG(INFO) << "--- Stats ---";
-    LOG(INFO) << "  Drops (stats.drops): " << stats.drops;
-    LOG(INFO) << "  Sidecar Responses In (stats.sidecar_resp_in):";
-    for (const auto& [type, count] : stats.sidecar_resp_in) {
-        LOG(INFO) << "    " << type_to_str(type) << ": " << count;
-    }
-    LOG(INFO) << "  New Responses In (stats.new_response_in):";
-    for (const auto& [service, count] : stats.new_response_in) {
-        LOG(INFO) << "    " << service << ": " << (count ? "true" : "false");
-    }
-    LOG(INFO) << "  Egress Responses In (stats.egress_resp_in):";
-    for (const auto& [service, count] : stats.egress_resp_in) {
-        LOG(INFO) << "    " << service << ": " << count;
+    LOG(INFO) << "---  Drops (local_state.drops) ---" << local_state.drops;
+    LOG(INFO) << "---  Egress Responses In (local_state.egress_resp_in) ---";
+    for (auto& service : local_state.egress_resp_in.get_all_keys()) {
+        LOG(INFO) << "  " << service << ": " << local_state.egress_resp_in.get(service);
     }
 }
 
 void State::ingress_admit() {
     // update ingress's p95 estimate
-    if (std::chrono::steady_clock::now() >= next_hist_update) {
-        ingress.update_p95(hdr_value_at_percentile(hist, 95.0));
+    if (std::chrono::steady_clock::now() >= next_hist_update && hist->total_count >= 500) {
+        ingress.update_stats(
+                (int32_t)hdr_value_at_percentile(hist, 50.0),
+                (int32_t)hdr_value_at_percentile(hist, 95.0),
+                ingress_service
+        );
         hdr_reset(hist);
-        next_hist_update = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+        next_hist_update = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
     }
 
-    // For every method, if the limits allow it, then admit the request
+    // check if we have any ingress requests for the service
     bool admit = false;
-    for (const auto &routing_entry : config.routing) {
-        while (ingress.size(routing_entry.service) > 0) {
-            if ((unsigned int)routing_entry.limit.value() >
-                (ppm_state.ingress_admitted.at(routing_entry.service)
-                - ppm_state.ingress_transmitted.at(routing_entry.service))) {
-                admit = true;
-                ppm_state.ingress_admitted.at(routing_entry.service)++;
-                auto rpc = ingress.dequeue(routing_entry.service);
-                rpc_queue.enqueue(
-                    ConnectionType::EGRESS,
-                    ConnectionDirection::DOWNSTREAM,
-                    rpc->get_ds_fd(),
-                    rpc->get_ds_stream_id()
-                );
-                VLOG(1) << "Admitting an ingress request for service " << routing_entry.service;
-            } else {
-                VLOG(1) << "Not admitting ingress request for service "
-                        << routing_entry.service << " due to limit: " << routing_entry.limit.value()
-                        << ", admitted: " << ppm_state.ingress_admitted.at(routing_entry.service)
-                        << ", transmitted: " << ppm_state.ingress_transmitted.at(routing_entry.service)
-                        << ", queue size: " << ingress.size(routing_entry.service);
-                break;
-            }
+    uint32_t in_system = shared_state.ingress_admitted.get(ingress_service)
+                        - local_state.egress_resp_in.get(ingress_service);
+    uint32_t limit = (uint32_t)config.routing.at(ingress_service).ingress_limit.value();
+    while (ingress.size(ingress_service) > 0) {
+        if (limit > in_system) {
+            admit = true;
+            shared_state.ingress_admitted.add(ingress_service, 1);
+            auto rpc = ingress.dequeue(ingress_service);
+            rpc_queue.enqueue(
+                ConnectionType::EGRESS,
+                ConnectionDirection::DOWNSTREAM,
+                rpc->get_ds_fd(),
+                rpc->get_ds_stream_id()
+            );
+            VLOG(1) << "Admitted an ingress request for service " << ingress_service
+                    << ", in system: " << in_system+1;
+        } else {
+            VLOG(1) << "Not admitted ingress request for service "
+                    << ingress_service << " due to limit: " << limit
+                    << ", admitted: " << shared_state.ingress_admitted.get(ingress_service)
+                    << ", in system: " << in_system
+                    << ", queue size: " << ingress.size(ingress_service);
+            break;
         }
     }
 
@@ -635,7 +653,7 @@ void State::ingress_admit() {
     }
 
     // check for any potential dropping
-    if (ingress.check_drop(rpc_queue, rpc_mapper)) {
+    if (ingress.check_drop(rpc_queue, rpc_mapper, ingress_service, limit)) {
         forward(ConnectionType::EGRESS, ConnectionDirection::UPSTREAM);
     }
     
@@ -664,61 +682,40 @@ void State::queue_multiplexer(Buffer* req, Buffer* resp) {
         std::string_view service = extract_service_from_ppm_req(req->data.data());
 
         // produce the response
-        auto s_credits = ppm_state.sent_credits.find(service);
-        if (s_credits == ppm_state.sent_credits.end()) {
-            LOG(FATAL) << "Service not found in sent_credits: " << service;
-            //ppm_state.sent_credits.emplace(service, 0);
-        }
-
-        auto p_resp_in = ppm_state.per_method_resp_in.find(service);
-        if (p_resp_in == ppm_state.per_method_resp_in.end()) {
-            LOG(FATAL) << "Service not found in per_method_resp_in: " << service;
-        }
-
-        uint32_t c = 0;
-        auto c_it = config.mapping.find(service);
-        if (c_it != config.mapping.end()) {
-            if (c_it->second.downstreams.size() >= 1) {
-                c = ppm_state.downstream_conccurency.at(c_it->second.downstreams.at(0));
-                if (c_it->second.downstreams.size() > 1) {
-                    // take the max dynamic concurrency
-                    for (auto ds : c_it->second.downstreams) {
-                        c = std::max(c, ppm_state.downstream_conccurency.at(ds));
-                    }
-
-                    // now apply the min_max_concurrency check
-                    c = std::min(c, (uint32_t)c_it->second.min_max_concurrency.value());
-                }
-            }
-        }
-
-        int available_credits = (config.ppm_limit + (int)p_resp_in->second + (int)c) - (int)s_credits->second;
+        auto s_credits = shared_state.sent_credits.get(service);
+        auto p_resp_in = shared_state.per_method_resp_in.get(service);
+        //int available_credits = (config.ppm_limit + (int)p_resp_in + (int)c) - (int)s_credits;
+        int available_credits = ((int)local_state.per_api_limit.get(service) + (int)p_resp_in) - (int)s_credits;
         if (available_credits < 0) {
             available_credits = 0;
         }
         uint8_t result = 0;
-        if (available_credits >= (int)requested_credits) {
-            result = (uint8_t)requested_credits;
-        } else {
-            result = (uint8_t)available_credits;
+        uint32_t in_system = 0;
+        for (const auto& loop_service : shared_state.per_method_resp_in.get_all_keys()) {
+            in_system += shared_state.ingress_admitted.get(loop_service) - shared_state.per_method_resp_in.get(loop_service);
         }
-        s_credits->second += result;
+        if (in_system >= local_state.local_concurrency_limit.get(service)) {
+            result = 0;
+        } else {
+            if (available_credits >= (int)requested_credits) {
+                result = (uint8_t)requested_credits;
+            } else {
+                result = (uint8_t)available_credits;
+            }
+        }
+        
+        shared_state.sent_credits.add(service, result);
 
         // write the response
         write_dn_response(result, req, resp);
         if (VLOG_IS_ON(1)) {
-            auto it = ppm_state.ingress_admitted.find(service);
-            if (it == ppm_state.ingress_admitted.end()) {
-                LOG(FATAL) << "Service not found in ingress_admitted: " << service;
-            }
             VLOG(1) << "QM: Wrote DN response for service: " << service
                << ", result: " << (int)result
                << ", requested: " << (int)requested_credits
                 << ", available: " << available_credits
-                << ", req in sys: " << it->second-p_resp_in->second
-               << ", sent credits: " << s_credits->second
-               << ", resp out: " << p_resp_in->second
-               << ", ds concurrency: " << c;
+                << ", req in sys: " << shared_state.per_method_resp_in.get(service) - p_resp_in
+               << ", sent credits: " << shared_state.sent_credits.get(service)
+               << ", resp out: " << p_resp_in;
         }
         
     } else {
@@ -750,14 +747,26 @@ void State::udp_send(std::vector<char> msg, struct sockaddr_in* addr) {
     );
 }
 
+SharedState::SharedState(std::vector<std::string> hosted_services, std::vector<std::string> downstream_services)
+:   sent_credits(FastMap<uint32_t>(hosted_services)),
+    per_method_resp_in(FastMap<uint32_t>(hosted_services)),
+    ingress_admitted(FastMap<uint32_t>(hosted_services)),
+    downstream_concurrency(FastMap<int64_t>(downstream_services)),
+    ingress_transmitted(FastMap<uint32_t>(downstream_services))
+{}
 
-PPMState::PPMState()
-:   sent_credits(std::unordered_map<std::string, uint32_t, TransparentHash, TransparentEqual>()),
-    per_method_resp_in(std::unordered_map<std::string, uint32_t, TransparentHash, TransparentEqual>()),
-    downstream_conccurency(std::unordered_map<std::string, uint32_t>()),
-    denied_reqs(std::unordered_map<std::string, uint32_t, TransparentHash, TransparentEqual>()),
-    ingress_admitted(std::unordered_map<std::string, uint32_t, TransparentHash, TransparentEqual>()),
-    ingress_transmitted(std::unordered_map<std::string, uint32_t>()),
-    ppm_client_dn_send(std::unordered_map<std::string, bool>()),
-    new_ppm_queue_reqs(std::unordered_map<std::string, uint32_t>()),
-    local_concurrency_limit(std::unordered_map<std::string, uint32_t>()) {}
+LocalState::LocalState(std::vector<std::string> hosted_services, std::vector<std::string> downstream_services)
+:   local_concurrency_limit(LocalMap<uint32_t>(hosted_services)),
+    per_api_limit(LocalMap<uint32_t>(hosted_services)),
+    denied_reqs(LocalMap<uint32_t>(downstream_services)),
+    ppm_client_dn_send(std::unordered_map<std::string, bool>(downstream_services.size())),
+    new_ppm_queue_reqs(LocalMap<uint32_t>(downstream_services)),
+    egress_resp_in(LocalMap<uint32_t>(downstream_services)),
+    drops(0) {
+        for (const auto& service : downstream_services) {
+            ppm_client_dn_send.emplace(service, false);
+        }
+        for (const auto& [service, info] : config.mapping) {
+            per_api_limit.add(service, (uint32_t)info.limit);
+        }
+    }

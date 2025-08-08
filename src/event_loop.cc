@@ -6,6 +6,7 @@
 #include "buffer.h"
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <event_loop.h>
@@ -15,6 +16,8 @@
 #include <iostream>
 #include <memory>
 #include <glog/logging.h>
+#include <string>
+#include <strings.h>
 
 
 
@@ -78,7 +81,7 @@ void EventLoop::run() {
                         state.get_histogram()
                     );
 
-                    VLOG(1) << "Accepted connection on " << listener->type_to_str() << " listener"
+                    VLOG(1) << "Index:" << index << " accepted connection on " << listener->type_to_str() << " listener"
                             << " fd: " << listener->get_fd();
                     VLOG(1) << "New connection on fd: " << conn.get_fd();
 
@@ -365,27 +368,35 @@ void EventLoop::run() {
 
             // Advance the ring
             ring.seen_cqe(cqe);
-
-            // submit pending SQEs
-            ring.submit();
         }
     }
 };
 
-EventLoop::EventLoop(Config parsed_config)
-:   config(parsed_config),
+EventLoop::EventLoop(int th_index, std::string& ingress_service_ref, Config parsed_config, SharedState& shared_state)
+:   index(th_index),
+    ingress_service(ingress_service_ref),
+    config(parsed_config),
     ring(config.ring_size),
     buffer_manager(config.buffer_count, config.buffer_size),
     listeners(),
     udp_listener(config.ingress_listener_port),
     rpc_mapper(),
     rpc_queue(),
-    ingress(config.routing),
-    state(config, ring, buffer_manager, rpc_mapper, rpc_queue, listeners, ingress)
-    {
+    ingress(config.routing, th_index),
+    state(config, ring, buffer_manager, rpc_mapper, rpc_queue, listeners, ingress, shared_state, ingress_service_ref)
+    {   
+        uint16_t egress_port;
+        if (config.is_ingress) {
+            egress_port = config.mapping.at(ingress_service_ref).listen_port.value_or(0);
+            if (egress_port == 0) {
+                LOG(FATAL) << "Egress port is not set for ingress service: " << ingress_service_ref;
+            }
+        } else {
+            egress_port = config.egress_listener_port;
+        }
         listeners.emplace(
             ConnectionType::EGRESS,
-            Listener(config.egress_listener_port, ConnectionType::EGRESS)
+            Listener(egress_port, ConnectionType::EGRESS)
         );
 
         listeners.emplace(

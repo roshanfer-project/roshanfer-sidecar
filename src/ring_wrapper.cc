@@ -15,7 +15,8 @@
 RingWrapper::RingWrapper(size_t ring_size)
 : size(ring_size) {
     // Initialize the ring
-    int ret = io_uring_queue_init((uint32_t)size, &ring, IORING_SETUP_SQPOLL|IORING_SETUP_SINGLE_ISSUER);
+    uint32_t flags = IORING_SETUP_SINGLE_ISSUER;
+    int ret = io_uring_queue_init((uint32_t)size, &ring, flags);
     if (ret < 0) {
         throw std::runtime_error("Failed to initialize ring");
     }

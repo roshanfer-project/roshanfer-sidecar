@@ -22,6 +22,7 @@ Config load_config(const std::string &filename) {
     local_config.ring_size            = node["ring_size"].as<size_t>();
     local_config.buffer_count         = node["buffer_count"].as<size_t>();
     local_config.buffer_size          = node["buffer_size"].as<size_t>();
+    local_config.num_threads          = node["num_threads"].as<int>();
     local_config.egress_listener_port = node["egress_listener_port"].as<uint16_t>();
     local_config.ingress_listener_port= node["ingress_listener_port"].as<uint16_t>();
     local_config.ingress_upstream_host= node["ingress_upstream_host"].as<std::string>();
@@ -57,34 +58,46 @@ Config load_config(const std::string &filename) {
 
     // Parse the routing section
     if (node["routing"]) {
-        if (node["routing"].IsSequence()) {
+        if (node["routing"].IsMap()) {
             for (const auto& route_node : node["routing"]) {
+                std::string service = route_node.first.as<std::string>();
                 RoutingEntry entry;
-                if (route_node["service"] && route_node["upstream"]) {
-                    entry.service = route_node["service"].as<std::string>();
-                    const auto& upstream_node = route_node["upstream"];
+                
+                const auto& route_config = route_node.second;
+                if (route_config["upstream"]) {
+                    const auto& upstream_node = route_config["upstream"];
                     if (upstream_node["host"] && upstream_node["port"]) {
                         entry.upstream.host = upstream_node["host"].as<std::string>();
                         entry.upstream.port = upstream_node["port"].as<int>();
 
                         if (local_config.name == "ingress") {
-                            if (route_node["limit"]) {
-                                entry.limit = route_node["limit"].as<int>();
+                            if (route_config["limit"]) {
+                                entry.ingress_limit = route_config["limit"].as<int>();
                             } else {
-                                LOG(FATAL) << "Missing limit for service " << entry.service << " in ingress config";
+                                LOG(FATAL) << "Missing limit for service " << service << " in ingress config";
                             }
+                        } else if (route_config["limit"]) {
+                            entry.ingress_limit = route_config["limit"].as<int>();
                         }
 
-                        local_config.routing.push_back(entry);
+                        if (route_config["slo"]) {
+                            entry.slo = route_config["slo"].as<int>();
+                        }
+
+                        local_config.routing[service] = entry;
+                        LOG(INFO) << "Routing entry: service=" << service 
+                                  << " upstream=" << entry.upstream.host << ":" << entry.upstream.port
+                                  << " ingress_limit=" << (entry.ingress_limit.has_value() ? std::to_string(entry.ingress_limit.value()) : "not set")
+                                  << " slo=" << (entry.slo.has_value() ? std::to_string(entry.slo.value()) : "not set");
                     } else {
-                        LOG(FATAL) << "Skipping routing entry: Missing host or port in upstream section for service " << entry.service;
+                        LOG(FATAL) << "Skipping routing entry: Missing host or port in upstream section for service " << service;
                     }
                 } else {
-                    LOG(FATAL) << "Skipping routing entry: Missing service or upstream section.";
+                    LOG(FATAL) << "Skipping routing entry: Missing upstream section for service " << service;
                 }
-        }
+            }
         } else {
-            LOG(FATAL) << "Routing section not a sequence in " << config_path;
+            LOG(FATAL) << "Routing section is not a map in " << config_path;
         }
     } else {
         LOG(WARNING) << "Routing section not found (optional)";
@@ -110,6 +123,16 @@ Config load_config(const std::string &filename) {
                 if (mapping_node.second["min_max_concurrency"]) {
                     mapping_info.min_max_concurrency = mapping_node.second["min_max_concurrency"].as<int>();
                 }
+
+                if (mapping_node.second["limit"]) {
+                    mapping_info.limit = mapping_node.second["limit"].as<int>();
+                } else {
+                    LOG(FATAL) << "Missing mandatory limit for upstream '" << upstream << "' in mapping section";
+                }
+
+                if (mapping_node.second["listen_port"]) {
+                    mapping_info.listen_port = mapping_node.second["listen_port"].as<uint16_t>();
+                }
                 
                 local_config.mapping[upstream] = mapping_info;
             }
@@ -120,11 +143,21 @@ Config load_config(const std::string &filename) {
         LOG(INFO) << "Mapping section not found (optional)";
     }
 
+    if (config.is_ingress && (local_config.num_threads != (int)local_config.mapping.size())) {
+        LOG(FATAL) << "Number of threads (" << local_config.num_threads
+                   << ") does not match the number of hosted services ("
+                   << local_config.mapping.size() << ")";
+    }
+
     // Log parsed mapping configuration
     for (const auto& pair : local_config.mapping) {
         LOG(INFO) << "Mapping: upstream=" << pair.first;
         LOG(INFO) << "  min_max_concurrency: " << (pair.second.min_max_concurrency.has_value()
                   ? std::to_string(pair.second.min_max_concurrency.value())
+                  : "not set");
+        LOG(INFO) << "  limit: " << pair.second.limit;
+        LOG(INFO) << "  listen_port: " << (pair.second.listen_port.has_value()
+                  ? std::to_string(pair.second.listen_port.value())
                   : "not set");
         for (const auto& downstream : pair.second.downstreams) {
             LOG(INFO) << "  downstream: " << downstream;

@@ -6,7 +6,7 @@
 #include <string>
 #include <string_view>
 #include <sys/socket.h>
-#include <vector>
+#include <unordered_map>
 #include "utils.h"
 
 
@@ -14,7 +14,7 @@
 
 class PPMQueue {
     public:
-        PPMQueue(std::vector<RoutingEntry>);
+        PPMQueue(std::unordered_map<std::string, RoutingEntry, TransparentHash, TransparentEqual> routing);
         void enqueue(RPCMessage*);
         RPCMessage* dequeue(const std::string&);
         // checks if the service exists and the queue is not empty

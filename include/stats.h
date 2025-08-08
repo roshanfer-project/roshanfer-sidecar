@@ -2,40 +2,47 @@
 
 //#include "NanoLog.h"
 #include "connection_enums.h"
+#include "fast_map.hpp"
 #include "hdr/hdr_histogram.h"
 #include "rpc_message.h"
-//#include <chrono>
+#include <chrono>
 #include <cstdint>
 #include <string>
-#include <unordered_map>
 #include <vector>
 #include "config.h"
 //#include "NanoLogCpp17.h"
 
 //using namespace NanoLog::LogLevels;
 
-class Stats {
+class Utilization {
     public:
-        Stats(std::vector<RoutingEntry> routing);
+        Utilization(uint32_t, std::vector<std::string>& services);
+        void update(uint32_t, std::string&);
+    
+    private:
+        void report(std::string& service);
 
-    public:
-        std::unordered_map<ConnectionType, int> sidecar_resp_in;
-        std::unordered_map<std::string, bool> new_response_in;
-        std::unordered_map<std::string, uint32_t> egress_resp_in;
-        uint32_t drops;
+    private:
+        LocalMap<double> total;
+        LocalMap<uint32_t> last_in;
+        LocalMap<uint32_t> count;
+        uint32_t period;
+        LocalMap<std::chrono::steady_clock::time_point> last_update;
+        LocalMap<std::chrono::steady_clock::time_point> last_report;
+        struct hdr_histogram* hist;
 };
 
 void inline report_latency(RPCMessage& rpc, ConnectionType type, struct hdr_histogram* hist) {
-    /* // calculate the duration
+    // calculate the duration
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - rpc.req_rcv_time);
     
     // update hist only if we are Ingress and also just for E2E Ingress requests
-    if (config.is_ingress == 1) {
-        hdr_record_value(hist, static_cast<int64_t>(duration.count()));
+    if (config.is_ingress) {
+        hdr_record_value(hist, static_cast<int64_t>(duration.count()/1000));
     }
     
-    if (!rpc.is_error()) {
+    /* if (!rpc.is_error()) {
         // template: M# <sidecar name> <metric name> <connection type> <service>:<method> <value>
         NANO_LOG(NOTICE, "M# %s E2E %s %s:%s %ld",
             config.name.c_str(), type_to_str(type).c_str(), rpc.get_service().c_str(), rpc.get_method().c_str(), duration.count());
