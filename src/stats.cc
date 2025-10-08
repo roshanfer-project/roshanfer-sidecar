@@ -16,7 +16,7 @@ Utilization::Utilization(uint32_t period_count, std::vector<std::string>& servic
             last_update.set(service, std::chrono::steady_clock::now());
             last_report.set(service, std::chrono::steady_clock::now());
         }
-        hdr_init(1, 50000, 3, &hist);
+        hdr_init(1, 50, 3, &hist);
     }
 
 void Utilization::update(uint32_t in, std::string& service) {
@@ -71,4 +71,20 @@ void Utilization::report(std::string& service) {
             << ", p70: " << p70
             << ", p90: " << p90
             << ", p100: " << p100;
+}
+
+
+MovingAverage::MovingAverage() : count(0), value(0.0) {}
+
+void MovingAverage::update(int32_t new_value) {
+    count++;
+    value += ((float)new_value - value) / (float)count;
+}
+
+float MovingAverage::get_value() {
+    return value;
+}
+
+uint32_t MovingAverage::get_count() {
+    return count;
 }
