@@ -70,6 +70,22 @@ void RingWrapper::prepare_read(Buffer* buffer, int fd, UserData* ud) {
 }
 
 void RingWrapper::submit_and_wait() {
+    unsigned sq_head = *ring.sq.khead;
+    unsigned sq_tail = *ring.sq.ktail;
+    unsigned cq_head = *ring.cq.khead;
+    unsigned cq_tail = *ring.cq.ktail;
+
+    if ((sq_tail - sq_head) > ring.sq.ring_entries) {
+        LOG(FATAL) << "SQ overflow: tail=" << sq_tail
+                  << " head=" << sq_head
+                  << " entries=" << ring.sq.ring_entries;
+    }
+    if ((cq_tail - cq_head) > ring.cq.ring_entries) {
+        LOG(FATAL) << "CQ overflow: tail=" << cq_tail
+                  << " head=" << cq_head
+                  << " entries=" << ring.cq.ring_entries;
+    }
+
     int ret = io_uring_submit_and_wait(&ring, 1);
     if (ret < 0) {
         LOG(FATAL) << "Failed to submit and wait, ret: " << ret;
