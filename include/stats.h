@@ -68,3 +68,15 @@ void inline report_latency(RPCMessage& rpc, ConnectionType type, struct hdr_hist
     
     
 }
+
+class MovingAverage {
+    public:
+        MovingAverage();
+        void update(int32_t);
+        float get_value();
+        uint32_t get_count();
+
+    private:
+        uint32_t count;
+        float value;
+};
