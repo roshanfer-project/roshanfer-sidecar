@@ -27,7 +27,7 @@ class HeaderField {
 };
 
 const size_t MAX_PAYLOAD_SIZE = 20000;
-const size_t MAX_HEADER_FIELD_NUMBER = 11;
+const size_t MAX_HEADER_FIELD_NUMBER = 12;
 
 class DataReadStruct {
     public:
