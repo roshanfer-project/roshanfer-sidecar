@@ -6,6 +6,7 @@
 #include "rpc_mapper.h"
 #include "rpc_message.h"
 #include "rpc_queue.h"
+#include "stats.h"
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -34,4 +35,7 @@ class Ingress {
         LocalMap<int32_t> p95;
         LocalMap<int32_t> p50;
         LocalMap<int32_t> slo;
+        LocalMap<MovingAverage> admission_rate;
+        LocalMap<std::chrono::time_point<std::chrono::steady_clock>> last_admission;
+        int32_t max_queue;
 };

@@ -18,6 +18,24 @@ LocalMap<int32_t> make_drop_id(const std::unordered_map<std::string, RoutingEntr
     return LocalMap<int32_t>(services);
 }
 
+LocalMap<std::chrono::time_point<std::chrono::steady_clock>> make_last_admission(const std::unordered_map<std::string,
+     RoutingEntry, TransparentHash, TransparentEqual>& routing) {
+    std::vector<std::string> services;
+    for (const auto& [route, info] : routing) {
+        services.push_back(route);
+    }
+    return LocalMap<std::chrono::time_point<std::chrono::steady_clock>>(services);
+}
+
+LocalMap<MovingAverage> make_admission_rate(const std::unordered_map<std::string,
+     RoutingEntry, TransparentHash, TransparentEqual>& routing) {
+    std::vector<std::string> services;
+    for (const auto& [route, info] : routing) {
+        services.push_back(route);
+    }
+    return LocalMap<MovingAverage>(services);
+}
+
 Ingress::Ingress(std::unordered_map<std::string, RoutingEntry, TransparentHash, TransparentEqual> routing, int index_arg) 
     :   queue(std::unordered_map<std::string, std::deque<RPCMessage*>>()),
         drop_id(make_drop_id(routing)),
@@ -25,7 +43,10 @@ Ingress::Ingress(std::unordered_map<std::string, RoutingEntry, TransparentHash, 
         drop_fd(-index_arg),
         p95(make_drop_id(routing)),
         p50(make_drop_id(routing)),
-        slo(make_drop_id(routing))
+        slo(make_drop_id(routing)),
+        admission_rate(make_admission_rate(routing)),
+        last_admission(make_last_admission(routing)),
+        max_queue(0)
     {
         for (const auto& [route, info] : routing) {
             queue.emplace(route, std::deque<RPCMessage*>());
@@ -43,6 +64,10 @@ Ingress::~Ingress() {}
 void Ingress::enqueue(RPCMessage* rpc) {
     try {
         queue.at(rpc->get_service()).push_back(rpc);
+        /* if (max_queue < (int32_t)queue.at(rpc->get_service()).size()) {
+            max_queue = (int32_t)queue.at(rpc->get_service()).size();
+            LOG(INFO) << "Max queue: " << max_queue << " for service: " << rpc->get_service();
+        } */
     } catch (const std::out_of_range&) {
         LOG(FATAL) << "Service not found in ingress queue: " << rpc->get_service();
     } catch (const std::exception& e) {
@@ -60,13 +85,24 @@ RPCMessage* Ingress::dequeue(std::string service) {
     }
     RPCMessage* rpc = queue.at(service).front();
     queue.at(service).pop_front();
+
+    // update admission rate
+    if (admission_rate.get(service).get_count() == 0) {
+        last_admission.set(service, std::chrono::steady_clock::now());
+    } else {
+        auto now = std::chrono::steady_clock::now();
+        int32_t time_diff_us = (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(now - last_admission.get(service)).count();
+        admission_rate.get(service).update(time_diff_us);
+        last_admission.set(service, now);
+    }
+
     return rpc;
 }
 
 bool Ingress::check_drop(RPCQueue& rpc_queue, RPCMapper& rpc_mapper, std::string& service, uint32_t limit) {
     int queue_size = (int)queue.at(service).size();
     if ((uint32_t)queue_size > limit ||
-        (p50.get(service) * queue_size > 2*slo.get(service))) {
+        ((int32_t)admission_rate.get(service).get_value() * queue_size > slo.get(service))) {
         HTTPMessage* drop_rpc = dynamic_cast<HTTPMessage*>(queue.at(service).back());
         queue.at(service).pop_back();
 
