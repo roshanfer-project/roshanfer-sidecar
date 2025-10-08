@@ -12,7 +12,6 @@
 #include "rpc_mapper.h"
 #include "rpc_message.h"
 #include "rpc_queue.h"
-#include "snapshot.hpp"
 #include "stats.h"
 #include <algorithm>
 #include <arpa/inet.h>
@@ -46,6 +45,10 @@ ConnectionPool& UpstreamRouteMapper::get_pool(const std::string& service) {
     if (map.find(service) == map.end()) {
         if (map.find("*") != map.end()) {
             return map.at("*");
+        }
+        // log keys
+        for (const auto& [key, _] : map) {
+            LOG(INFO) << "Available route: " << key;
         }
         LOG(FATAL) << "Service not found in routing table: " << service;
     } else {
@@ -91,7 +94,6 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
     shared_state(shared_state_ref),
     local_state(create_local_state(parsed_config)),
     utilization(create_utilization(parsed_config)),
-    snapshot(Snapshot(4000, [this]() { this->dump_entire_state(); })),
     ingress_service(ingress_service_ref)
 {
 
@@ -102,7 +104,7 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
     for (const auto& [route, info] : config.routing) {
         upstream_route_mapper.add_route(route);
         auto& pool = upstream_route_mapper.get_pool(route);
-        int n_conn = config.is_ingress ? 70 : 1;
+        int n_conn = config.is_ingress ? 100 : 1;
         auto http_type = config.is_ingress ? HTTP::HTTP1 : HTTP::HTTP2;
         for (int i = 0; i < n_conn; i++) {
             auto& conn = pool.add_connection(

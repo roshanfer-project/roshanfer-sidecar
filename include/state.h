@@ -18,7 +18,6 @@
 #include "rpc_mapper.h"
 #include "rpc_message.h"
 #include "rpc_queue.h"
-#include "snapshot.hpp"
 #include "stats.h"
 #include <unordered_map>
 #include <vector>
@@ -145,6 +144,5 @@ class State {
         SharedState& shared_state;
         LocalState local_state;
         Utilization utilization;
-        Snapshot snapshot;
         std::string& ingress_service;
 };
