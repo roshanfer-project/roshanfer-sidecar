@@ -61,6 +61,7 @@ BufferManager::BufferManager(size_t len, size_t buffer_size)
 Buffer* BufferManager::get_buffer() {
     if (buffer_queue.empty()) {
         LOG(FATAL) << "No free buffer available";
+        return nullptr;
     }
     Buffer* buffer = buffer_queue.front();
     buffer_queue.pop();

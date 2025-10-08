@@ -361,6 +361,10 @@ void EventLoop::run() {
                 break;
             }
 
+            default:
+                LOG(FATAL) << "Unknown operation: " << static_cast<int>(ud->op);
+                break;
+
             }
 
             // free the user data

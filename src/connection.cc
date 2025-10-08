@@ -509,7 +509,7 @@ HTTPConnection::HTTPConnection(std::string conn_host, uint16_t conn_port, Connec
 
     int flag = 1;
     if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) == -1) {
-        LOG(FATAL) << "Failed to set TCP_NODELAY";
+        LOG(FATAL) << "Failed to set TCP_NODELAY: " << strerror(errno);
     }
 }
 

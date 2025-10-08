@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <ring_wrapper.h>
 #include <liburing.h>
 #include <connection.h>
@@ -18,7 +19,7 @@ RingWrapper::RingWrapper(size_t ring_size)
     uint32_t flags = IORING_SETUP_SINGLE_ISSUER;
     int ret = io_uring_queue_init((uint32_t)size, &ring, flags);
     if (ret < 0) {
-        throw std::runtime_error("Failed to initialize ring");
+        throw std::runtime_error("Failed to initialize ring: " + std::string(strerror(-ret)));
     }
     VLOG(1) << "Ring initialized";
 }
