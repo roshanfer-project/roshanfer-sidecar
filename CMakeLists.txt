@@ -22,15 +22,30 @@ find_package (glog 0.7.1 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBURING REQUIRED liburing)
 
-# include yaml-cpp
-include(FetchContent)
+# build yaml-cpp as external project
+set(YAML_CPP_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/yaml-cpp)
+set(YAML_CPP_BUILD_DIR ${YAML_CPP_ROOT}/build)
+set(YAML_CPP_LIB ${YAML_CPP_BUILD_DIR}/libyaml-cpp.a)
 
-FetchContent_Declare(
-  yaml-cpp
-  GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
-  GIT_TAG 0.8.0
+# Build yaml-cpp if not already built
+if(NOT EXISTS ${YAML_CPP_LIB})
+  message(STATUS "Building yaml-cpp...")
+  execute_process(
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/build-yaml-cpp.sh
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/external
+    RESULT_VARIABLE YAML_BUILD_RESULT
+  )
+  if(NOT YAML_BUILD_RESULT EQUAL 0)
+    message(FATAL_ERROR "Failed to build yaml-cpp")
+  endif()
+endif()
+
+# Create imported target for yaml-cpp
+add_library(yaml-cpp STATIC IMPORTED)
+set_target_properties(yaml-cpp PROPERTIES
+  IMPORTED_LOCATION ${YAML_CPP_LIB}
+  INTERFACE_INCLUDE_DIRECTORIES ${YAML_CPP_ROOT}/include
 )
-FetchContent_MakeAvailable(yaml-cpp)
 
 # find nghttp2
 pkg_check_modules(NGHTTP2 REQUIRED libnghttp2)
@@ -49,7 +64,7 @@ target_link_libraries (sidecar glog::glog)
 # link liburing
 target_link_libraries(sidecar ${LIBURING_LIBRARIES})
 # link yaml-cpp
-target_link_libraries(sidecar yaml-cpp::yaml-cpp)
+target_link_libraries(sidecar yaml-cpp)
 # link nghttp2
 target_link_libraries(sidecar ${NGHTTP2_LIBRARIES})
 # link nanolog

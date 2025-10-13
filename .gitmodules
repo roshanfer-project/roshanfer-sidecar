@@ -7,3 +7,6 @@
 [submodule "test/rwg"]
 	path = test/rwg
 	url = git@github.com:farzad1132/rwg.git
+[submodule "external/yaml-cpp"]
+	path = external/yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp.git
