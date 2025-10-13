@@ -4,3 +4,6 @@
 [submodule "external/HdrHistogram_c"]
         path = external/HdrHistogram_c
         url = https://github.com/HdrHistogram/HdrHistogram_c.git
+[submodule "test/rwg"]
+	path = test/rwg
+	url = git@github.com:farzad1132/rwg.git
