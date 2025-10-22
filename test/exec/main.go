@@ -10,18 +10,41 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/alexflint/go-arg"
 )
 
 var cancel context.CancelFunc
 var ctx context.Context
 var wg *sync.WaitGroup
 
+type Args struct {
+	Test string `arg:"required" help:"Test to run: test1, test2"`
+}
+
 func main() {
+	var args Args
+	arg.MustParse(&args)
+
 	wg = &sync.WaitGroup{}
 
-	serviceList := [][]string{
-		{"app", "9", "0"},
+	serviceList := make([][]string, 0)
+
+	switch args.Test {
+	case "test1":
+		serviceList = [][]string{
+			{"app", "9", "0"},
+		}
+	case "test2":
+		serviceList = [][]string{
+			{"backend1", "9", "0"},
+			{"app", "11", "0"},
+		}
 	}
+
+	/* serviceList := [][]string{
+		{"app", "9", "0"},
+	} */
 
 	serviceList = append(serviceList, []string{"ingress", "_", "_"})
 
@@ -46,9 +69,15 @@ func main() {
 	// compile sidecar
 	compile_sidecar(false)
 
-	env := ".env"
+	var env string
+	switch args.Test {
+	case "test1":
+		env = "test.env"
+	case "test2":
+		env = "test2.env"
+	}
 
-	run_servicees(env, serviceList, true, false, false)
+	run_servicees(env, args.Test, serviceList, true, false, false)
 
 	time.Sleep(time.Minute * 100)
 
@@ -64,8 +93,8 @@ func run_docker_compose() {
 	no_env_run(c, dir, false, "docker-compose")
 }
 
-func run_servicees(env string, serviceList [][]string, sidecar, envoy, profile bool) {
-	sidecar_dir := get_cwd() + "/service-mesh"
+func run_servicees(env string, testName string, serviceList [][]string, sidecar, envoy, profile bool) {
+	sidecar_dir := get_cwd() + "/service-mesh-" + testName
 	for _, tuple := range serviceList {
 		name := tuple[0]
 		cpuset := tuple[1]

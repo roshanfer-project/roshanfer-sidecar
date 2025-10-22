@@ -2,7 +2,7 @@
 
 sudo docker compose down -v
 
-names=("app")
+names=("app" "backend1")
 
 for name in "${names[@]}"; do
     name_full="${name}.o"
@@ -27,7 +27,7 @@ done
 #    echo "No 'sidecar' processes found."
 #fi
 
-cd service-mesh
+cd service-mesh-$1
 docker compose down -v --remove-orphans
 docker compose -f envoy-compose.yaml down -v --remove-orphans
 docker container prune -f
