@@ -1,10 +1,10 @@
 mapping:
   protobuf.Backend1/SimpleCall:
     min_max_concurrency: 20
-    limit: 47
+    limit: 67
   protobuf.Backend1/SimpleCall2:
     min_max_concurrency: 20
-    limit: 22
+    limit: 52
 ring_size: 1000
 buffer_count: 1000
 buffer_size: 80000
@@ -17,6 +17,6 @@ ingress_upstream_host: 172.17.0.1
 ingress_upstream_port: 2005
 is_ingress: False
 is_frontend: False
-ppm_limit: 80
+ppm_limit: 120
 report_latency: True
 name: backend1

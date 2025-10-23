@@ -46,6 +46,8 @@ services:
     environment:
       - PROC_NAME=backend1-sidecar
       - GLOG_logtostderr=1
+#      - GLOG_v=1
+#      - GLOG_vmodule=connection=2
     volumes:
       - ./.configs/backend1.yaml:/config.yaml
       - /usr/local/lib:/usr/local/lib:ro

@@ -40,7 +40,7 @@ run_single_api() {
             echo "Unknown API: $api"
             return 1
         fi
-        ./rwg/rwg run --url $url -d exp -D 5,$DURATION -r $BASE,$RATE -w 200 -o $output_file --args service=$api
+        ./rwg/rwg run --url $url -d exp -D 5,$DURATION -r $BASE,$RATE -w 250 -o $output_file --args service=$api
     fi
 }
 

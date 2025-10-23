@@ -5,6 +5,8 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"test"
 	"test/protobuf"
 	"test/utils"
@@ -12,16 +14,18 @@ import (
 )
 
 var testVar string
+var appSize int
+var app2Size int
 var client protobuf.Backend1Client
 var client2 protobuf.Backend1Client
 
 func main() {
 	http.HandleFunc("/app", func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 		appLogic(w, r)
 	})
 	http.HandleFunc("/app2", func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 		app2Logic(w, r)
 	})
 	http.ListenAndServe(":2007", nil)
@@ -29,6 +33,8 @@ func main() {
 
 func init() {
 	testVar = utils.GetEnvVar("test", true)
+	appSize = utils.StrToInt(utils.GetEnvVar("appSize", true))
+	app2Size = utils.StrToInt(utils.GetEnvVar("app2Size", true))
 	fmt.Printf("testVar: %s\n", testVar)
 	if testVar == "test2" {
 		conn := test.GetConnBasic(utils.GetEnvVar("AppEgress", true))
@@ -38,25 +44,33 @@ func init() {
 	}
 }
 
+func makebigString(size int) string {
+	return strings.Repeat("a", size)
+}
+
+func writeResponseWithoutchunkEncoding(w http.ResponseWriter, data string) {
+	// convert to bytes
+	responseBytes := []byte(data)
+	w.Header().Set("Content-Length", strconv.Itoa(len(responseBytes)))
+	// write the data
+	w.Write(responseBytes)
+
+}
+
+// with no chunk-encoding
 func appLogic(w http.ResponseWriter, r *http.Request) {
 	switch testVar {
 	case "test":
 		time.Sleep(10 * time.Millisecond)
-		fmt.Fprintf(w, "This is a long string returned by the server. "+
-			"Lorem ipsum dolor sit amet, consectetur adipiscing elit. "+
-			"Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. "+
-			"Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.")
+		writeResponseWithoutchunkEncoding(w, makebigString(appSize))
 	case "test2":
-		bigString := "This is a long string sent in the request. " +
-			"Lorem ipsum dolor sit amet, consectetur adipiscing elit. " +
-			"Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. " +
-			"Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat."
+		bigString := makebigString(appSize)
 		resp, err := client.SimpleCall(r.Context(), &protobuf.Arg{Data: bigString})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		fmt.Fprintf(w, "%s", resp.Data)
+		writeResponseWithoutchunkEncoding(w, resp.Data)
 	}
 }
 
@@ -64,20 +78,14 @@ func app2Logic(w http.ResponseWriter, r *http.Request) {
 	switch testVar {
 	case "test":
 		time.Sleep(10 * time.Millisecond)
-		fmt.Fprintf(w, "This is a long string returned by the server. "+
-			"Lorem ipsum dolor sit amet, consectetur adipiscing elit. "+
-			"Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. "+
-			"Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.")
+		writeResponseWithoutchunkEncoding(w, makebigString(app2Size))
 	case "test2":
-		bigString := "This is a long string sent in the request. " +
-			"Lorem ipsum dolor sit amet, consectetur adipiscing elit. " +
-			"Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. " +
-			"Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat."
+		bigString := makebigString(app2Size)
 		resp, err := client2.SimpleCall2(r.Context(), &protobuf.Arg{Data: bigString})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		fmt.Fprintf(w, "%s", resp.Data)
+		writeResponseWithoutchunkEncoding(w, resp.Data)
 	}
 }

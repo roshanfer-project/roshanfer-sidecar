@@ -3,13 +3,13 @@ routing:
     upstream:
       host: app-sidecar
       port: 3007
-    limit: 53
+    limit: 82
     slo: 60
   app2:
     upstream:
       host: app-sidecar
       port: 3007
-    limit: 32
+    limit: 62
     slo: 60
 mapping:
   app:
@@ -29,7 +29,7 @@ ring_size: 1000
 buffer_count: 1000
 buffer_size: 10000
 num_threads: 2
-ingress_pool_connections: 150
+ingress_pool_connections: 200
 frontend_pool_connections: 100
 egress_listener_port: 3000
 ingress_listener_port: 4000
