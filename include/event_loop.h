@@ -25,7 +25,7 @@ public:
     Config config;
     RingWrapper ring;
     BufferManager buffer_manager;
-    std::unordered_map<ConnectionType, Listener> listeners;
+    std::unordered_map<ConnectionType, std::shared_ptr<Listener>> listeners;
     UDPListner udp_listener;
     RPCMapper rpc_mapper;
     RPCQueue rpc_queue;

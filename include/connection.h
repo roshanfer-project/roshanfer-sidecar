@@ -25,6 +25,16 @@ class NoConnectionException : public std::runtime_error {
         NoConnectionException(std::string msg) : std::runtime_error(msg) {}
 };
 
+class BufferFullException : public std::runtime_error {
+    public:
+        BufferFullException(const uint8_t* outbuf_ptr, ssize_t written) 
+        : std::runtime_error(""), outbuf_ptr(outbuf_ptr), written(written) {}
+    
+    public:
+        const uint8_t* outbuf_ptr;
+        ssize_t written;
+};
+
 typedef struct CallbackData {
     ConnectionType type;
     ConnectionDirection direction;
@@ -32,7 +42,7 @@ typedef struct CallbackData {
     RPCQueue* queue;
     RPCMapper* mapper;
     ConnectionStatus* status;
-    struct hdr_histogram* hist;
+    std::shared_ptr<struct hdr_histogram> hist;
 } CallbackData;
 
 class HTTPConnection {
@@ -42,14 +52,23 @@ class HTTPConnection {
          * @brief Construct an upstream connection
          * @note This is used by state
          */
-        HTTPConnection(std::string, uint16_t, ConnectionType, struct hdr_histogram*);
+        HTTPConnection(std::string, uint16_t, ConnectionType, std::shared_ptr<struct hdr_histogram>);
 
         /*
          * @brief Construct an downstream connection
          * @note This is used by listeners
          */
-        HTTPConnection(int, ConnectionType, struct hdr_histogram*);
-        virtual ~HTTPConnection() = default;
+        HTTPConnection(int, ConnectionType, std::shared_ptr<struct hdr_histogram>);
+        virtual ~HTTPConnection();
+
+        // delete copy semantics
+        HTTPConnection(const HTTPConnection&) = delete;
+        HTTPConnection& operator=(const HTTPConnection&) = delete;
+
+        // delete move semantics
+        HTTPConnection(HTTPConnection&&) = delete;
+        HTTPConnection& operator=(HTTPConnection&&) = delete;
+
         int get_fd() { return fd; }
         sockaddr* get_addr();
         std::string type_to_str();
@@ -64,23 +83,23 @@ class HTTPConnection {
         bool is_reserved() { return reserved; }
 
         // pure virtual functions
-        virtual void http_read(Buffer*, Ingress&) = 0;
+        virtual void http_read(const std::unique_ptr<Buffer>&, Ingress&) = 0;
         virtual bool want_write() = 0;
-        virtual int http_write(Buffer*) = 0;
+        virtual int http_write(const std::unique_ptr<Buffer>&) = 0;
         virtual void submit_settings() = 0;
-        virtual int32_t submit_request(RPCMessage&) = 0;
-        virtual void submit_response(RPCMessage&) = 0;
-        virtual void submit_error_response(RPCMessage&) = 0;
+        virtual int32_t submit_request(std::shared_ptr<RPCMessage>) = 0;
+        virtual void submit_response(std::shared_ptr<RPCMessage>) = 0;
+        virtual void submit_error_response(std::shared_ptr<RPCMessage>) = 0;
         virtual bool available() = 0;
         virtual HTTP http() = 0;
         
     protected:
         int fd; // local socket file descriptor
-        sockaddr_in addr;
+        std::unique_ptr<sockaddr_in> addr;
         ConnectionStatus status;
         std::string host;
         uint16_t port;
-        struct hdr_histogram* hist;
+        std::shared_ptr<struct hdr_histogram> hist;
         bool reserved;
 
     public:
@@ -92,17 +111,25 @@ class HTTPConnection {
 class HTTP2Connection : public HTTPConnection {
 
     public:
-        HTTP2Connection(std::string, uint16_t, ConnectionType, RPCQueue*, RPCMapper*, struct hdr_histogram*);
-        HTTP2Connection(int, ConnectionType, RPCMapper*, RPCQueue*, struct hdr_histogram*);
+        HTTP2Connection(std::string, uint16_t, ConnectionType, RPCQueue*, RPCMapper*, std::shared_ptr<struct hdr_histogram>);
+        HTTP2Connection(int, ConnectionType, RPCMapper*, RPCQueue*, std::shared_ptr<struct hdr_histogram>);
         ~HTTP2Connection();
 
-        void http_read(Buffer*, Ingress&);
+        // delete copy semantics
+        HTTP2Connection(const HTTP2Connection&) = delete;
+        HTTP2Connection& operator=(const HTTP2Connection&) = delete;
+
+        // delete move semantics
+        HTTP2Connection(HTTP2Connection&&) = delete;
+        HTTP2Connection& operator=(HTTP2Connection&&) = delete;
+
+        void http_read(const std::unique_ptr<Buffer>&, Ingress&);
         bool want_write();
-        int http_write(Buffer*);
+        int http_write(const std::unique_ptr<Buffer>&);
         void submit_settings();
-        int32_t submit_request(RPCMessage&);
-        void submit_response(RPCMessage&);
-        void submit_error_response(RPCMessage&);
+        int32_t submit_request(std::shared_ptr<RPCMessage>);
+        void submit_response(std::shared_ptr<RPCMessage>);
+        void submit_error_response(std::shared_ptr<RPCMessage>);
         bool available() { return true;}
         HTTP http() { return HTTP::HTTP2; }
 
@@ -124,23 +151,31 @@ const size_t HTTP1Connection_MAX_HEADERS = 10;
 class HTTP1Connection : public HTTPConnection {
 
     public:
-        HTTP1Connection(std::string, uint16_t, ConnectionType, RPCMapper*, RPCQueue*, struct hdr_histogram*);
-        HTTP1Connection(int, ConnectionType, RPCMapper*, RPCQueue*, struct hdr_histogram*);
+        HTTP1Connection(std::string, uint16_t, ConnectionType, RPCMapper*, RPCQueue*, std::shared_ptr<struct hdr_histogram>);
+        HTTP1Connection(int, ConnectionType, RPCMapper*, RPCQueue*, std::shared_ptr<struct hdr_histogram>);
         ~HTTP1Connection();
 
-        void http_read(Buffer*, Ingress&);
+        // delete copy semantics
+        HTTP1Connection(const HTTP1Connection&) = delete;
+        HTTP1Connection& operator=(const HTTP1Connection&) = delete;
+
+        // delete move semantics
+        HTTP1Connection(HTTP1Connection&&) = delete;
+        HTTP1Connection& operator=(HTTP1Connection&&) = delete;
+
+        void http_read(const std::unique_ptr<Buffer>&, Ingress&);
         bool want_write();
-        int http_write(Buffer*);
+        int http_write(const std::unique_ptr<Buffer>&);
         void submit_settings();
-        int32_t submit_request(RPCMessage&);
-        void submit_response(RPCMessage&);
-        void submit_error_response(RPCMessage&);
+        int32_t submit_request(std::shared_ptr<RPCMessage>);
+        void submit_response(std::shared_ptr<RPCMessage>);
+        void submit_error_response(std::shared_ptr<RPCMessage>);
         bool available();
         HTTP http() { return HTTP::HTTP1; }
     
     private:
-        void set_rpc_message(HTTPMessage* msg);
-        HTTPMessage* get_rpc_message();
+        void set_rpc_message(std::shared_ptr<HTTPMessage> msg);
+        std::shared_ptr<HTTPMessage> get_rpc_message();
         int parse_http1_request(Buffer*);
         
     private:
@@ -157,7 +192,7 @@ class HTTP1Connection : public HTTPConnection {
         RPCMapper* mapper;
         RPCQueue* queue;
         int32_t last_id;
-        HTTPMessage* rpc_message;
+        std::shared_ptr<HTTPMessage> rpc_message;
 };
 
 class ConnectionPool {
@@ -168,14 +203,14 @@ class ConnectionPool {
         /**
          * @brief Add a connection to the pool
          */
-        std::unique_ptr<HTTPConnection>& add_connection(const std::string&, int, RPCMapper*, RPCQueue*, HTTP,
-             struct hdr_histogram*);
-        std::unique_ptr<HTTPConnection>& get_connection(int fd);
-        std::unique_ptr<HTTPConnection>& get_any_connection();
+        std::shared_ptr<HTTPConnection> add_connection(const std::string&, int, RPCMapper*, RPCQueue*, HTTP,
+             std::shared_ptr<struct hdr_histogram>);
+        std::shared_ptr<HTTPConnection> get_connection(int fd);
+        std::shared_ptr<HTTPConnection> get_any_connection();
         bool has_connection(int fd);
         void remove_connection(int fd) { connections.erase(fd); }
     
     private:
-        std::unordered_map<int, std::unique_ptr<HTTPConnection>> connections; // fd: connection
+        std::unordered_map<int, std::shared_ptr<HTTPConnection>> connections; // fd: connection
         ConnectionType type;
 };

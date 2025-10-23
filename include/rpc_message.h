@@ -43,6 +43,15 @@ class RPCMessage {
 
     public:
         RPCMessage();
+        virtual ~RPCMessage();
+
+        // delete copy constructor and assignment operator
+        RPCMessage(const RPCMessage&) = delete;
+        RPCMessage& operator=(const RPCMessage&) = delete;
+
+        // delete move constructor and assignment operator
+        RPCMessage(RPCMessage&&) = delete;
+        RPCMessage& operator=(RPCMessage&&) = delete;
 
         // getter and setters
         int32_t get_ds_stream_id() const { return ds_stream_id; }
@@ -84,6 +93,14 @@ class gRPCMessage : public RPCMessage {
     public:
         gRPCMessage();
         ~gRPCMessage();
+
+        // delete copy semantics
+        gRPCMessage(const gRPCMessage&) = delete;
+        gRPCMessage& operator=(const gRPCMessage&) = delete;
+
+        // delete move semantics
+        gRPCMessage(gRPCMessage&&) = delete;
+        gRPCMessage& operator=(gRPCMessage&&) = delete;
         
         // virtual methods
         void add_header_field(const uint8_t*, size_t, const uint8_t*, size_t, bool, bool);
@@ -126,6 +143,14 @@ class HTTPMessage : public RPCMessage {
     public:
         HTTPMessage();
         ~HTTPMessage();
+
+        // delete copy semantics
+        HTTPMessage(const HTTPMessage&) = delete;
+        HTTPMessage& operator=(const HTTPMessage&) = delete;
+
+        // delete move semantics
+        HTTPMessage(HTTPMessage&&) = delete;
+        HTTPMessage& operator=(HTTPMessage&&) = delete;
 
         // virtual methods
         void add_header_field(const uint8_t*, size_t, const uint8_t*, size_t, bool, bool);
@@ -183,10 +208,10 @@ class HTTPMessage : public RPCMessage {
 class RPCMessagePool {
     public:
         RPCMessagePool(int, int);
-        void free_rpc(RPCMessage*);
-        RPCMessage* get_rpc(int32_t, int, HTTP);
+        void free_rpc(std::shared_ptr<RPCMessage>);
+        std::shared_ptr<RPCMessage> get_rpc(int32_t, int, HTTP);
     
     private:
-        std::queue<RPCMessage*> grpc_pool;
-        std::queue<RPCMessage*> http_pool;
+        std::queue<std::shared_ptr<RPCMessage>> grpc_pool;
+        std::queue<std::shared_ptr<RPCMessage>> http_pool;
 };

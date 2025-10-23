@@ -1,5 +1,5 @@
 #include <buffer.h>
-#include "ring_helper.h"
+#include "ring_helper.hpp"
 #include <buffer_manager.h>
 #include <cassert>
 #include <cstddef>
@@ -9,41 +9,46 @@
 #include <glog/logging.h>
 
 UserData::UserData(size_t id)
- : buffer(nullptr),
+ : buffer(),
    in_ring(false),
-   listener(nullptr),
-   conn(nullptr),
+   listener(),
+   conn(),
    op(Operation::ACCEPT),
    index(id),
    udp_type(UDPType::REQUEST),
-   rpc_message(nullptr),
-   accept_addr(nullptr) {
+   //rpc_message(nullptr),
+   accept_addr(nullptr) 
+   {
 }
 
-Buffer* UserData::get_buffer() {
-    if (buffer == nullptr) {
+std::unique_ptr<Buffer> UserData::get_buffer() {
+    if (!buffer) {
         LOG(FATAL) << "Buffer is null"
                      << ", index: " << index
                      << ", op: " << operation_to_str(op)
                      << ", udp_type: " << udp_type_to_str(udp_type)
                      << ", conn: " << conn
-                     << ", listener: " << listener;
+                     << ", listener: " << listener
+                     << ", in_ring: " << in_ring;
     }
-    return buffer;
+    return std::move(buffer);
 }
 
-void UserData::set_buffer(Buffer* buf) {
-    if (buf == nullptr) {
+void UserData::set_buffer(std::unique_ptr<Buffer> buf) {
+    if (!buf) {
         LOG(FATAL) << "Buffer cannot be null";
     }
-    buffer = buf;
+    buffer = std::move(buf);
 }
 
 void UserData::clear() {
-    buffer = nullptr;
-    listener = nullptr;
-    conn = nullptr;
-    rpc_message.reset();
+    if (buffer) {
+        LOG(FATAL) << "Buffer is not null";
+    }
+    buffer.reset();
+    listener.reset();
+    conn.reset();
+    //rpc_message.reset();
     op = Operation::CLEAR;
     udp_type = UDPType::CLEAR;
     in_ring = false;
@@ -53,17 +58,17 @@ void UserData::clear() {
 BufferManager::BufferManager(size_t len, size_t buffer_size)
  : count(len), size(buffer_size) {
     for (size_t i = 0; i < count; i++) {
-        buffer_queue.push(new Buffer(size, i));
+        buffer_queue.push(std::make_unique<Buffer>(size, i));
         user_data_queue.push(new UserData(i));
     }
 };
 
-Buffer* BufferManager::get_buffer() {
+std::unique_ptr<Buffer> BufferManager::get_buffer() {
     if (buffer_queue.empty()) {
         LOG(FATAL) << "No free buffer available";
         return nullptr;
     }
-    Buffer* buffer = buffer_queue.front();
+    auto buffer = std::move(buffer_queue.front());
     buffer_queue.pop();
     if (!buffer->is_free) {
         LOG(FATAL) << "Buffer is not free, index: " << buffer->get_index();
@@ -73,8 +78,8 @@ Buffer* BufferManager::get_buffer() {
     return buffer;
 }
 
-void BufferManager::free_buffer(Buffer*& buffer) {
-    if (buffer == nullptr) {
+void BufferManager::free_buffer(std::unique_ptr<Buffer> buffer) {
+    if (!buffer) {
         LOG(FATAL) << "buffer cannot be null";
         return;
     }
@@ -84,8 +89,7 @@ void BufferManager::free_buffer(Buffer*& buffer) {
         return;
     }
     buffer->clear();
-    buffer_queue.push(buffer);
-    buffer = nullptr;
+    buffer_queue.push(std::move(buffer));
 }
 
 UserData* BufferManager::get_user_data() {

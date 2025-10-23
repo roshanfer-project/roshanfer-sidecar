@@ -2,7 +2,7 @@
 #include "listener.h"
 #include "udp_listener.h"
 #include "state.h"
-#include "ring_helper.h"
+#include "ring_helper.hpp"
 #include "buffer.h"
 #include <cassert>
 #include <cstddef>
@@ -27,9 +27,9 @@ void EventLoop::run() {
     UserData *ud;
 
     // Add accept submissions
-    for (auto& listener : listeners) {
-        VLOG(1) << "Listening on " << listener.second.type_to_str() << " listener, port: " << listener.second.get_port();
-        ring.prepare_accept(listener.second, buffer_manager.get_user_data());
+    for (auto& [type, listener] : listeners) {
+            VLOG(1) << "Listening on " << listener->type_to_str() << " listener, port: " << listener->get_port();
+        ring.prepare_accept(listener, buffer_manager.get_user_data());
     }
 
     // Add recvmsg submission
@@ -56,7 +56,7 @@ void EventLoop::run() {
             case Operation::ACCEPT: {
                 VLOG(1) << "Accept completion event";
                 // get the listener from the user data
-                    Listener* listener = ud->listener;
+                    auto listener = ud->listener;
 
                 if (cqe->res < 0) {
                     LOG(FATAL) << "Failed to accept connection, error: "
@@ -73,7 +73,7 @@ void EventLoop::run() {
                         http_type = HTTP::HTTP2;
                     }
 
-                    HTTPConnection& conn = listener->add_connection(
+                    auto conn = listener->add_connection(
                         cqe->res,
                         std::addressof(rpc_mapper),
                         std::addressof(rpc_queue),
@@ -83,38 +83,36 @@ void EventLoop::run() {
 
                     VLOG(1) << "Index:" << index << " accepted connection on " << listener->type_to_str() << " listener"
                             << " fd: " << listener->get_fd();
-                    VLOG(1) << "New connection on fd: " << conn.get_fd();
+                    VLOG(1) << "New connection on fd: " << conn->get_fd();
 
                     // submit the first setting frame
-                    conn.submit_settings();
+                    conn->submit_settings();
 
                     // prepare the first read
-                    Buffer* buffer = buffer_manager.get_buffer();
-                    auto read_ud = buffer_manager.get_user_data();
-                    prepare_read(read_ud, buffer, listener, std::addressof(conn));
                     ring.prepare_read(
-                        buffer,
-                        conn.get_fd(),
-                        read_ud
+                        buffer_manager.get_buffer(),
+                        buffer_manager.get_user_data(),
+                        listener,
+                        std::move(conn)
                     );
                 }
 
                 // re-arm accept on the listener
-                ring.prepare_accept(*listener, buffer_manager.get_user_data());
+                ring.prepare_accept(std::move(listener), buffer_manager.get_user_data());
                 break;
             }
             
             case Operation::READ: {
                 VLOG(1) << "Read completion event";
                 // get the buffer from the user data
-                Buffer* buffer = ud->get_buffer();
-                if (buffer == nullptr) {
+                auto buffer = ud->get_buffer();
+                if (!buffer) {
                     LOG(FATAL) << "Buffer is null in read completion event";
                 }
-
+                
                 // get the original connection and listener
-                HTTPConnection* orig_conn = ud->conn;
-                Listener* orig_listener = ud->listener;
+                auto orig_conn = ud->conn;
+                auto orig_listener = ud->listener;
 
                 // log the read event
                 VLOG(1) << "fd: " << orig_conn->get_fd();
@@ -136,11 +134,11 @@ void EventLoop::run() {
                     orig_conn->set_status(ConnectionStatus::TEARDOWN);
 
                     // free buffer
-                    buffer_manager.free_buffer(buffer);
+                    buffer_manager.free_buffer(std::move(buffer));
 
                     // prepare cancel
                     ring.prepare_cancel(
-                        *orig_conn,
+                        std::move(orig_conn),
                         buffer_manager.get_user_data()
                     );
                     break;
@@ -148,7 +146,9 @@ void EventLoop::run() {
                 buffer->set_filled((size_t)cqe->res);
 
                 // feed data to nghttp2
-                assert(orig_conn != nullptr && "orig_conn should not be null here");
+                if (!orig_conn) {
+                    LOG(FATAL) << "orig_conn is null";
+                }
                 orig_conn->http_read(buffer, ingress);
                 assert(orig_conn != nullptr && "orig_conn should not be null here");
 
@@ -156,7 +156,7 @@ void EventLoop::run() {
                 state.write_http(orig_conn);
 
                 // free the buffer
-                buffer_manager.free_buffer(buffer);
+                buffer_manager.free_buffer(std::move(buffer));
 
                 // handle req/res send buffers
                 state.forward(orig_conn->type, orig_conn->direction);
@@ -179,13 +179,11 @@ void EventLoop::run() {
                 state.write_http(orig_conn);
 
                 // re-arm read
-                buffer = buffer_manager.get_buffer();
-                auto read_ud = buffer_manager.get_user_data();
-                prepare_read(read_ud, buffer, orig_listener, orig_conn);
                 ring.prepare_read(
-                    buffer,
-                    orig_conn->get_fd(),
-                    read_ud
+                    buffer_manager.get_buffer(),
+                    buffer_manager.get_user_data(),
+                    std::move(orig_listener),
+                    std::move(orig_conn)
                 );
                 break;
             }
@@ -198,7 +196,7 @@ void EventLoop::run() {
                     break;
                 }
 
-                HTTPConnection* orig_conn = ud->conn;
+                auto orig_conn = ud->conn;
 
                 VLOG(1) << "Connect completion event, fd: " << orig_conn->get_fd();
 
@@ -216,13 +214,11 @@ void EventLoop::run() {
                 
 
                 // arm the first read
-                Buffer* read_buffer = buffer_manager.get_buffer();
-                auto read_ud = buffer_manager.get_user_data();
-                prepare_read(read_ud, read_buffer, std::addressof(listeners.at(orig_conn->type)), orig_conn);
                 ring.prepare_read(
-                    read_buffer,
-                    orig_conn->get_fd(),
-                    read_ud
+                    buffer_manager.get_buffer(),
+                    buffer_manager.get_user_data(),
+                    listeners.at(orig_conn->type),
+                    orig_conn
                 );
                 break;
             }
@@ -232,20 +228,19 @@ void EventLoop::run() {
                 VLOG(1) << "Wrote " << cqe->res << " bytes to fd: " << ud->conn->get_fd();
 
                 // free buffer
-                Buffer* buffer = ud->get_buffer();
-                buffer_manager.free_buffer(buffer);
+                buffer_manager.free_buffer(ud->get_buffer());
 
                 break;
             }
 
             case Operation::CANCEL: {
-                HTTPConnection* conn = ud->conn;
+                auto conn = ud->conn;
                 VLOG(1) << "Cancel completion event, fd: " << conn->get_fd();
 
                 switch (conn->direction) {
                     case ConnectionDirection::UPSTREAM:
                         // for upstream connections, pools (inside state) hold the connection
-                        state.remove_connection(*conn);
+                        state.remove_connection(std::move(conn));
                         break;
                     case ConnectionDirection::DOWNSTREAM:
                         // also remove the corresponsing connection from state becasue,
@@ -255,7 +250,8 @@ void EventLoop::run() {
                             buffer_manager.get_user_data()
                         ); */
                         // remove the object of the connection from the listener
-                        listeners.at(conn->type).remove_connection(conn->get_fd());
+                        listeners.at(conn->type)->remove_connection(conn->get_fd());
+                        conn.reset();
                         break;
                     default:
                         LOG(FATAL) << "Unknown connection direction";
@@ -268,7 +264,7 @@ void EventLoop::run() {
                 VLOG(1) << "Recvmsg completion event";
 
                 // get the buffer from the user data
-                Buffer* old_buffer = ud->get_buffer();
+                auto old_buffer = ud->get_buffer();
                 auto udp_type = ud->udp_type;
                 if (cqe->res <= 0) {
                     LOG(FATAL) << "unhandled scenario";
@@ -284,19 +280,19 @@ void EventLoop::run() {
                         VLOG(1) << "Request for Queue Multiplxer";
 
                         // get the new buffer from QM
-                        Buffer* new_buffer = buffer_manager.get_buffer();
+                        auto new_buffer = buffer_manager.get_buffer();
                         state.queue_multiplexer(old_buffer, new_buffer);
 
                         // prepare the new buffer for sendmsg
                         ring.prepare_reply_sendmsg(
                             udp_listener.get_fd(),
                             old_buffer,
-                            new_buffer,
+                            std::move(new_buffer),
                             buffer_manager.get_user_data()
                         );
 
                         // free the old buffer
-                        buffer_manager.free_buffer(old_buffer);
+                        buffer_manager.free_buffer(std::move(old_buffer));
 
                         // re-arm the recvmsg
                         ring.prepare_rcvmsg(
@@ -312,11 +308,9 @@ void EventLoop::run() {
                     case UDPType::RESPONSE: {
                         VLOG(1) << "Response for DN";
 
-                        Buffer* buffer = ud->get_buffer();
-
                         // We have a response for DN (potentially a request unblock)
                         try {
-                            state.ppm_client(true, buffer);
+                            state.ppm_client(true, old_buffer);
                         } catch (const std::out_of_range& e) {
                             LOG(FATAL) << "Out of range error: " << e.what();
                         } catch (const std::exception& e) {
@@ -325,7 +319,7 @@ void EventLoop::run() {
                         
 
                         // free the buffer
-                        buffer_manager.free_buffer(buffer);
+                        buffer_manager.free_buffer(std::move(old_buffer));
 
                         // Note that there is no need to re-arm this operation becase
                         // everytime we send a DN request we also post a recvmsg sqe
@@ -344,15 +338,14 @@ void EventLoop::run() {
                 VLOG(1) << "Sendmsg completion event";
 
                 if (cqe->res <= 0) {
-                    LOG(FATAL) << "Failed to send message, error: "
-                               << strerror(-cqe->res);
+                    LOG(FATAL) << "Failed to send message"
+                               << " res: " << cqe->res
+                               << " error: " << strerror(-cqe->res)
+                               << " udp_type: " << udp_type_to_str(ud->udp_type);
                 }
 
-                // get the buffer from the user data
-                Buffer* buffer = ud->get_buffer();
-
                 // free the buffer
-                buffer_manager.free_buffer(buffer);
+                buffer_manager.free_buffer(ud->get_buffer());
 
                 break;
             }
@@ -401,11 +394,11 @@ EventLoop::EventLoop(int th_index, std::string& ingress_service_ref, Config pars
         }
         listeners.emplace(
             ConnectionType::EGRESS,
-            Listener(egress_port, ConnectionType::EGRESS)
+            std::make_shared<Listener>(egress_port, ConnectionType::EGRESS)
         );
 
         listeners.emplace(
             ConnectionType::INGRESS,
-            Listener(config.ingress_listener_port, ConnectionType::INGRESS)
+            std::make_shared<Listener>(config.ingress_listener_port, ConnectionType::INGRESS)
         );
     };

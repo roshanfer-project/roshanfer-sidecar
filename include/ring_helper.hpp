@@ -3,9 +3,10 @@
 #include "buffer.h"
 #include "connection.h"
 #include "listener.h"
-#include "rpc_message.h"
+//#include "rpc_message.h"
 #include <cstddef>
 #include <memory>
+#include <string>
 
 enum class Operation {
     ACCEPT,
@@ -50,35 +51,44 @@ inline std::string udp_type_to_str(UDPType type) {
 class UserData {
     public:
         UserData(size_t);
+        ~UserData();
 
-        Buffer* get_buffer();
-        void set_buffer(Buffer*);
+        // delete copy semantics
+        UserData(const UserData&) = delete;
+        UserData& operator=(const UserData&) = delete;
+
+        // delete move semantics
+        UserData(UserData&&) = delete;
+        UserData& operator=(UserData&&) = delete;
+
+        std::unique_ptr<Buffer> get_buffer();
+        void set_buffer(std::unique_ptr<Buffer>);
         void clear();
     
     private:
-        Buffer* buffer;
+        std::unique_ptr<Buffer> buffer;
     
     public:
         bool in_ring;
-        Listener* listener;
-        HTTPConnection* conn;
+        std::shared_ptr<Listener> listener;
+        std::shared_ptr<HTTPConnection> conn;
         enum Operation op;
         size_t index;
         UDPType udp_type;
-        std::unique_ptr<RPCMessage> rpc_message;
-        std::unique_ptr<struct sockaddr_in> accept_addr;
+        //std::unique_ptr<RPCMessage> rpc_message;
+        std::unique_ptr<struct sockaddr_in> accept_addr; // used for preparing accept
 };
 
-void inline prepare_read(UserData* ud, Buffer* buffer,
-     Listener* listener, HTTPConnection* conn) {
-    ud->set_buffer(buffer);
+void inline prepare_read(UserData* ud, std::unique_ptr<Buffer> buffer,
+     std::shared_ptr<Listener> listener, std::shared_ptr<HTTPConnection> conn) {
+    ud->set_buffer(std::move(buffer));
     ud->op = Operation::READ;
-    ud->conn = conn;
-    ud->listener = listener;
+    ud->conn = std::move(conn);
+    ud->listener = std::move(listener);
 }
 
-void inline prepare_write(UserData* ud, Buffer* buffer, HTTPConnection* conn) {
-    ud->set_buffer(buffer);
+void inline prepare_write(UserData* ud, std::unique_ptr<Buffer> buffer, std::shared_ptr<HTTPConnection> conn) {
+    ud->set_buffer(std::move(buffer));
     ud->op = Operation::WRITE;
-    ud->conn = conn;
+    ud->conn = std::move(conn);
 }

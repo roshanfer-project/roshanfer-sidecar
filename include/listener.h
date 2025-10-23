@@ -8,11 +8,21 @@
 class Listener {
     public:
         Listener(uint16_t, enum ConnectionType);
+        ~Listener();
+
+        // delete copy semantics
+        Listener(const Listener&) = delete;
+        Listener& operator=(const Listener&) = delete;
+
+        // delete move semantics
+        Listener(Listener&&) = delete;
+        Listener& operator=(Listener&&) = delete;
+
         int get_fd() { return fd; }
         uint16_t get_port() { return port; }
-        HTTPConnection& add_connection(int fd, RPCMapper*, RPCQueue*, HTTP, struct hdr_histogram*);
+        std::shared_ptr<HTTPConnection> add_connection(int fd, RPCMapper*, RPCQueue*, HTTP, std::shared_ptr<struct hdr_histogram>);
         void remove_connection(int target_fd) { connections.erase(target_fd); }
-        std::unique_ptr<HTTPConnection>& get_connection(int);
+        std::shared_ptr<HTTPConnection> get_connection(int);
         bool no_connections() { return connections.empty(); }
         std::string type_to_str();
 
@@ -20,7 +30,7 @@ class Listener {
     private:
         int fd; // local socket file descriptor
         uint16_t port;
-        std::unordered_map<int, std::unique_ptr<HTTPConnection>> connections; // fd -> connection
+        std::unordered_map<int, std::shared_ptr<HTTPConnection>> connections; // fd -> connection
         struct sockaddr_in addr;
     
     public:

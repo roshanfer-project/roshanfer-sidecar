@@ -15,6 +15,9 @@
 RPCMessage::RPCMessage()
 : ds_stream_id(0), ds_fd(-1), us_stream_id(0), us_fd(-1) {}
 
+RPCMessage::~RPCMessage() {
+    LOG(FATAL) << "RPC Message deconstructor (should not be called)";
+}
 
 //////// gRPCMessage Implementation
 
@@ -24,7 +27,7 @@ HeaderField::HeaderField()
 }
 
 void HeaderField::set(const uint8_t* field_name, size_t field_name_len, const uint8_t* field_value, size_t field_value_len) {
-    if (field_name_len >= name.size() || field_value_len >= value.size()){
+    if (field_name_len > name.size() || field_value_len > value.size()){
         LOG(FATAL) << "HeaderField name or value too long";
     }
     std::copy_n(field_name, field_name_len, this->name.begin());
@@ -101,8 +104,11 @@ void gRPCMessage::add_data(const uint8_t* data, size_t len, bool request) {
     auto& data_struct = this->data_map.at(key);
 
 
-    if (data_struct->offset + len > MAX_PAYLOAD_SIZE) {
-        LOG(FATAL) << "Data length exceeds maximum payload size";
+    if (len > MAX_PAYLOAD_SIZE - data_struct->offset) {
+        LOG(FATAL) << "Data length exceeds maximum payload size"
+                    << " , len: " << len
+                    << " , offset: " << data_struct->offset
+                    << " , max: " << MAX_PAYLOAD_SIZE;
     }
     std::copy_n(data, len, data_struct->data.begin() + data_struct->offset);
     data_struct->offset += len;
@@ -253,7 +259,7 @@ void HTTPMessage::add_data(const uint8_t* data, size_t len, bool request) {
         LOG(FATAL) << "Request data is not supported in HTTPMessage";
     }
 
-    if (res_data->offset + len > MAX_PAYLOAD_SIZE || len > MAX_PAYLOAD_SIZE) {
+    if (len > MAX_PAYLOAD_SIZE - res_data->offset) {
         LOG(FATAL) << "Data length exceeds maximum payload size"
                     << " , len: " << len
                     << " , offset: " << res_data->offset
@@ -312,35 +318,41 @@ HTTPMessage::~HTTPMessage() {
 }
 
 RPCMessagePool::RPCMessagePool(int grpc_n, int http_n)
-:   grpc_pool(std::queue<RPCMessage*>()),
-    http_pool(std::queue<RPCMessage*>()) {
+:   grpc_pool(std::queue<std::shared_ptr<RPCMessage>>()),
+    http_pool(std::queue<std::shared_ptr<RPCMessage>>()) {
 
     for (int i = 0; i < http_n; i++) {
-        auto rpc = new HTTPMessage();
-        free_rpc(rpc);
+        auto rpc = std::make_shared<HTTPMessage>();
+        free_rpc(std::move(rpc));
     }
 
     for (int i = 0; i < grpc_n; i++) {
-        auto rpc = new gRPCMessage();
-        free_rpc(rpc);
+        auto rpc = std::make_shared<gRPCMessage>();
+        free_rpc(std::move(rpc));
     }
 }
 
-void RPCMessagePool::free_rpc(RPCMessage* rpc) {
+void RPCMessagePool::free_rpc(std::shared_ptr<RPCMessage> rpc) {
+    if (!rpc) {
+        LOG(FATAL) << "RPCMessage is null";
+    }
+    if (rpc.use_count() > 1) {
+        LOG(FATAL) << "RPCMessage is still in use, count: " << rpc.use_count();
+    }
     rpc->clear();
     if (rpc->http() == HTTP::HTTP1) {
-        http_pool.push(rpc);
+        http_pool.push(std::move(rpc));
     } else {
-        grpc_pool.push(rpc);
+        grpc_pool.push(std::move(rpc));
     }
 }
 
-RPCMessage* RPCMessagePool::get_rpc(int32_t ds_stream_id, int ds_fd, HTTP http) {
-    std::queue<RPCMessage*>& pool = http == HTTP::HTTP1 ? http_pool : grpc_pool;
+std::shared_ptr<RPCMessage> RPCMessagePool::get_rpc(int32_t ds_stream_id, int ds_fd, HTTP http) {
+    std::queue<std::shared_ptr<RPCMessage>>& pool = http == HTTP::HTTP1 ? http_pool : grpc_pool;
     if (pool.empty()) {
         LOG(FATAL) << "No RPCMessage available in the pool";
     }
-    auto rpc = pool.front();
+    auto rpc = std::move(pool.front());
     pool.pop();
     rpc->set_ds_fd(ds_fd);
     rpc->set_ds_stream_id(ds_stream_id);

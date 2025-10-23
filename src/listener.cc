@@ -50,18 +50,22 @@ Listener::Listener(uint16_t lis_port, ConnectionType lis_type)
     VLOG(1) << "Listener created on port: " << port << " with fd: " << fd;
 };
 
-HTTPConnection& Listener::add_connection(int new_fd, RPCMapper* mapper, RPCQueue* queue, HTTP http, 
-                                         struct hdr_histogram* hist) {
+Listener::~Listener() {
+    LOG(FATAL) << "Listener deconstructor on port: " << port << " with fd: " << fd;
+}
+
+std::shared_ptr<HTTPConnection> Listener::add_connection(int new_fd, RPCMapper* mapper, RPCQueue* queue, HTTP http, 
+                                         std::shared_ptr<struct hdr_histogram> hist) {
     if (!mapper || !queue || !hist) {
         LOG(FATAL) << "Null pointer parameters: mapper=" << mapper << ", queue=" << queue << ", hist=" << hist;
     }
     try {
         if (http == HTTP::HTTP1) {
-            connections.emplace(new_fd, std::make_unique<HTTP1Connection>(new_fd, type, mapper, queue, hist));
+            connections.emplace(new_fd, std::make_shared<HTTP1Connection>(new_fd, type, mapper, queue, hist));
         } else {
-            connections.emplace(new_fd, std::make_unique<HTTP2Connection>(new_fd, type, mapper, queue, hist));
+            connections.emplace(new_fd, std::make_shared<HTTP2Connection>(new_fd, type, mapper, queue, hist));
         }
-        return *connections.at(new_fd);
+        return connections.at(new_fd);
     } catch (const std::exception& e) {
         LOG(FATAL) << "Failed to add connection: " << e.what()
                    << ", fd: " << new_fd
@@ -69,7 +73,7 @@ HTTPConnection& Listener::add_connection(int new_fd, RPCMapper* mapper, RPCQueue
     }
 };
 
-std::unique_ptr<HTTPConnection>& Listener::get_connection(int search_fd) {
+std::shared_ptr<HTTPConnection> Listener::get_connection(int search_fd) {
     try {
         return connections.at(search_fd);
     } catch (const std::out_of_range& e) {

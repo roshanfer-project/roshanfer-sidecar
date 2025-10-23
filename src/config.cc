@@ -56,6 +56,26 @@ Config load_config(const std::string &filename) {
     }
     LOG(INFO) << "config.is_frontend: " << local_config.is_frontend;
 
+    // ingress_pool_connections (required if is_ingress, optional otherwise)
+    if (node["ingress_pool_connections"]) {
+        local_config.ingress_pool_connections = node["ingress_pool_connections"].as<int>();
+    } else if (local_config.is_ingress) {
+        LOG(FATAL) << "ingress_pool_connections is required when is_ingress is true";
+    }
+    LOG(INFO) << "config.ingress_pool_connections: " << (local_config.ingress_pool_connections.has_value()
+              ? std::to_string(local_config.ingress_pool_connections.value())
+              : "not set");
+
+    // frontend_pool_connections (required if is_frontend, optional otherwise)
+    if (node["frontend_pool_connections"]) {
+        local_config.frontend_pool_connections = node["frontend_pool_connections"].as<int>();
+    } else if (local_config.is_frontend) {
+        LOG(FATAL) << "frontend_pool_connections is required when is_frontend is true";
+    }
+    LOG(INFO) << "config.frontend_pool_connections: " << (local_config.frontend_pool_connections.has_value()
+              ? std::to_string(local_config.frontend_pool_connections.value())
+              : "not set");
+
     // Parse the routing section
     if (node["routing"]) {
         if (node["routing"].IsMap()) {

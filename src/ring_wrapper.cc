@@ -11,7 +11,7 @@
 #include <unistd.h>
 #include "buffer.h"
 #include "glog/logging.h"
-#include "ring_helper.h"
+#include "ring_helper.hpp"
 
 RingWrapper::RingWrapper(size_t ring_size)
 : size(ring_size) {
@@ -28,32 +28,31 @@ RingWrapper::~RingWrapper() {
     io_uring_queue_exit(&ring);
 }
 
-void RingWrapper::prepare_accept(Listener& listener, UserData* ud) {
+void RingWrapper::prepare_accept(std::shared_ptr<Listener> listener, UserData* ud) {
     struct io_uring_sqe *sqe = get_sqe();
+    int fd = listener->get_fd();
     
     ud->accept_addr = std::make_unique<struct sockaddr_in>();
-    // Ensure the structure is fully zeroed before kernel writes into it
-    *ud->accept_addr = {};
+    // zero initialize the structure
+    std::memset(ud->accept_addr.get(), 0, sizeof(struct sockaddr_in));
     socklen_t server_addr_len = sizeof(*ud->accept_addr.get());
 
     io_uring_prep_accept(
         sqe,
-        listener.get_fd(),
+        fd,
         reinterpret_cast<sockaddr*>(ud->accept_addr.get()),
         &server_addr_len, 
         0);
     
-    ud->listener = std::addressof(listener);
+    ud->listener = std::move(listener);
     ud->op = Operation::ACCEPT;
     set_user_data(sqe, ud);
-    VLOG(1) << "Prepared accept, fd: " << listener.get_fd();
+    VLOG(1) << "Prepared accept, fd: " << fd;
 }
 
-void RingWrapper::prepare_read(Buffer* buffer, int fd, UserData* ud) {
+void RingWrapper::prepare_read(std::unique_ptr<Buffer> buffer, UserData* ud, std::shared_ptr<Listener> listener, std::shared_ptr<HTTPConnection> conn) {
     struct io_uring_sqe *sqe = get_sqe();
-
-    ud->set_buffer(buffer);
-    ud->op = Operation::READ;
+    int fd = conn->get_fd();
 
     io_uring_prep_read(
         sqe,
@@ -61,6 +60,8 @@ void RingWrapper::prepare_read(Buffer* buffer, int fd, UserData* ud) {
         buffer->data.data(),
         (uint32_t)buffer->get_size(),
         0);
+    
+    ::prepare_read(ud, std::move(buffer), std::move(listener), std::move(conn));
     
     // Set the buffer as the data for the SQE.
     // This will help us identify connection and buffer index after completion
@@ -163,28 +164,30 @@ struct io_uring_sqe* RingWrapper::get_sqe() {
     return sqe;
 }
 
-void RingWrapper::prepare_connect(std::unique_ptr<HTTPConnection>& conn, UserData* ud) {
+void RingWrapper::prepare_connect(std::shared_ptr<HTTPConnection> conn, UserData* ud) {
     struct io_uring_sqe *sqe = get_sqe();
+    int fd = conn->get_fd();
 
     io_uring_prep_connect(
         sqe,
-        conn->get_fd(),
+        fd,
         conn->get_addr(),
         sizeof(*conn->get_addr())
     );
 
-    ud->conn = conn.get();
+    ud->conn = std::move(conn);
     ud->op = Operation::CONNECT;
     set_user_data(sqe, ud);
 
-    VLOG(1) << "Prepared connect, fd: " << conn->get_fd();
+    VLOG(1) << "Prepared connect, fd: " << fd;
 
 }
 
 
-void RingWrapper::prepare_write(int fd, Buffer* buffer, UserData* ud) {
+void RingWrapper::prepare_write(std::shared_ptr<HTTPConnection> conn, std::unique_ptr<Buffer> buffer, UserData* ud) {
     struct io_uring_sqe *sqe = get_sqe();
-    
+    int fd = conn->get_fd();
+
     io_uring_prep_write(
         sqe,
         fd,
@@ -192,25 +195,25 @@ void RingWrapper::prepare_write(int fd, Buffer* buffer, UserData* ud) {
         (uint32_t)buffer->get_filled(),
         0);
     
-    ud->set_buffer(buffer);
-    ud->op = Operation::WRITE;
+    ::prepare_write(ud, std::move(buffer), std::move(conn));
     set_user_data(sqe, ud);
     VLOG(1) << "Prepared write, fd: " << fd;
 }
 
-void RingWrapper::prepare_cancel(HTTPConnection& conn, UserData* ud) {
+void RingWrapper::prepare_cancel(std::shared_ptr<HTTPConnection> conn, UserData* ud) {
     struct io_uring_sqe *sqe = get_sqe();
+    int fd = conn->get_fd();
     
-    io_uring_prep_close(sqe, conn.get_fd());
+    io_uring_prep_close(sqe, fd);
 
-    ud->conn = &conn;
+    ud->conn = std::move(conn);
     ud->op = Operation::CANCEL;
     set_user_data(sqe, ud);
 
-    VLOG(1) << "Prepared cancel, fd: " << conn.get_fd();
+    VLOG(1) << "Prepared cancel, fd: " << fd;
 }
 
-void RingWrapper::prepare_rcvmsg(int fd, Buffer* buffer, UserData* ud, UDPType udp_type) {
+void RingWrapper::prepare_rcvmsg(int fd, std::unique_ptr<Buffer> buffer, UserData* ud, UDPType udp_type) {
     struct io_uring_sqe *sqe = get_sqe();
 
     buffer->prepare_recvmsg();
@@ -224,7 +227,7 @@ void RingWrapper::prepare_rcvmsg(int fd, Buffer* buffer, UserData* ud, UDPType u
 
     //io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 
-    ud->set_buffer(buffer);
+    ud->set_buffer(std::move(buffer));
     ud->op = Operation::RCVMSG;
     ud->udp_type = udp_type;
     set_user_data(sqe, ud);
@@ -237,8 +240,8 @@ void RingWrapper::prepare_rcvmsg(int fd, Buffer* buffer, UserData* ud, UDPType u
     from the received message (old_buffer). In the case of a "request" send message, the
     server address structure has to created manually.
 */
-void RingWrapper::prepare_reply_sendmsg(int fd, Buffer* old_buffer,
-     Buffer* new_buffer, UserData* ud) {
+void RingWrapper::prepare_reply_sendmsg(int fd, const std::unique_ptr<Buffer>& old_buffer,
+    std::unique_ptr<Buffer> new_buffer, UserData* ud) {
     struct io_uring_sqe *sqe = get_sqe();
 
     new_buffer->prepare_reply_sendmsg(old_buffer);
@@ -247,14 +250,14 @@ void RingWrapper::prepare_reply_sendmsg(int fd, Buffer* old_buffer,
 
     //io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 
-    ud->set_buffer(new_buffer);
+    ud->set_buffer(std::move(new_buffer));
     ud->op = Operation::SENDMSG;
     set_user_data(sqe, ud);
 
     VLOG(1) << "Prepared sendmsg (reply), fd: " << fd;
 }
 
-void RingWrapper::prepare_req_sendmsg(int fd, Buffer* buffer, UserData* ud,
+void RingWrapper::prepare_req_sendmsg(int fd, std::unique_ptr<Buffer> buffer, UserData* ud,
     struct sockaddr_in servaddr) {
     struct io_uring_sqe *sqe = get_sqe();
 
@@ -262,7 +265,7 @@ void RingWrapper::prepare_req_sendmsg(int fd, Buffer* buffer, UserData* ud,
 
     io_uring_prep_sendmsg(sqe, fd, buffer->get_msg().get(), 0);
 
-    ud->set_buffer(buffer);
+    ud->set_buffer(std::move(buffer));
     ud->op = Operation::SENDMSG;
     set_user_data(sqe, ud);
 

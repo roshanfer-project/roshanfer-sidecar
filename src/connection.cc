@@ -122,7 +122,10 @@ int frame_recv_callback(nghttp2_session* /*session*/,
             // we have a response
             VLOG(1) << "RPC response received on fd: " << data->fd << " stream id: " << frame->hd.stream_id;
             data->queue->enqueue(data->type, data->direction, data->fd, frame->hd.stream_id);
-            auto rpc = dynamic_cast<gRPCMessage*>(data->mapper->get_us_rpc(data->type, frame->hd.stream_id, data->fd));
+            auto rpc = std::dynamic_pointer_cast<gRPCMessage>(data->mapper->get_us_rpc(data->type, frame->hd.stream_id, data->fd));
+            if (!rpc) {
+                LOG(FATAL) << "Null pointer after dynamic_cast";
+            }
             rpc->res_rcv_time = std::chrono::steady_clock::now();
             if (rpc->get_data_map().at(1)->offset == 0) {
                 // This is an error response
@@ -153,6 +156,7 @@ int on_data_chunk_recv_callback(nghttp2_session* /*session*/,
     CallbackData* callback_data = reinterpret_cast<CallbackData*>(user_data);
     
     if (callback_data->direction == ConnectionDirection::DOWNSTREAM) {
+    // This is a request
         try {
             callback_data->mapper->get_ds_rpc(callback_data->type, stream_id, callback_data->fd)->add_data(
                 data, len, true);
@@ -160,6 +164,7 @@ int on_data_chunk_recv_callback(nghttp2_session* /*session*/,
             LOG(FATAL) << "No RPC object found for stream_id: " << stream_id;
         }
     } else {
+        // This is a response
         try {
             callback_data->mapper->get_us_rpc(callback_data->type, stream_id, callback_data->fd)->add_data(
                 data, len, false);
@@ -285,24 +290,38 @@ ssize_t data_read_callback_request(nghttp2_session*,
     VLOG(1) << "data_read_callback_request, data len: " << info->offset
             << " stream id: " << stream_id
             << " fd: " << callback_data->fd;
-
-    // If the output buffer is too small, copy what fits.
+    
+    VLOG(2) << "Before read. offset: " << info->offset
+                << " read_offset: " << info->read_offset
+                << " length: " << length;
+    
     ssize_t res_len;
-    if (length < info->offset - info->read_offset) {
-        LOG(FATAL) << "FIXME: Like data_read_callback_response + use copy_n";
-        std::memcpy(buf, info->data.data()+info->read_offset, length);
-        info->read_offset += length;
-        res_len = (ssize_t)length;
-    } else {
-        std::copy_n(info->data.begin() + info->read_offset, info->offset - info->read_offset, buf);
-        info->read_offset += info->offset;
+    if (info->offset == 0) {
         *data_flags |= NGHTTP2_DATA_FLAG_EOF;
-        res_len = (ssize_t)info->offset;
-    }
+        res_len = 0;
+        LOG(WARNING) << "No data to send";
+    } else {
+        // If the output buffer is too small, copy what fits.
+        
+        size_t remain = info->offset - info->read_offset;
+        size_t to_copy = std::min(remain, length);
+        std::copy_n(info->data.begin() + info->read_offset, to_copy, buf);
+        info->read_offset += to_copy;
+        res_len = (ssize_t)to_copy;
 
-    // record the time
-    callback_data->mapper->get_us_rpc(callback_data->type, stream_id, callback_data->fd)->req_for_time
-     = std::chrono::steady_clock::now();
+        VLOG(2) << "After read. offset: " << info->offset
+                << " read_offset: " << info->read_offset
+                << " length: " << length;
+        
+        if (info->read_offset == info->offset) {
+            // we have reached the end of the data
+            *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+
+            // record the time
+            callback_data->mapper->get_us_rpc(callback_data->type, stream_id, callback_data->fd)->req_for_time
+                = std::chrono::steady_clock::now();
+        }
+    }
 
     return res_len;
 };
@@ -348,7 +367,10 @@ ssize_t data_read_callback_response(nghttp2_session* session,
             *data_flags |= NGHTTP2_DATA_FLAG_EOF;
             *data_flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
 
-            auto rpc = dynamic_cast<gRPCMessage*>(callback_data->mapper->get_ds_rpc(callback_data->type, stream_id, callback_data->fd));
+            auto rpc = std::dynamic_pointer_cast<gRPCMessage>(callback_data->mapper->get_ds_rpc(callback_data->type, stream_id, callback_data->fd));
+            if (!rpc) {
+                LOG(FATAL) << "Null pointer after dynamic_cast";
+            }
 
             nghttp2_nv* nva_trailers = new nghttp2_nv[(size_t)rpc->get_res_trailer_count()];
             auto& res_trailers = rpc->get_res_trailers();
@@ -368,12 +390,11 @@ ssize_t data_read_callback_response(nghttp2_session* session,
 
             // report latency
             if (config.report_latency) {
-                report_latency(*rpc, callback_data->type, callback_data->hist);
+                report_latency(rpc, callback_data->type, callback_data->hist);
             }
             
             // remove the RPC message from memory
-            auto orig_rpc = dynamic_cast<RPCMessage*>(rpc);
-            callback_data->mapper->remove_rpc(callback_data->type, orig_rpc);
+            callback_data->mapper->remove_rpc(callback_data->type, std::move(rpc));
         }
     }
     
@@ -381,16 +402,16 @@ ssize_t data_read_callback_response(nghttp2_session* session,
 };
 
 ConnectionPool::ConnectionPool(ConnectionType conn_type) 
-    : connections(std::unordered_map<int, std::unique_ptr<HTTPConnection>>()),
+    : connections(std::unordered_map<int, std::shared_ptr<HTTPConnection>>()),
       type(conn_type) {};
 
-std::unique_ptr<HTTPConnection>& ConnectionPool::add_connection(const std::string& host,
-     int port, RPCMapper* mapper, RPCQueue* queue, HTTP http, struct hdr_histogram* hist) {
-    std::unique_ptr<HTTPConnection> c;
+std::shared_ptr<HTTPConnection> ConnectionPool::add_connection(const std::string& host,
+     int port, RPCMapper* mapper, RPCQueue* queue, HTTP http, std::shared_ptr<struct hdr_histogram> hist) {
+    std::shared_ptr<HTTPConnection> c;
     if (http == HTTP::HTTP1) {
-        c = std::make_unique<HTTP1Connection>(host, port, type, mapper, queue, hist);
+        c = std::make_shared<HTTP1Connection>(host, port, type, mapper, queue, hist);
     } else {
-        c = std::make_unique<HTTP2Connection>(host, port, type, queue, mapper, hist);
+        c = std::make_shared<HTTP2Connection>(host, port, type, queue, mapper, hist);
     }
     int fd = c->get_fd();
     connections.emplace(fd, std::move(c));
@@ -401,7 +422,7 @@ bool ConnectionPool::has_connection(int fd) {
     return connections.find(fd) != connections.end();
 };
 
-std::unique_ptr<HTTPConnection>& ConnectionPool::get_connection(int fd) {
+std::shared_ptr<HTTPConnection> ConnectionPool::get_connection(int fd) {
     try {
         return connections.at(fd);
     } catch (const std::out_of_range& e) {
@@ -411,7 +432,7 @@ std::unique_ptr<HTTPConnection>& ConnectionPool::get_connection(int fd) {
 
 // This should return any "available" connections.
 // HTTP/1.1 connections doen't allow multiplexing.
-std::unique_ptr<HTTPConnection>& ConnectionPool::get_any_connection() {
+std::shared_ptr<HTTPConnection> ConnectionPool::get_any_connection() {
     if (connections.empty()) {
         throw NoConnectionException("Pool is empty");
     }
@@ -431,9 +452,9 @@ std::unique_ptr<HTTPConnection>& ConnectionPool::get_any_connection() {
 
 ///// HTTPConnection implementation
 
-HTTPConnection::HTTPConnection(int conn_fd, ConnectionType conn_type, struct hdr_histogram* hist_struct) 
+HTTPConnection::HTTPConnection(int conn_fd, ConnectionType conn_type, std::shared_ptr<struct hdr_histogram> hist_struct) 
     :   fd(conn_fd),
-        addr({}),
+        addr(std::make_unique<sockaddr_in>()),
         status(ConnectionStatus::UP),
         host(""),
         port(0),
@@ -442,6 +463,9 @@ HTTPConnection::HTTPConnection(int conn_fd, ConnectionType conn_type, struct hdr
         type(conn_type),
         direction(ConnectionDirection::DOWNSTREAM)
 {
+    // zero out the addr
+    std::memset(addr.get(), 0, sizeof(sockaddr_in));
+    
     if (fd < 0) {
         LOG(FATAL) << "Invalid file descriptor: " << fd;
         return;
@@ -450,21 +474,24 @@ HTTPConnection::HTTPConnection(int conn_fd, ConnectionType conn_type, struct hdr
     // set non-blocking
     int flags = fcntl(fd, F_GETFL, 0);
     if (flags < 0) {
-        LOG(FATAL) << "Failed to get flags for fd: " << fd;
+        LOG(FATAL) << "Failed to get flags for fd: " << fd
+        << ", error: " << strerror(errno);
     }
     if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-        LOG(FATAL) << "Failed to set non-blocking for fd: " << fd;
+        LOG(FATAL) << "Failed to set non-blocking for fd: " << fd
+        << ", error: " << strerror(errno);
     }
 
     int flag = 1;
     if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) == -1) {
-        LOG(FATAL) << "Failed to set TCP_NODELAY";
+        LOG(FATAL) << "Failed to set TCP_NODELAY for fd: " << fd
+        << ", error: " << strerror(errno);
     }
 };
 
-HTTPConnection::HTTPConnection(std::string conn_host, uint16_t conn_port, ConnectionType conn_type, struct hdr_histogram* hist_struct) 
+HTTPConnection::HTTPConnection(std::string conn_host, uint16_t conn_port, ConnectionType conn_type, std::shared_ptr<struct hdr_histogram> hist_struct) 
     :   fd(0),
-        addr({}),
+        addr(std::make_unique<sockaddr_in>()),
         status(ConnectionStatus::DOWN),
         host(conn_host),
         port(conn_port),
@@ -473,7 +500,9 @@ HTTPConnection::HTTPConnection(std::string conn_host, uint16_t conn_port, Connec
         type(conn_type),
         direction(ConnectionDirection::UPSTREAM)
 {
-
+    // zero out the addr
+    std::memset(addr.get(), 0, sizeof(sockaddr_in));
+    
     fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (fd < 0) {
         LOG(FATAL) << "Failed to create socket";
@@ -495,7 +524,8 @@ HTTPConnection::HTTPConnection(std::string conn_host, uint16_t conn_port, Connec
 
     // Copy resolved address to our member variable addr
     struct sockaddr_in* addr_in = reinterpret_cast<struct sockaddr_in*>(result->ai_addr);
-    addr = *addr_in;
+    // copy the addr_in to addr
+    std::memcpy(addr.get(), addr_in, sizeof(sockaddr_in));
 
     // Log the resolved IP address
     char ip_str[INET_ADDRSTRLEN];
@@ -534,14 +564,20 @@ std::string HTTPConnection::direction_to_str() {
 };
 
 sockaddr* HTTPConnection::get_addr() {
-    return reinterpret_cast<sockaddr*>(&addr);
+    return reinterpret_cast<sockaddr*>(addr.get());
 }
+
+HTTPConnection::~HTTPConnection() {
+    VLOG(2) << "HTTPConnection deconstructor on fd: " << fd;
+    close(fd);
+}
+
 
 
 //////// HTTP1Connection implementation
 
 HTTP1Connection::HTTP1Connection(std::string conn_host, uint16_t conn_port, ConnectionType conn_type, RPCMapper* rpc_mapper, RPCQueue* rpc_queue,
-                                 struct hdr_histogram* hist_struct)
+                                 std::shared_ptr<struct hdr_histogram> hist_struct)
     : HTTPConnection(conn_host, conn_port, conn_type, hist_struct),
       buf(std::make_unique<std::array<char, HTTP1Connection_BUF_SIZE>>()),
       buf_len(0),
@@ -553,7 +589,7 @@ HTTP1Connection::HTTP1Connection(std::string conn_host, uint16_t conn_port, Conn
       mapper(rpc_mapper),
       queue(rpc_queue),
       last_id(0),
-      rpc_message(nullptr) {
+      rpc_message() {
 
 
     VLOG(1) << "Created HTTP1Connection for host: " << host << " port: " << port 
@@ -562,7 +598,7 @@ HTTP1Connection::HTTP1Connection(std::string conn_host, uint16_t conn_port, Conn
             << ", direction: " << direction_to_str();
 }
 
-HTTP1Connection::HTTP1Connection(int conn_fd, ConnectionType conn_type, RPCMapper* rpc_mapper, RPCQueue* rpc_queue, struct hdr_histogram* hist_struct)
+HTTP1Connection::HTTP1Connection(int conn_fd, ConnectionType conn_type, RPCMapper* rpc_mapper, RPCQueue* rpc_queue, std::shared_ptr<struct hdr_histogram> hist_struct)
     : HTTPConnection(conn_fd, conn_type, hist_struct),
       buf(std::make_unique<std::array<char, HTTP1Connection_BUF_SIZE>>()),
       buf_len(0),
@@ -583,7 +619,6 @@ HTTP1Connection::HTTP1Connection(int conn_fd, ConnectionType conn_type, RPCMappe
 
 HTTP1Connection::~HTTP1Connection() {
     VLOG(1) << "HTTP1Connection deconstructor on fd: " << fd;
-    close(fd);
     //delete[] buf;
 }
 
@@ -594,14 +629,14 @@ static inline bool header_body_allowed(int code)
 }
 
 
-void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
+void HTTP1Connection::http_read(const std::unique_ptr<Buffer>& buffer, Ingress& ingress) {
     // copy at most HTTP1Connection_BUF_SIZE-buf_len bytes from Buffer to buf
     if (buffer->get_filled() == 0) {
         VLOG(1) << "No data to read on fd: " << fd;
         return;
     }
 
-    if (buf_len + buffer->get_filled() >= HTTP1Connection_BUF_SIZE) {
+    if (buffer->get_filled() > HTTP1Connection_BUF_SIZE - buf_len) {
         LOG(FATAL) << "Buffer overflow, buf_len: " << buf_len 
                     << ", buffer filled: " << buffer->get_filled();
     }
@@ -671,7 +706,10 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
         // create a new RPCMessage object
         last_id++;
         mapper->allocate_rpc(type, last_id, fd, HTTP::HTTP1);
-        HTTPMessage* rpc = dynamic_cast<HTTPMessage*>(mapper->get_ds_rpc(type, last_id, fd));
+        std::shared_ptr<HTTPMessage> rpc = std::static_pointer_cast<HTTPMessage>(mapper->get_ds_rpc(type, last_id, fd));
+        if (!rpc) {
+            LOG(FATAL) << "Null pointer after static_pointer_cast";
+        }
         rpc->req_rcv_time = std::chrono::steady_clock::now();
         
         // fill the RPCMessage
@@ -695,7 +733,7 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
             if (type == ConnectionType::INGRESS) {
                 LOG(FATAL) << "Ingress should be on the EGRESS connection, but got type: " << type_to_str();
             }
-            ingress.enqueue(rpc);
+            ingress.enqueue(std::move(rpc));            
         } else {
             LOG(FATAL) << "HTTP1 connection of type " << type_to_str()
                 << " and direction " << direction_to_str()
@@ -790,7 +828,10 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
             hdr_complete = true;
 
             // fill the RPCMessage
-            HTTPMessage* rpc = dynamic_cast<HTTPMessage*>(mapper->get_us_rpc(type, last_id, fd));
+            auto rpc = std::dynamic_pointer_cast<HTTPMessage>(mapper->get_us_rpc(type, last_id, fd));
+            if (!rpc) {
+                LOG(FATAL) << "Null pointer after dynamic_pointer_cast";
+            }
             for (size_t i = 0; i < num_headers; i++) {
                 rpc->add_header_field(
                     reinterpret_cast<const uint8_t*>(headers[i].name), headers[i].name_len,
@@ -815,7 +856,10 @@ void HTTP1Connection::http_read(Buffer* buffer, Ingress& ingress) {
             const char* body = buf->data() + hdr_size;
 
             // add the data
-            HTTPMessage* rpc = dynamic_cast<HTTPMessage*>(mapper->get_us_rpc(type, last_id, fd));
+            auto rpc = std::dynamic_pointer_cast<HTTPMessage>(mapper->get_us_rpc(type, last_id, fd));
+            if (!rpc) {
+                LOG(FATAL) << "Null pointer after dynamic_pointer_cast";
+            }
             rpc->res_rcv_time = std::chrono::steady_clock::now();
             rpc->add_data(reinterpret_cast<const uint8_t*>(body), (size_t)content_length, false);
         } else {
@@ -867,7 +911,7 @@ bool HTTP1Connection::want_write() {
 
 // Safely append a formatted string into the Buffer at the current filled offset.
 // Updates 'written_total' and buffer->filled, FATAL on overflow or formatting error.
-static inline void append_fmt_or_fatal(Buffer* buffer, int& written_total, const char* fmt, ...) {
+static inline void append_fmt_or_fatal(const std::unique_ptr<Buffer>& buffer, int& written_total, const char* fmt, ...) {
     size_t remaining = buffer->get_size() - buffer->get_filled();
     if (remaining == 0) {
         LOG(FATAL) << "Buffer has no remaining capacity";
@@ -883,12 +927,17 @@ static inline void append_fmt_or_fatal(Buffer* buffer, int& written_total, const
     buffer->set_filled(buffer->get_filled() + (size_t)ret);
 }
 
-int HTTP1Connection::http_write(Buffer* buffer) {
+int HTTP1Connection::http_write(const std::unique_ptr<Buffer>& buffer) {
     if (direction == ConnectionDirection::UPSTREAM) {
         // we are serializing a request
 
         int written = 0;
-    HTTPMessage* rpc = get_rpc_message();
+    auto rpc = get_rpc_message();
+    VLOG(1) << "http_write for request on connection fd: " << fd
+               << ", rpc ds_stream_id: " << rpc->get_ds_stream_id()
+               << ", rpc ds_fd: " << rpc->get_ds_fd()
+               << ", rpc us_stream_id: " << rpc->get_us_stream_id()
+               << ", rpc us_fd: " << rpc->get_us_fd();
 
     append_fmt_or_fatal(buffer, written,
                 "%.*s %.*s HTTP/1.%d\r\n",
@@ -936,7 +985,15 @@ int HTTP1Connection::http_write(Buffer* buffer) {
         // we are serializing a response
        
         int written = 0;
-    auto rpc = get_rpc_message();
+        auto rpc = get_rpc_message();
+        if (rpc_message) {
+            LOG(INFO) << "rpc_message is still valid";
+        }
+        VLOG(1) << "http_write for response on connection fd: " << fd
+               << ", rpc ds_stream_id: " << rpc->get_ds_stream_id()
+               << ", rpc ds_fd: " << rpc->get_ds_fd()
+               << ", rpc us_stream_id: " << rpc->get_us_stream_id()
+               << ", rpc us_fd: " << rpc->get_us_fd();
 
         if (rpc->is_error()) {
             // return a 503 error response
@@ -966,7 +1023,7 @@ int HTTP1Connection::http_write(Buffer* buffer) {
             append_fmt_or_fatal(buffer, written, "\r\n");
 
             auto body = rpc->get_res_data();
-            if (body.offset >= buffer->get_size()-buffer->get_filled()) {
+            if (body.offset > buffer->get_size()-buffer->get_filled()) {
                 LOG(FATAL) << "Buffer overflow, body size: " << body.offset
                     << ", buffer size: " << buffer->get_size()
                     << ", filled: " << buffer->get_filled();
@@ -993,11 +1050,10 @@ int HTTP1Connection::http_write(Buffer* buffer) {
         idle = true;
 
         if (config.report_latency) {
-            report_latency(*rpc, type, hist);
+            report_latency(rpc, type, hist);
         }
 
-        RPCMessage* orig_rpc = dynamic_cast<RPCMessage*>(rpc);
-        mapper->remove_rpc(type, orig_rpc);
+        mapper->remove_rpc(type, std::move(rpc));
 
         return written;
     }
@@ -1008,45 +1064,57 @@ void HTTP1Connection::submit_settings() {
     VLOG(1) << "submit_settings is a no-op for HTTP/1.1 connections";
 }
 
-int32_t HTTP1Connection::submit_request(RPCMessage& rpc) {
-    set_rpc_message(dynamic_cast<HTTPMessage*>(&rpc));
+int32_t HTTP1Connection::submit_request(std::shared_ptr<RPCMessage> rpc) {
+    auto http_rpc = std::dynamic_pointer_cast<HTTPMessage>(rpc);
+    if (!http_rpc) {
+        LOG(FATAL) << "Null pointer after dynamic_pointer_cast";
+    }
+    set_rpc_message(std::move(http_rpc));
     last_id++;
     return last_id;
 }
 
-void HTTP1Connection::submit_response(RPCMessage& rpc) {
-    set_rpc_message(dynamic_cast<HTTPMessage*>(&rpc));
+void HTTP1Connection::submit_response(std::shared_ptr<RPCMessage> rpc) {
+    auto http_rpc = std::dynamic_pointer_cast<HTTPMessage>(rpc);
+    if (!http_rpc) {
+        LOG(FATAL) << "Null pointer after dynamic_pointer_cast";
+    }
+    set_rpc_message(std::move(http_rpc));
 }
 
-void HTTP1Connection::submit_error_response(RPCMessage& rpc) {
-    submit_response(rpc);
+void HTTP1Connection::submit_error_response(std::shared_ptr<RPCMessage> rpc) {
+    auto http_rpc = std::dynamic_pointer_cast<HTTPMessage>(rpc);
+    if (!http_rpc) {
+        LOG(FATAL) << "Null pointer after dynamic_pointer_cast";
+    }
+    set_rpc_message(std::move(http_rpc));
 }
 
 bool HTTP1Connection::available() {
     return idle;
 }
 
-void HTTP1Connection::set_rpc_message(HTTPMessage* msg) {
-    if (rpc_message != nullptr) {
+void HTTP1Connection::set_rpc_message(std::shared_ptr<HTTPMessage> msg) {
+    VLOG(1) << "set_rpc_message for fd: " << fd;
+    if (rpc_message) {
         LOG(FATAL) << "RPC message is already set";
     }
-    rpc_message = msg;
+    rpc_message = std::move(msg);
 }
 
-HTTPMessage* HTTP1Connection::get_rpc_message() {
-    if (rpc_message == nullptr) {
+std::shared_ptr<HTTPMessage> HTTP1Connection::get_rpc_message() {
+    VLOG(1) << "get_rpc_message for fd: " << fd;
+    if (!rpc_message) {
         LOG(FATAL) << "RPC message is not set";
     }
-    auto rpc = rpc_message;
-    rpc_message = nullptr;
-    return rpc;
+    return std::move(rpc_message);
 }
 
 /////// HTTP2Connection implementation
 
 
 HTTP2Connection::HTTP2Connection(std::string conn_host, uint16_t conn_port, ConnectionType conn_type, RPCQueue* rpc_queue, RPCMapper* rpc_mapper,
-                                 struct hdr_histogram* hist_struct)
+                                 std::shared_ptr<struct hdr_histogram> hist_struct)
     :   HTTPConnection(conn_host, conn_port, conn_type, hist_struct),
         session(nullptr),
         callbacks(nullptr)
@@ -1075,7 +1143,7 @@ HTTP2Connection::HTTP2Connection(std::string conn_host, uint16_t conn_port, Conn
 }
 
 HTTP2Connection::HTTP2Connection(int conn_fd, ConnectionType conn_type, RPCMapper* rpc_mapper, RPCQueue* rpc_queue,
-                                struct hdr_histogram* hist_struct)
+                                std::shared_ptr<struct hdr_histogram> hist_struct)
     :   HTTPConnection(conn_fd, conn_type, hist_struct),
         session(nullptr),
         callbacks(nullptr)
@@ -1115,7 +1183,7 @@ void HTTP2Connection::set_callbacks(nghttp2_session_callbacks* callbacks) {
     nghttp2_session_callbacks_set_on_invalid_frame_recv_callback(callbacks, invalid_frame_callback);
 }
 
-void HTTP2Connection::http_read(Buffer* buffer, Ingress& /*ingress*/) {
+void HTTP2Connection::http_read(const std::unique_ptr<Buffer>& buffer, Ingress& /*ingress*/) {
     VLOG(1) << "Start reading HTTP/2 data on fd: " << fd;
     if (nghttp2_session_mem_recv(session, reinterpret_cast<const uint8_t*>(buffer->data.data()),
         buffer->get_filled()) != (ssize_t)buffer->get_filled()) {
@@ -1132,19 +1200,21 @@ bool HTTP2Connection::want_write() {
     return nghttp2_session_want_read(session) != 0;
 } */
 
-int HTTP2Connection::http_write(Buffer* buffer) {
+int HTTP2Connection::http_write(const std::unique_ptr<Buffer>& buffer) {
     const uint8_t* outbuf_ptr = nullptr;
     ssize_t written = nghttp2_session_mem_send(session, &outbuf_ptr);
     if (written < 0) {
         LOG(FATAL) << "Failed to send HTTP/2 data";
     }
 
+    if (buffer->get_filled() + (size_t)written > buffer->get_size()) {
+        LOG(WARNING) << "Buffer full, filled: " << buffer->get_filled()
+            << ", written: " << written
+            << ", size: " << buffer->get_size();
+        throw BufferFullException(outbuf_ptr, written);
+    }
     std::copy_n(outbuf_ptr, written, buffer->data.begin() + (long)buffer->get_filled());
     buffer->set_filled((size_t)written + buffer->get_filled());
-
-    if (buffer->get_filled() > buffer->get_size()) {
-        LOG(FATAL) << "Buffer overflow";
-    }
 
     VLOG(1) << "Wrote " << written << " bytes to HTTP/2 connection on fd: " << fd;
     return (int)written;
@@ -1157,8 +1227,11 @@ void HTTP2Connection::submit_settings() {
     VLOG(1) << "HTTP/2 settings submitted on fd: " << fd;
 }
 
-int32_t HTTP2Connection::submit_request(RPCMessage& rpc) {
-    gRPCMessage* grpc = dynamic_cast<gRPCMessage*>(&rpc);
+int32_t HTTP2Connection::submit_request(std::shared_ptr<RPCMessage> rpc) {
+    auto grpc = std::dynamic_pointer_cast<gRPCMessage>(rpc);
+    if (!grpc) {
+        LOG(FATAL) << "Null pointer after dynamic_pointer_cast";
+    }
     nghttp2_nv* nva = new nghttp2_nv[grpc->get_req_header_count()];
     auto& req_headers = grpc->get_req_headers();
     for (size_t i = 0; i < grpc->get_req_header_count(); i++) {
@@ -1187,8 +1260,11 @@ int32_t HTTP2Connection::submit_request(RPCMessage& rpc) {
     return id;
 }
 
-void HTTP2Connection::submit_response(RPCMessage& rpc) {
-    gRPCMessage* grpc = dynamic_cast<gRPCMessage*>(&rpc);
+void HTTP2Connection::submit_response(std::shared_ptr<RPCMessage> rpc) {
+    auto grpc = std::dynamic_pointer_cast<gRPCMessage>(rpc);
+    if (!grpc) {
+        LOG(FATAL) << "Null pointer after dynamic_pointer_cast";
+    }
     nghttp2_nv* nva_res = new nghttp2_nv[grpc->get_res_header_count()];
     auto& res_headers = grpc->get_res_headers();
     for (size_t i = 0; i < grpc->get_res_header_count(); i++) {
@@ -1209,15 +1285,18 @@ void HTTP2Connection::submit_response(RPCMessage& rpc) {
         LOG(WARNING) << "No data to send";
     }
 
-    nghttp2_submit_response(session, rpc.get_ds_stream_id(),
+    nghttp2_submit_response(session, rpc->get_ds_stream_id(),
         nva_res, grpc->get_res_header_count(), &data_prd);
 
     VLOG(1) << "HTTP/2 response submitted on fd: " << fd;
     delete [] nva_res;
 }
 
-void HTTP2Connection::submit_error_response(RPCMessage& rpc) {
-    gRPCMessage* grpc = dynamic_cast<gRPCMessage*>(&rpc);
+void HTTP2Connection::submit_error_response(std::shared_ptr<RPCMessage> rpc) {
+    auto grpc = std::dynamic_pointer_cast<gRPCMessage>(rpc);
+    if (!grpc) {
+        LOG(FATAL) << "Null pointer after dynamic_pointer_cast";
+    }
     nghttp2_nv* nva_res = new nghttp2_nv[grpc->get_res_header_count()];
     auto& res_headers = grpc->get_res_headers();
     for (size_t i = 0; i < grpc->get_res_header_count(); i++) {
@@ -1228,17 +1307,17 @@ void HTTP2Connection::submit_error_response(RPCMessage& rpc) {
         nva_res[i].flags = NGHTTP2_NV_FLAG_NONE;
     }
 
-    if (nghttp2_submit_response(session, rpc.get_ds_stream_id(),
+    if (nghttp2_submit_response(session, rpc->get_ds_stream_id(),
         nva_res, grpc->get_res_header_count(), nullptr) != 0) {
         LOG(FATAL) << "Failed to submit HTTP/2 error response on fd: " << fd;
     }
+    delete [] nva_res;
 
     VLOG(1) << "HTTP/2 error response submitted on fd: " << fd;
 }
 
 HTTP2Connection::~HTTP2Connection() {
     VLOG(1) << "HTTP2Connection deconstructor on fd: " << fd;
-    close(fd);
     if (session) {
         nghttp2_session_del(session);
     }

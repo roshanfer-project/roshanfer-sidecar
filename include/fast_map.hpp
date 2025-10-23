@@ -81,6 +81,16 @@ public:
         }
     }
 
+    ~FastMap() = default;
+
+    // delete copy semantics
+    FastMap(const FastMap&) = delete;
+    FastMap& operator=(const FastMap&) = delete;
+    
+    // delete move semantics
+    FastMap(FastMap&&) = delete;
+    FastMap& operator=(FastMap&&) = delete;
+
     // Returns pointer to the atomic value for key 'k', or nullptr if absent.
     std::atomic<T>* find_ptr(std::string_view k) noexcept {
         size_t idx;
@@ -384,6 +394,16 @@ public:
             }
         }
     }
+
+    ~LocalMap() = default;
+
+    // delete copy semantics
+    LocalMap(const LocalMap&) = delete;
+    LocalMap& operator=(const LocalMap&) = delete;
+    
+    // delete move semantics
+    LocalMap(LocalMap&&) = delete;
+    LocalMap& operator=(LocalMap&&) = delete;
 
     // Returns pointer to the value for key 'k', or nullptr if absent.
     T* find_ptr(std::string_view k) noexcept {

@@ -80,7 +80,7 @@ Utilization create_utilization(const Config& local_config) {
 
 State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_manager_ref,
     RPCMapper& mapper_ref, RPCQueue& queue_ref, std::unordered_map<ConnectionType,
-    Listener>& listeners_ref, Ingress& ingress_ref, SharedState& shared_state_ref, std::string& ingress_service_ref)
+    std::shared_ptr<Listener>>& listeners_ref, Ingress& ingress_ref, SharedState& shared_state_ref, std::string& ingress_service_ref)
 :   config(parsed_config),
     ingress_pool(ConnectionType::INGRESS),
     upstream_route_mapper(),
@@ -91,6 +91,7 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
     listeners(listeners_ref),
     ppm_queue(config.routing),
     ingress(ingress_ref),
+    hist(std::make_shared<struct hdr_histogram>()),
     shared_state(shared_state_ref),
     local_state(create_local_state(parsed_config)),
     utilization(create_utilization(parsed_config)),
@@ -104,10 +105,10 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
     for (const auto& [route, info] : config.routing) {
         upstream_route_mapper.add_route(route);
         auto& pool = upstream_route_mapper.get_pool(route);
-        int n_conn = config.is_ingress ? 100 : 1;
+        int n_conn = config.is_ingress ? config.ingress_pool_connections.value() : 1;
         auto http_type = config.is_ingress ? HTTP::HTTP1 : HTTP::HTTP2;
         for (int i = 0; i < n_conn; i++) {
-            auto& conn = pool.add_connection(
+            auto conn = pool.add_connection(
                 info.upstream.host,
                 info.upstream.port,
                 &rpc_mapper,
@@ -117,7 +118,7 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
             );
 
             // prepare connect
-            ring.prepare_connect(conn, buffer_manager.get_user_data());
+            ring.prepare_connect(std::move(conn), buffer_manager.get_user_data());
         }
     }
 
@@ -133,7 +134,7 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
     */
     int n_conn;
     if (config.is_frontend) {
-        n_conn = 50;
+        n_conn = config.frontend_pool_connections.value();
     } else if (config.is_ingress) {
         n_conn = 0;
     } else {
@@ -142,7 +143,7 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
     
     VLOG(2) << "Creating " << n_conn << " connections for ingress requests";
     for (int i = 0; i< n_conn; i++) {
-        auto& conn = ingress_pool.add_connection(
+        auto conn = ingress_pool.add_connection(
             config.ingress_upstream_host,
             config.ingress_upstream_port,
             &rpc_mapper,
@@ -152,7 +153,7 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
         );
 
         // prepare connect
-        ring.prepare_connect(conn, buffer_manager.get_user_data());
+        ring.prepare_connect(std::move(conn), buffer_manager.get_user_data());
     }
     
     // socket for UDP (Used for PPM)
@@ -161,60 +162,85 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
         LOG(FATAL) << "Failed to create socket";
     }
 
-    hdr_init(1, 50000, 3, &hist);
+    auto hist_ptr = hist.get();
+    hdr_init(1, 50000, 3, &hist_ptr);
     next_hist_update = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 }
 
-void State::write_http(HTTPConnection* conn) {
+void State::write_http(std::shared_ptr<HTTPConnection> conn) {
     if (conn->want_write() == 0) {
         return;
     }
     VLOG(1) << "Starting to write batch of HTTP data on fd: " << conn->get_fd();
 
     if (conn->http() == HTTP::HTTP2) {
-        Buffer* send_buffer = nullptr;
+        std::unique_ptr<Buffer> send_buffer;
         bool write_flag = false;
         while (conn->want_write()) {
-            if (send_buffer == nullptr) {
+            if (!send_buffer) {
                 send_buffer = buffer_manager.get_buffer();
             }
 
-            conn->http_write(send_buffer);
+            try {
+                conn->http_write(send_buffer);
+            } catch (const BufferFullException& e) {
+                // prepare existing buffer for write
+                ring.prepare_write(
+                    conn,
+                    std::move(send_buffer),
+                    buffer_manager.get_user_data()
+                );
+                // get a new buffer
+                send_buffer = buffer_manager.get_buffer();
+                // write into new one
+                if ((size_t)e.written > send_buffer->get_size() - send_buffer->get_filled()) {
+                    LOG(FATAL) << "Buffer too small for a single write, written: " << e.written
+                    << ", buffer size: " << send_buffer->get_size()
+                    << ", filled: " << send_buffer->get_filled();
+                }
+                std::copy_n(e.outbuf_ptr,
+                    (size_t)e.written,
+                send_buffer->data.begin() + (long)send_buffer->get_filled());
+                send_buffer->set_filled(send_buffer->get_filled() + (size_t)e.written);
+            }
 
             if (send_buffer->get_filled() == 0) {
-                buffer_manager.free_buffer(send_buffer);
+                buffer_manager.free_buffer(std::move(send_buffer));
                 break;
             }
             write_flag = true;
         }
 
         if (write_flag) {
-            auto write_ud = buffer_manager.get_user_data();
-            prepare_write(write_ud, send_buffer, conn);
-
             // prepare write (to write the request)
             ring.prepare_write(
-                conn->get_fd(),
-                send_buffer,
-                write_ud
+                conn,
+                std::move(send_buffer),
+                buffer_manager.get_user_data()
             );
         }
     } else if (conn->http() == HTTP::HTTP1) {
         while (conn->want_write()) {
-            Buffer* send_buffer = buffer_manager.get_buffer();
-            conn->http_write(send_buffer);
+            auto send_buffer = buffer_manager.get_buffer();
+            try {
+                conn->http_write(send_buffer);
+            } catch (const BufferFullException& e) {
+                // NOTE: This should not happen (fix it like HTTP/2 if you have to)
+                LOG(FATAL) << "Buffer full, written: " << e.written
+                << ", buffer size: " << send_buffer->get_size()
+                << ", filled: " << send_buffer->get_filled();
+                break;
+            }
+            //conn->http_write(send_buffer);
             if (send_buffer->get_filled() == 0) {
-                buffer_manager.free_buffer(send_buffer);
+                buffer_manager.free_buffer(std::move(send_buffer));
                 break;
             }
 
-            auto write_ud = buffer_manager.get_user_data();
-            prepare_write(write_ud, send_buffer, conn);
-            // prepare write (to write the request)
             ring.prepare_write(
-                conn->get_fd(),
-                send_buffer,
-                write_ud
+                conn,
+                std::move(send_buffer),
+                buffer_manager.get_user_data()
             );
         }
     } else {
@@ -227,17 +253,17 @@ void State::write_http(HTTPConnection* conn) {
 }
 
 
-HTTPConnection* State::route_request(ConnectionType type, int32_t ds_stream_id, int ds_fd) {
+std::shared_ptr<HTTPConnection> State::route_request(ConnectionType type, int32_t ds_stream_id, int ds_fd) {
     // get the RPC message
     auto rpc = rpc_mapper.get_ds_rpc(type, ds_stream_id, ds_fd);
 
     try {
-        HTTPConnection* conn = nullptr;
+        std::shared_ptr<HTTPConnection> conn;
         // TODO: implement load balancing within ach pool
         if (type == ConnectionType::INGRESS) {
-            conn = ingress_pool.get_any_connection().get();
+            conn = ingress_pool.get_any_connection();
         } else {
-            conn = upstream_route_mapper.get_pool(rpc->get_service()).get_any_connection().get();
+            conn = upstream_route_mapper.get_pool(rpc->get_service()).get_any_connection();
         }
 
         if (conn->get_status() == ConnectionStatus::TEARDOWN) {
@@ -271,12 +297,12 @@ HTTPConnection* State::route_request(ConnectionType type, int32_t ds_stream_id, 
 }
 
 
-bool State::forward_request(HTTPConnection* conn, RPCMessage* rpc) {
+bool State::forward_request(std::shared_ptr<HTTPConnection> conn, std::shared_ptr<RPCMessage> rpc) {
     // get an upstream connection
     try {
 
         // submit the request
-        rpc->set_us_stream_id(conn->submit_request(*rpc));
+        rpc->set_us_stream_id(conn->submit_request(rpc));
 
         // update the mapping
         rpc_mapper.route(conn->type, rpc->get_ds_stream_id(), rpc->get_ds_fd(), rpc->get_us_stream_id(), conn->get_fd());
@@ -323,8 +349,8 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                 return;
             } */
 
-            HTTPConnection* conn = route_request(type, src_stream_id, src_fd);
-            RPCMessage* rpc = rpc_mapper.get_ds_rpc(type, src_stream_id, src_fd);
+            auto conn = route_request(type, src_stream_id, src_fd);
+            auto rpc = rpc_mapper.get_ds_rpc(type, src_stream_id, src_fd);
 
             if (!forward_request(conn, rpc)) {
                 break;
@@ -345,18 +371,18 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
         else if (direction == ConnectionDirection::UPSTREAM) {
             // we are dealing with a response
 
-            if (listeners.at(type).no_connections()) {
-                LOG(WARNING) << "No " << listeners.at(type).type_to_str() << " connections available";
+            if (listeners.at(type)->no_connections()) {
+                LOG(WARNING) << "No " << listeners.at(type)->type_to_str() << " connections available";
                 VLOG(1) << "Finished routing on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
                 return;
             }
 
             // get the RPC message
-            RPCMessage* rpc = rpc_mapper.get_us_rpc(type, src_stream_id, src_fd);
+            auto rpc = rpc_mapper.get_us_rpc(type, src_stream_id, src_fd);
             int32_t ds_stream_id = rpc->get_ds_stream_id();
             int ds_fd = rpc->get_ds_fd();
             try {
-                std::unique_ptr<HTTPConnection>& conn = listeners.at(type).get_connection(rpc->get_ds_fd());
+                auto conn = listeners.at(type)->get_connection(rpc->get_ds_fd());
 
                 // update stats
                 if (!rpc->is_drop()) {
@@ -384,14 +410,16 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
 
                 // submit the response
                 if (rpc->is_error()) {
-                    conn->submit_error_response(*rpc);
-                    if (rpc->http() == HTTP::HTTP2) {
-                        rpc_mapper.remove_rpc(type, rpc);
+                    if (rpc->http() == HTTP::HTTP1) {
+                        conn->submit_error_response(std::move(rpc));
+                    } else {
+                        conn->submit_error_response(rpc);
+                        rpc_mapper.remove_rpc(type, std::move(rpc));
                     }
                 } else {
-                    conn->submit_response(*rpc);
+                    conn->submit_response(std::move(rpc));
                 }
-                write_http(conn.get());
+                write_http(conn);
                 VLOG(1) << "Submitted response on stream " << ds_stream_id;
 
 
@@ -414,7 +442,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
     VLOG(1) << "Finished forwarding on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
 }
 
-void State::remove_connection(HTTPConnection& /*conn*/) {
+void State::remove_connection(std::shared_ptr<HTTPConnection> /*conn*/) {
     LOG(FATAL) << "Removing connection for upstream is not implemented";
     //pools.at(conn.type).remove_connection(conn.get_fd());
 }
@@ -451,7 +479,7 @@ std::tuple<const std::string&, bool, size_t> State::valid_credit(const char* dat
     }
 }
 
-void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
+void State::ppm_client(bool dn_resp, const std::unique_ptr<Buffer>& dn_resp_buffer) {
     if (dn_resp) {
         // we have received a demand notification response
         auto [service, ok, num_credits] = valid_credit(dn_resp_buffer->data.data());
@@ -474,7 +502,7 @@ void State::ppm_client(bool dn_resp, Buffer* dn_resp_buffer) {
         for (size_t i = 0; i < num_credits; i++) {
             auto rpc = ppm_queue.dequeue(service);
             forward_request(
-                upstream_route_mapper.get_pool(service).get_connection(rpc->get_us_fd()).get(),
+                upstream_route_mapper.get_pool(service).get_connection(rpc->get_us_fd()),
                 rpc
             );
             shared_state.downstream_concurrency.add(service, 1);
@@ -547,7 +575,12 @@ void State::send_dn(HTTPConnection* conn, const std::string& service, size_t num
     msg.at(2) = 0x00; // request (0x00), response (0x01)
     msg.at(3) = (char)num_credits; // number of credits
     // position 4 is for the received number of credits
-
+    if (msg.size() - (size_t)header_size < service.length()) {
+        LOG(FATAL) << "Buffer overflow"
+                    << " , msg size: " << msg.size()
+                    << " , header size: " << header_size
+                    << " , service length: " << service.length();
+    }
     std::copy_n(service.begin(), service.length(), msg.begin() + header_size);
     udp_send(msg, reinterpret_cast<struct sockaddr_in*>(conn->get_addr()));
     //VLOG(1) << "PPMClient: Sent demand notification for service: " << service;
@@ -614,11 +647,11 @@ void State::ingress_admit() {
     // update ingress's p95 estimate
     if (std::chrono::steady_clock::now() >= next_hist_update && hist->total_count >= 500) {
         ingress.update_stats(
-                (int32_t)hdr_value_at_percentile(hist, 50.0),
-                (int32_t)hdr_value_at_percentile(hist, 95.0),
+                (int32_t)hdr_value_at_percentile(hist.get(), 50.0),
+                (int32_t)hdr_value_at_percentile(hist.get(), 95.0),
                 ingress_service
         );
-        hdr_reset(hist);
+        hdr_reset(hist.get());
         next_hist_update = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
     }
 
@@ -661,15 +694,21 @@ void State::ingress_admit() {
     
 }
 
-inline static void write_dn_response(int result, Buffer* req, Buffer* resp) {
+inline static void write_dn_response(int result, const std::unique_ptr<Buffer>& req, const std::unique_ptr<Buffer>& resp) {
     // copy request to response
+    if (resp->data.size() - resp->get_filled() < req->get_filled()) {
+        LOG(FATAL) << "Buffer overflow"
+                    << " , resp size: " << resp->data.size()
+                    << " , filled: " << resp->get_filled()
+                    << " , req size: " << req->get_filled();
+    }
     std::copy_n(req->data.begin(), req->get_filled(), resp->data.begin());
     resp->data.at(2) = 0x01; // response
     resp->data.at(4) = (char)result;
     resp->set_filled(req->get_filled());
 }
 
-void State::queue_multiplexer(Buffer* req, Buffer* resp) {
+void State::queue_multiplexer(const std::unique_ptr<Buffer>& req, const std::unique_ptr<Buffer>& resp) {
     // read the request
     if (req->data.at(1) == 0x01) {
         // we have demand notification
@@ -728,14 +767,19 @@ void State::queue_multiplexer(Buffer* req, Buffer* resp) {
 void State::udp_send(std::vector<char> msg, struct sockaddr_in* addr) {
 
     // write the message to a buffer
-    Buffer* buffer = buffer_manager.get_buffer();
+    auto buffer = buffer_manager.get_buffer();
+    if (msg.size() > buffer->get_size()) {
+        LOG(FATAL) << "Buffer overflow"
+                    << " , msg size: " << msg.size()
+                    << " , buffer size: " << buffer->get_size();
+    }
     std::copy_n(msg.begin(), msg.size(), buffer->data.begin());
     buffer->set_filled(msg.size());
     
     // send the request using the ring
     ring.prepare_req_sendmsg(
         sockfd,
-        buffer,
+        std::move(buffer),
         buffer_manager.get_user_data(),
         *addr
     );

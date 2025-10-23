@@ -17,10 +17,14 @@ Buffer::Buffer(size_t length, size_t id)
     iov(nullptr) {
 }
 
+Buffer::~Buffer() {
+    LOG(FATAL) << "Buffer deconstructor (should not be called)";
+}
+
 void Buffer::clear() {
-    //msg.reset();
-    //addr.reset();
-    //iov.reset();
+    msg.reset();
+    addr.reset();
+    iov.reset();
     filled = 0;
     is_free = true;
 }
@@ -35,38 +39,41 @@ void Buffer::set_filled(size_t f) {
 void Buffer::prepare_recvmsg() {
     // Zero-initialize ancillary structs to avoid garbage fields
     iov = std::make_unique<struct iovec>();
-    *iov = {};
+    std::memset(iov.get(), 0, sizeof(struct iovec));
     iov->iov_base = data.data();
     iov->iov_len = get_size();
 
     addr = std::make_unique<struct sockaddr_in>();
-    *addr = {};
-    msg = std::make_unique<struct msghdr>();
-    *msg = {};
+    std::memset(addr.get(), 0, sizeof(struct sockaddr_in));
 
+    msg = std::make_unique<struct msghdr>();
+    std::memset(msg.get(), 0, sizeof(struct msghdr));
     msg->msg_name = addr.get();
     msg->msg_namelen = sizeof(struct sockaddr_in);
     msg->msg_iov = iov.get();
     msg->msg_iovlen = 1;
+    
     // Ensure no control buffer is exposed to kernel
     msg->msg_control = nullptr;
     msg->msg_controllen = 0;
     msg->msg_flags = 0;
 }
 
-void Buffer::prepare_reply_sendmsg(Buffer* old_buffer) {
+void Buffer::prepare_reply_sendmsg(const std::unique_ptr<Buffer>& old_buffer) {
     iov = std::make_unique<struct iovec>();
-    *iov = {};
+    std::memset(iov.get(), 0, sizeof(struct iovec));
     iov->iov_base = data.data();
     iov->iov_len = get_filled();
 
-    addr = std::move(old_buffer->addr);
+    addr.reset(old_buffer->addr.release());
     msg = std::make_unique<struct msghdr>();
-    *msg = {};
+    std::memset(msg.get(), 0, sizeof(struct msghdr));
     msg->msg_name = addr.get(); 
     msg->msg_namelen = sizeof(struct sockaddr_in);
     msg->msg_iov = iov.get();
     msg->msg_iovlen = 1;
+
+    // Ensure no control buffer is exposed to kernel
     msg->msg_control = nullptr;
     msg->msg_controllen = 0;
     msg->msg_flags = 0;
@@ -74,17 +81,20 @@ void Buffer::prepare_reply_sendmsg(Buffer* old_buffer) {
 
 void Buffer::prepare_req_sendmsg(struct sockaddr_in servaddr) {
     iov = std::make_unique<struct iovec>();
-    *iov = {};
+    std::memset(iov.get(), 0, sizeof(struct iovec));
     iov->iov_base = data.data();
     iov->iov_len = get_filled();
 
     addr = std::make_unique<struct sockaddr_in>(servaddr);
+
     msg = std::make_unique<struct msghdr>();
-    *msg = {};
+    std::memset(msg.get(), 0, sizeof(struct msghdr));
     msg->msg_name = addr.get(); 
     msg->msg_namelen = sizeof(struct sockaddr_in);
     msg->msg_iov = iov.get();
     msg->msg_iovlen = 1;
+
+    // Ensure no control buffer is exposed to kernel
     msg->msg_control = nullptr;
     msg->msg_controllen = 0;
     msg->msg_flags = 0;

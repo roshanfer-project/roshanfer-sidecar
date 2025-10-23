@@ -99,21 +99,21 @@ class State {
 
     public:
         State(Config, RingWrapper&, BufferManager&, RPCMapper&, RPCQueue&,
-            std::unordered_map<ConnectionType, Listener>&, Ingress&, SharedState&, std::string&);
+            std::unordered_map<ConnectionType, std::shared_ptr<Listener>>&, Ingress&, SharedState&, std::string&);
         void forward(ConnectionType, ConnectionDirection);
-        void remove_connection(HTTPConnection&);
+        void remove_connection(std::shared_ptr<HTTPConnection>);
 
         // PPM-related functions
-        void queue_multiplexer(Buffer*, Buffer*);
-        void ppm_client(bool, Buffer*);
+        void queue_multiplexer(const std::unique_ptr<Buffer>&, const std::unique_ptr<Buffer>&);
+        void ppm_client(bool, const std::unique_ptr<Buffer>&);
         void ingress_admit();
-        struct hdr_histogram* get_histogram() { return hist; }
+        std::shared_ptr<struct hdr_histogram> get_histogram() { return hist; }
         
         /*Write request/response from connection's internal state to buffers. 
         For HTTP/2 it also writes setting/ping/etc frames.*/
-        void write_http(HTTPConnection*);
-        bool forward_request(HTTPConnection*, RPCMessage*);
-        HTTPConnection* route_request(ConnectionType, int32_t, int);
+        void write_http(std::shared_ptr<HTTPConnection>);
+        bool forward_request(std::shared_ptr<HTTPConnection>, std::shared_ptr<RPCMessage>);
+        std::shared_ptr<HTTPConnection> route_request(ConnectionType, int32_t, int);
         void dump_entire_state();
     private:
         void udp_send(std::vector<char>, struct sockaddr_in*);
@@ -133,10 +133,10 @@ class State {
         int sockfd; // UDP socket file descriptor
         RPCMapper& rpc_mapper;
         RPCQueue& rpc_queue;
-        std::unordered_map<ConnectionType, Listener>& listeners;
+        std::unordered_map<ConnectionType, std::shared_ptr<Listener>>& listeners;
         PPMQueue ppm_queue;
         Ingress& ingress;
-        struct hdr_histogram* hist;
+        std::shared_ptr<struct hdr_histogram> hist;
         std::chrono::steady_clock::time_point next_hist_update;
 
     

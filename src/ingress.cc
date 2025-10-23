@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -37,7 +38,7 @@ LocalMap<MovingAverage> make_admission_rate(const std::unordered_map<std::string
 }
 
 Ingress::Ingress(std::unordered_map<std::string, RoutingEntry, TransparentHash, TransparentEqual> routing, int index_arg) 
-    :   queue(std::unordered_map<std::string, std::deque<RPCMessage*>>()),
+    :   queue(std::unordered_map<std::string, std::deque<std::shared_ptr<RPCMessage>>>()),
         drop_id(make_drop_id(routing)),
         services(std::vector<std::string>(routing.size())),
         drop_fd(-index_arg),
@@ -45,11 +46,11 @@ Ingress::Ingress(std::unordered_map<std::string, RoutingEntry, TransparentHash, 
         p50(make_drop_id(routing)),
         slo(make_drop_id(routing)),
         admission_rate(make_admission_rate(routing)),
-        last_admission(make_last_admission(routing)),
-        max_queue(0)
+        last_admission(make_last_admission(routing))
+        //max_queue(0)
     {
         for (const auto& [route, info] : routing) {
-            queue.emplace(route, std::deque<RPCMessage*>());
+            queue.emplace(route, std::deque<std::shared_ptr<RPCMessage>>());
             services.push_back(route);
             if (config.is_ingress) {
                 slo.set(route, info.slo.value());
@@ -61,9 +62,9 @@ Ingress::Ingress(std::unordered_map<std::string, RoutingEntry, TransparentHash, 
 
 Ingress::~Ingress() {}
 
-void Ingress::enqueue(RPCMessage* rpc) {
+void Ingress::enqueue(std::shared_ptr<RPCMessage> rpc) {
     try {
-        queue.at(rpc->get_service()).push_back(rpc);
+        queue.at(rpc->get_service()).push_back(std::move(rpc));
         /* if (max_queue < (int32_t)queue.at(rpc->get_service()).size()) {
             max_queue = (int32_t)queue.at(rpc->get_service()).size();
             LOG(INFO) << "Max queue: " << max_queue << " for service: " << rpc->get_service();
@@ -76,14 +77,14 @@ void Ingress::enqueue(RPCMessage* rpc) {
     }
 }
 
-RPCMessage* Ingress::dequeue(std::string service) {
+std::shared_ptr<RPCMessage> Ingress::dequeue(std::string service) {
     if (queue.find(service) == queue.end()) {
         LOG(FATAL) << "Service not found in ingress queue: " << service;
     }
     if (queue.at(service).empty()) {
         LOG(FATAL) << "No RPC message in ingress queue for service: " << service;
     }
-    RPCMessage* rpc = queue.at(service).front();
+    auto rpc = std::move(queue.at(service).front());
     queue.at(service).pop_front();
 
     // update admission rate
@@ -103,7 +104,10 @@ bool Ingress::check_drop(RPCQueue& rpc_queue, RPCMapper& rpc_mapper, std::string
     int queue_size = (int)queue.at(service).size();
     if ((uint32_t)queue_size > limit ||
         ((int32_t)admission_rate.get(service).get_value() * queue_size > slo.get(service))) {
-        HTTPMessage* drop_rpc = dynamic_cast<HTTPMessage*>(queue.at(service).back());
+        auto drop_rpc = std::dynamic_pointer_cast<HTTPMessage>(std::move(queue.at(service).back()));
+        if (!drop_rpc) {
+            LOG(FATAL) << "Null pointer after dynamic_pointer_cast";
+        }
         queue.at(service).pop_back();
 
         if (drop_rpc->get_service() != service) {

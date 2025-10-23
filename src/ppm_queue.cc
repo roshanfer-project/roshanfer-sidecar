@@ -7,19 +7,19 @@
 #include <unordered_map>
 
 PPMQueue::PPMQueue(std::unordered_map<std::string, RoutingEntry, TransparentHash, TransparentEqual> routing)
-: ppm_queue(std::unordered_map<std::string, std::queue<RPCMessage*>,
+: ppm_queue(std::unordered_map<std::string, std::queue<std::shared_ptr<RPCMessage>>,
     TransparentHash, TransparentEqual>()) {
     for (const auto& [route, _] : routing) {
-        ppm_queue.emplace(route, std::queue<RPCMessage*>());
+        ppm_queue.emplace(route, std::queue<std::shared_ptr<RPCMessage>>());
     }
 }
 
-void PPMQueue::enqueue(RPCMessage* rpc) {
+void PPMQueue::enqueue(std::shared_ptr<RPCMessage> rpc) {
     try {
         ppm_queue.at(rpc->get_service()).push(rpc);
     } catch (const std::out_of_range&) {
         try {
-            ppm_queue.emplace(rpc->get_service(), std::queue<RPCMessage*>());
+            ppm_queue.emplace(rpc->get_service(), std::queue<std::shared_ptr<RPCMessage>>());
             ppm_queue.at(rpc->get_service()).push(rpc);
         } catch (const std::exception& e) {
             LOG(FATAL) << "Error in initializing PPM queue for service: "
@@ -32,7 +32,7 @@ void PPMQueue::enqueue(RPCMessage* rpc) {
     VLOG(1) << "Enqueued RPC message on service " << rpc->get_service();
 }
 
-RPCMessage* PPMQueue::dequeue(const std::string& service) {
+std::shared_ptr<RPCMessage> PPMQueue::dequeue(const std::string& service) {
     try {
         if (ppm_queue.at(service).empty()) {
             LOG(FATAL) << "Trying to dequeue from an empty queue for service: " << service;
