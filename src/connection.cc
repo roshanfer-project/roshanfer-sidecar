@@ -987,7 +987,7 @@ int HTTP1Connection::http_write(const std::unique_ptr<Buffer>& buffer) {
         int written = 0;
         auto rpc = get_rpc_message();
         if (rpc_message) {
-            LOG(INFO) << "rpc_message is still valid";
+            LOG(FATAL) << "rpc_message is still valid";
         }
         VLOG(1) << "http_write for response on connection fd: " << fd
                << ", rpc ds_stream_id: " << rpc->get_ds_stream_id()
