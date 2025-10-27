@@ -65,10 +65,6 @@ Ingress::~Ingress() {}
 void Ingress::enqueue(std::shared_ptr<RPCMessage> rpc) {
     try {
         queue.at(rpc->get_service()).push_back(std::move(rpc));
-        /* if (max_queue < (int32_t)queue.at(rpc->get_service()).size()) {
-            max_queue = (int32_t)queue.at(rpc->get_service()).size();
-            LOG(INFO) << "Max queue: " << max_queue << " for service: " << rpc->get_service();
-        } */
     } catch (const std::out_of_range&) {
         LOG(FATAL) << "Service not found in ingress queue: " << rpc->get_service();
     } catch (const std::exception& e) {

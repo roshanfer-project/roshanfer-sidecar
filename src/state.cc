@@ -341,14 +341,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                    << " and direction " << direction_to_str(direction);
 
         if (direction == ConnectionDirection::DOWNSTREAM) {
-            // we are dealing with a request
-
-            /* if (type == ConnectionType::EGRESS) {
-                // this should be handled by ppm client
-                rpc_queue.enqueue(type, direction, fd, stream_id);
-                VLOG(1) << "PPM client should route EGRESS requests";
-                return;
-            } */
+            // we are dealing with a request (INGRESS-DOWNSTREAM)
 
             auto conn = route_request(type, src_stream_id, src_fd);
             auto rpc = rpc_mapper.get_ds_rpc(type, src_stream_id, src_fd);
