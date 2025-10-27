@@ -417,8 +417,8 @@ public:
         return (s && equals(*s, k)) ? &slots_[idx].value : nullptr;
     }
 
-    // Convenience: get value if present, else LOG(FATAL) with all keys.
-    T get(std::string_view k) const noexcept {
+    // Convenience: get reference to value if present, else LOG(FATAL) with all keys.
+    T& get(std::string_view k) noexcept {
         if (auto p = find_ptr(k)) return *p;
         
         // Key not found - log all present keys and then fatal error
@@ -429,7 +429,22 @@ public:
             }
         }
         LOG(FATAL) << "LocalMap key '" << k << "' not found";
-        return T{}; // Never reached, but satisfies compiler
+        std::terminate(); // Never reached, but satisfies compiler
+    }
+
+    // Convenience: get const reference to value if present, else LOG(FATAL) with all keys.
+    const T& get(std::string_view k) const noexcept {
+        if (auto p = find_ptr(k)) return *p;
+        
+        // Key not found - log all present keys and then fatal error
+        LOG(INFO) << "Key '" << k << "' not found. Available keys:";
+        for (size_t i = 0; i < slots_.size(); ++i) {
+            if (slots_[i].occupied()) {
+                LOG(INFO) << "  - '" << slots_[i].key << "' (index: " << i << ")";
+            }
+        }
+        LOG(FATAL) << "LocalMap key '" << k << "' not found";
+        std::terminate(); // Never reached, but satisfies compiler
     }
 
     // Convenience: assign. LOG(FATAL) if key is missing.
