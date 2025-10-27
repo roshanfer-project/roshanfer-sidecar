@@ -45,19 +45,37 @@ class SharedState  {
         SharedState(std::vector<std::string>, std::vector<std::string>);
     
     public:
-        /*Ingress-side metrics*/
-        // hosted services and their sent credits
-        FastMap<uint32_t> sent_credits;
-        // per-method ingress responses in to the sidecar (from the local app)
-        FastMap<uint32_t> per_method_resp_in;
-        // ingress requests admitted to the sidecar
-        FastMap<uint32_t> ingress_admitted;
+        /*ConnectionType::INGRESS-side metrics*/
 
-        /*Egress-side metrics*/
-        // downstream services and their concurrency
+        /*
+        hosted services and their sent credits
+        Note that this is shared among threads for the same reason as ingress_admitted.
+        */
+        FastMap<uint32_t> sent_credits;
+        /*
+        per-method ConnectionType::INGRESS responses in to the sidecar (from the local app). In other words,
+        this is final response for a service method.
+        Note that Ingress::Ingress does not use this because it relies on ConnectionType::EGRESS responses.
+        This is shared among threads for the same reason as ingress_admitted.
+        */
+        FastMap<uint32_t> per_method_resp_in;
+        /*
+        This counts the number of ConnectionType::INGRESS requests admitted to the sidecar
+        Note that Ingress::Ingress does not use this.
+        The reason that this is shared among threads is because we are relying on the kernel
+        to balance connections between threads. Therefore, we might have different threads 
+        receiving requests for the same service (For frontend, this is defenitely the case now).
+        */
+        FastMap<uint32_t> ingress_request_admitted;
+
+
+        /*ConnectionType::EGRESS-side metrics*/
+
+        /*
+        downstream services and their concurrency
+        Note that this is shared among threads for the same reason as ingress_admitted.
+        */
         FastMap<int64_t> downstream_concurrency;
-        // Only if config.is_ingress is true, number of transmitted requests by ppm client
-        FastMap<uint32_t> ingress_transmitted;
 };
 
 class LocalState {
@@ -65,13 +83,20 @@ class LocalState {
         LocalState(std::vector<std::string>, std::vector<std::string>);
     
     public:
-        /*Ingress-side metrics*/
-        // Local concurrency limit for each service
+        /*ConnectionType::INGRESS-side metrics*/
+
+        /*
+        READ-ONLY: Global concurrency limit for all services (config.ppm_limit).
+        */
         LocalMap<uint32_t> local_concurrency_limit;
-        // per-API limit
+        /*
+        READ-ONLY: per-API limit (config.mapping.<service>.limit).
+        */
         LocalMap<uint32_t> per_api_limit;
 
-        /*Egress-side metrics*/
+
+        /*ConnectionType::EGRESS-side metrics*/
+
         // downstream services and their denied requests
         LocalMap<uint32_t> denied_reqs;
         // True for downstream services if we have received a response form them or
@@ -79,10 +104,34 @@ class LocalState {
         std::unordered_map<std::string, bool> ppm_client_dn_send;
         // Number of new requests in the PPM queue for each service
         LocalMap<uint32_t> new_ppm_queue_reqs;
-        // Number of received responses for each service
+        /*
+        Number of received responses for each service .
+        This is EGRESS equivalent of `per_method_resp_in`.
+        */
         LocalMap<uint32_t> egress_resp_in;
         // number of drops (updated if only config.is_ingress is true)
         uint32_t drops;
+        /*
+        ONLY used by Ingress::Ingress to track the number of requests admitted to RPCQueue for admittion.
+        */
+        LocalMap<int64_t> ingress_to_be_admitted;
+        /*
+        ONLY used by Ingress::Ingress to track the number of requests admitted to frontend.
+        */
+        LocalMap<int64_t> ingress_admitted;
+        /*
+        ONLY used by Ingress::Ingress to track the admission waiting time.
+        */
+        LocalMap<MovingAverage> avg_service_time_us;
+        /*
+        ONLY used by Ingress::Ingress to track the last admission time.
+        */
+        //LocalMap<std::chrono::time_point<std::chrono::steady_clock>> last_admission;
+        /*
+        READ-ONLY: ONLY used by Ingress::Ingress to track the ingress limit.
+        */
+        LocalMap<int32_t> ingress_limit;
+
 };
 
 class UpstreamRouteMapper{

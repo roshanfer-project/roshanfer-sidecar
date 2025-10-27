@@ -28,34 +28,23 @@ LocalMap<std::chrono::time_point<std::chrono::steady_clock>> make_last_admission
     return LocalMap<std::chrono::time_point<std::chrono::steady_clock>>(services);
 }
 
-LocalMap<MovingAverage> make_admission_rate(const std::unordered_map<std::string,
-     RoutingEntry, TransparentHash, TransparentEqual>& routing) {
-    std::vector<std::string> services;
-    for (const auto& [route, info] : routing) {
-        services.push_back(route);
-    }
-    return LocalMap<MovingAverage>(services);
-}
-
 Ingress::Ingress(std::unordered_map<std::string, RoutingEntry, TransparentHash, TransparentEqual> routing, int index_arg) 
     :   queue(std::unordered_map<std::string, std::deque<std::shared_ptr<RPCMessage>>>()),
         drop_id(make_drop_id(routing)),
         services(std::vector<std::string>(routing.size())),
         drop_fd(-index_arg),
-        p95(make_drop_id(routing)),
-        p50(make_drop_id(routing)),
-        slo(make_drop_id(routing)),
-        admission_rate(make_admission_rate(routing)),
-        last_admission(make_last_admission(routing))
+        p95_us(make_drop_id(routing)),
+        p50_us(make_drop_id(routing)),
+        slo_us(make_drop_id(routing))
         //max_queue(0)
     {
         for (const auto& [route, info] : routing) {
             queue.emplace(route, std::deque<std::shared_ptr<RPCMessage>>());
             services.push_back(route);
             if (config.is_ingress) {
-                slo.set(route, info.slo.value());
-                p95.set(route, -1);
-                p50.set(route, -1);
+                slo_us.set(route, info.slo.value() * 1000);
+                p95_us.set(route, -1);
+                p50_us.set(route, -1);
             }
         }
     }
@@ -83,26 +72,71 @@ std::shared_ptr<RPCMessage> Ingress::dequeue(std::string service) {
     auto rpc = std::move(queue.at(service).front());
     queue.at(service).pop_front();
 
-    // update admission rate
-    if (admission_rate.get(service).get_count() == 0) {
-        last_admission.set(service, std::chrono::steady_clock::now());
-    } else {
-        auto now = std::chrono::steady_clock::now();
-        int32_t time_diff_us = (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(now - last_admission.get(service)).count();
-        admission_rate.get(service).update(time_diff_us);
-        last_admission.set(service, now);
-    }
-
     return rpc;
 }
 
-bool Ingress::check_drop(RPCQueue& rpc_queue, RPCMapper& rpc_mapper, std::string& service, uint32_t limit) {
-    int queue_size = (int)queue.at(service).size();
-    if ((uint32_t)queue_size > limit ||
-        ((int32_t)admission_rate.get(service).get_value() * queue_size > slo.get(service))) {
+int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue& rpc_queue, RPCMapper& rpc_mapper,
+     std::string& service, int64_t current_queue_size, float waiting_time_per_request, int32_t extra_slot) {
+    int new_requests = (int)queue.at(service).size();
+    float current_slo_us = (float)slo_us.get(service);
+    int new_added = 0;
+
+    // check if we can admit the requests in the queue
+    int new_req_tmp = new_requests;
+    for (int i = 1; i<= new_requests; i++) {
+        if (extra_slot > 0) {
+            // use all the available slots in the system
+            auto rpc = dequeue(service);
+            rpc_queue.enqueue(
+                ConnectionType::EGRESS,
+                ConnectionDirection::DOWNSTREAM,
+                rpc->get_ds_fd(),
+                rpc->get_ds_stream_id()
+            );
+            VLOG(2) << "New request to be admitted: " << service
+                    << ", ingress standing queue: " << current_queue_size + i
+                    << ", extra slot: " << extra_slot;
+            extra_slot--;
+            new_added++;
+            new_req_tmp--;
+        } else {
+            break;
+        }
+    }
+    new_requests = new_req_tmp;
+    new_req_tmp = new_requests;
+    // accept to "to be admitted" if the queueing delay is less than SLO
+    for (int i = 1; i<= new_requests; i++) {
+        if (waiting_time_per_request * (float)(current_queue_size + i) < current_slo_us) {
+            
+            auto rpc = dequeue(service);
+            rpc_queue.enqueue(
+                ConnectionType::EGRESS,
+                ConnectionDirection::DOWNSTREAM,
+                rpc->get_ds_fd(),
+                rpc->get_ds_stream_id()
+            );
+
+            VLOG(2) << "New request to be admitted: " << service
+                    << ", ingress standing queue: " << current_queue_size + i
+                    << ", waiting time per request: " << waiting_time_per_request
+                    << ", extra slot: " << extra_slot;
+            // update states
+            new_added++;
+            new_req_tmp--;
+        } else {
+            // drop the request
+            break;
+        }
+    }
+    new_requests = new_req_tmp;
+    // now drop the remaining requests
+    for (int i = 0; i < new_requests; i++) {
         auto drop_rpc = std::dynamic_pointer_cast<HTTPMessage>(std::move(queue.at(service).back()));
         if (!drop_rpc) {
-            LOG(FATAL) << "Null pointer after dynamic_pointer_cast";
+            LOG(FATAL) << "Null pointer after dynamic_pointer_cast"
+                       << " service: " << service
+                       << " queue size: " << queue.at(service).size();
         }
         queue.at(service).pop_back();
 
@@ -113,8 +147,6 @@ bool Ingress::check_drop(RPCQueue& rpc_queue, RPCMapper& rpc_mapper, std::string
 
         drop_rpc->set_error(true);
         drop_rpc->set_status(503);
-
-        // admit the failure response
         drop_id.add(drop_rpc->get_service(), 1);
         drop_rpc->set_us_fd(drop_fd);
         drop_rpc->set_us_stream_id(drop_id.get(drop_rpc->get_service()));
@@ -124,17 +156,43 @@ bool Ingress::check_drop(RPCQueue& rpc_queue, RPCMapper& rpc_mapper, std::string
                         ConnectionDirection::UPSTREAM, // we want this to be forwarded to downstream connection
                         drop_rpc->get_us_fd(),
                         drop_rpc->get_us_stream_id());
-        return true;
+        VLOG(2) << "Dropped request: " << drop_rpc->get_service()
+                << ", ingress standing queue: " << current_queue_size + new_added
+                << ", extra slot: " << extra_slot;
     }
-    return false;
+
+    return new_added;
 }
 
-void Ingress::update_stats(int32_t new_p50, int32_t new_p95, std::string& service) {
-    p50.set(service, new_p50);
-    p95.set(service, new_p95);
-    VLOG(1) << "Updated ingress p50 to " << new_p50 << " and p95 to " << new_p95 << " for service: " << service;
+void Ingress::update_stats(int32_t new_p50_us, int32_t new_p95_us, std::string& service) {
+    p50_us.set(service, new_p50_us);
+    p95_us.set(service, new_p95_us);
+    VLOG(1) << "Updated ingress p50_us to " << new_p50_us << " and p95_us to " << new_p95_us << " for service: " << service;
 }
 
 size_t  Ingress::size(std::string service) {
     return queue.at(service).size();
+}
+
+void Ingress::dump_state() {
+    LOG(INFO) << "--- Ingress Queue Sizes (ingress) ---";
+    for (const auto& [route, _] : config.routing) {
+        LOG(INFO) << "  " << route << ": " << queue.at(route).size();
+    }
+    LOG(INFO) << "--- Drop ID (drop_id) ---";
+    for (const auto& [route, _] : config.routing) {
+        LOG(INFO) << "  " << route << ": " << drop_id.get(route);
+    }
+    LOG(INFO) << "--- P95 US (p95_us) ---";
+    for (const auto& [route, _] : config.routing) {
+        LOG(INFO) << "  " << route << ": " << p95_us.get(route);
+    }
+    LOG(INFO) << "--- P50 US (p50_us) ---";
+    for (const auto& [route, _] : config.routing) {
+        LOG(INFO) << "  " << route << ": " << p50_us.get(route);
+    }
+    LOG(INFO) << "--- SLO US (slo_us) ---";
+    for (const auto& [route, _] : config.routing) {
+        LOG(INFO) << "  " << route << ": " << slo_us.get(route);
+    }
 }

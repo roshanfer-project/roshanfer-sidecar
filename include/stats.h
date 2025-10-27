@@ -75,9 +75,18 @@ void inline report_latency(const std::shared_ptr<RPCMessage>& rpc, ConnectionTyp
 class MovingAverage {
     public:
         MovingAverage();
+
+        // delete copy semantics
+        MovingAverage(const MovingAverage&) = delete;
+        MovingAverage& operator=(const MovingAverage&) = delete;
+
+        // delete move semantics
+        MovingAverage(MovingAverage&&) = delete;
+        MovingAverage& operator=(MovingAverage&&) = delete;
+    
         void update(int32_t);
         float get_value();
-        uint32_t get_count();
+        uint32_t get_count() const;
 
     private:
         uint32_t count;

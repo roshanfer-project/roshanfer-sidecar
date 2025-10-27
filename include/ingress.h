@@ -6,7 +6,6 @@
 #include "rpc_mapper.h"
 #include "rpc_message.h"
 #include "rpc_queue.h"
-#include "stats.h"
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -24,7 +23,8 @@ class Ingress {
         std::shared_ptr<RPCMessage> dequeue(std::string);
         size_t size(std::string);
         void update_stats(int32_t, int32_t, std::string&);
-        bool check_drop(RPCQueue&, RPCMapper&, std::string&, uint32_t);
+        int64_t add_to_be_admitted_or_drop(RPCQueue&, RPCMapper&, std::string&, int64_t, float, int32_t);
+        void dump_state();
 
 
     private:
@@ -32,10 +32,8 @@ class Ingress {
         LocalMap<int32_t> drop_id;
         std::vector<std::string> services;
         int drop_fd;
-        LocalMap<int32_t> p95;
-        LocalMap<int32_t> p50;
-        LocalMap<int32_t> slo;
-        LocalMap<MovingAverage> admission_rate;
-        LocalMap<std::chrono::time_point<std::chrono::steady_clock>> last_admission;
+        LocalMap<int32_t> p95_us;
+        LocalMap<int32_t> p50_us;
+        LocalMap<int32_t> slo_us;
         //int32_t max_queue;
 };

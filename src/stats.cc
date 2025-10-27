@@ -79,12 +79,13 @@ MovingAverage::MovingAverage() : count(0), value(0.0) {}
 void MovingAverage::update(int32_t new_value) {
     count++;
     value += ((float)new_value - value) / (float)count;
+    VLOG(1) << "MovingAverage update: " << new_value << " count: " << count << " value: " << value;
 }
 
 float MovingAverage::get_value() {
     return value;
 }
 
-uint32_t MovingAverage::get_count() {
+uint32_t MovingAverage::get_count() const {
     return count;
 }
