@@ -107,7 +107,7 @@ class State {
         void queue_multiplexer(const std::unique_ptr<Buffer>&, const std::unique_ptr<Buffer>&);
         void ppm_client(bool, const std::unique_ptr<Buffer>&);
         void ingress_admit();
-        std::shared_ptr<struct hdr_histogram> get_histogram() { return hist; }
+        struct hdr_histogram* get_histogram() { return hist; }
         
         /*Write request/response from connection's internal state to buffers. 
         For HTTP/2 it also writes setting/ping/etc frames.*/
@@ -136,7 +136,7 @@ class State {
         std::unordered_map<ConnectionType, std::shared_ptr<Listener>>& listeners;
         PPMQueue ppm_queue;
         Ingress& ingress;
-        std::shared_ptr<struct hdr_histogram> hist;
+        struct hdr_histogram* hist;
         std::chrono::steady_clock::time_point next_hist_update;
 
     

@@ -406,7 +406,7 @@ ConnectionPool::ConnectionPool(ConnectionType conn_type)
       type(conn_type) {};
 
 std::shared_ptr<HTTPConnection> ConnectionPool::add_connection(const std::string& host,
-     int port, RPCMapper* mapper, RPCQueue* queue, HTTP http, std::shared_ptr<struct hdr_histogram> hist) {
+     int port, RPCMapper* mapper, RPCQueue* queue, HTTP http, struct hdr_histogram* hist) {
     std::shared_ptr<HTTPConnection> c;
     if (http == HTTP::HTTP1) {
         c = std::make_shared<HTTP1Connection>(host, port, type, mapper, queue, hist);
@@ -452,7 +452,7 @@ std::shared_ptr<HTTPConnection> ConnectionPool::get_any_connection() {
 
 ///// HTTPConnection implementation
 
-HTTPConnection::HTTPConnection(int conn_fd, ConnectionType conn_type, std::shared_ptr<struct hdr_histogram> hist_struct) 
+HTTPConnection::HTTPConnection(int conn_fd, ConnectionType conn_type, struct hdr_histogram* hist_struct) 
     :   fd(conn_fd),
         addr(std::make_unique<sockaddr_in>()),
         status(ConnectionStatus::UP),
@@ -489,7 +489,7 @@ HTTPConnection::HTTPConnection(int conn_fd, ConnectionType conn_type, std::share
     }
 };
 
-HTTPConnection::HTTPConnection(std::string conn_host, uint16_t conn_port, ConnectionType conn_type, std::shared_ptr<struct hdr_histogram> hist_struct) 
+HTTPConnection::HTTPConnection(std::string conn_host, uint16_t conn_port, ConnectionType conn_type, struct hdr_histogram* hist_struct) 
     :   fd(0),
         addr(std::make_unique<sockaddr_in>()),
         status(ConnectionStatus::DOWN),
@@ -577,7 +577,7 @@ HTTPConnection::~HTTPConnection() {
 //////// HTTP1Connection implementation
 
 HTTP1Connection::HTTP1Connection(std::string conn_host, uint16_t conn_port, ConnectionType conn_type, RPCMapper* rpc_mapper, RPCQueue* rpc_queue,
-                                 std::shared_ptr<struct hdr_histogram> hist_struct)
+                                 struct hdr_histogram* hist_struct)
     : HTTPConnection(conn_host, conn_port, conn_type, hist_struct),
       buf(std::make_unique<std::array<char, HTTP1Connection_BUF_SIZE>>()),
       buf_len(0),
@@ -598,7 +598,7 @@ HTTP1Connection::HTTP1Connection(std::string conn_host, uint16_t conn_port, Conn
             << ", direction: " << direction_to_str();
 }
 
-HTTP1Connection::HTTP1Connection(int conn_fd, ConnectionType conn_type, RPCMapper* rpc_mapper, RPCQueue* rpc_queue, std::shared_ptr<struct hdr_histogram> hist_struct)
+HTTP1Connection::HTTP1Connection(int conn_fd, ConnectionType conn_type, RPCMapper* rpc_mapper, RPCQueue* rpc_queue, struct hdr_histogram* hist_struct)
     : HTTPConnection(conn_fd, conn_type, hist_struct),
       buf(std::make_unique<std::array<char, HTTP1Connection_BUF_SIZE>>()),
       buf_len(0),
@@ -1114,7 +1114,7 @@ std::shared_ptr<HTTPMessage> HTTP1Connection::get_rpc_message() {
 
 
 HTTP2Connection::HTTP2Connection(std::string conn_host, uint16_t conn_port, ConnectionType conn_type, RPCQueue* rpc_queue, RPCMapper* rpc_mapper,
-                                 std::shared_ptr<struct hdr_histogram> hist_struct)
+    struct hdr_histogram* hist_struct)
     :   HTTPConnection(conn_host, conn_port, conn_type, hist_struct),
         session(nullptr),
         callbacks(nullptr)
@@ -1143,7 +1143,7 @@ HTTP2Connection::HTTP2Connection(std::string conn_host, uint16_t conn_port, Conn
 }
 
 HTTP2Connection::HTTP2Connection(int conn_fd, ConnectionType conn_type, RPCMapper* rpc_mapper, RPCQueue* rpc_queue,
-                                std::shared_ptr<struct hdr_histogram> hist_struct)
+    struct hdr_histogram* hist_struct)
     :   HTTPConnection(conn_fd, conn_type, hist_struct),
         session(nullptr),
         callbacks(nullptr)

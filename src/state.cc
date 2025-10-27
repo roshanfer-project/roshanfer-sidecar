@@ -91,7 +91,7 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
     listeners(listeners_ref),
     ppm_queue(config.routing),
     ingress(ingress_ref),
-    hist(std::make_shared<struct hdr_histogram>()),
+    hist(),
     shared_state(shared_state_ref),
     local_state(create_local_state(parsed_config)),
     utilization(create_utilization(parsed_config)),
@@ -162,8 +162,9 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
         LOG(FATAL) << "Failed to create socket";
     }
 
-    auto hist_ptr = hist.get();
-    hdr_init(1, 50000, 3, &hist_ptr);
+    if (int ret = hdr_init(1, 1000, 3, &hist); ret < 0) {
+        LOG(FATAL) << "Failed to initialize histogram: " << strerror(ret);
+    }
     next_hist_update = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 }
 

@@ -20,7 +20,7 @@ class Listener {
 
         int get_fd() { return fd; }
         uint16_t get_port() { return port; }
-        std::shared_ptr<HTTPConnection> add_connection(int fd, RPCMapper*, RPCQueue*, HTTP, std::shared_ptr<struct hdr_histogram>);
+        std::shared_ptr<HTTPConnection> add_connection(int fd, RPCMapper*, RPCQueue*, HTTP, struct hdr_histogram*);
         void remove_connection(int target_fd) { connections.erase(target_fd); }
         std::shared_ptr<HTTPConnection> get_connection(int);
         bool no_connections() { return connections.empty(); }

@@ -32,14 +32,17 @@ class Utilization {
         struct hdr_histogram* hist;
 };
 
-void inline report_latency(const std::shared_ptr<RPCMessage>& rpc, ConnectionType /*type*/, std::shared_ptr<struct hdr_histogram>& hist) {
+void inline report_latency(const std::shared_ptr<RPCMessage>& rpc, ConnectionType /*type*/, struct hdr_histogram* hist) {
     // calculate the duration
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - rpc->req_rcv_time);
     
     // update hist only if we are Ingress and also just for E2E Ingress requests
     if (config.is_ingress) {
-        hdr_record_value(hist.get(), static_cast<int64_t>(duration.count()/1000));
+        bool ret = hdr_record_value(hist, static_cast<int64_t>((float)duration.count()/1000.0));
+        if (!ret) {
+            LOG(FATAL) << "Failed to record value: " << static_cast<int64_t>((float)duration.count() / 1000.0);
+        }
     }
     
     /* if (!rpc.is_error()) {

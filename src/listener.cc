@@ -55,7 +55,7 @@ Listener::~Listener() {
 }
 
 std::shared_ptr<HTTPConnection> Listener::add_connection(int new_fd, RPCMapper* mapper, RPCQueue* queue, HTTP http, 
-                                         std::shared_ptr<struct hdr_histogram> hist) {
+                                         struct hdr_histogram* hist) {
     if (!mapper || !queue || !hist) {
         LOG(FATAL) << "Null pointer parameters: mapper=" << mapper << ", queue=" << queue << ", hist=" << hist;
     }
