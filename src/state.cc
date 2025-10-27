@@ -656,6 +656,10 @@ void State::dump_entire_state() {
     for (auto& service : local_state.egress_resp_in.get_all_keys()) {
         LOG(INFO) << "  " << service << ": " << local_state.egress_resp_in.get(service);
     }
+    // log average service time
+    for (auto& service : local_state.avg_service_time_us.get_all_keys()) {
+        LOG(INFO) << "  " << service << ": " << local_state.avg_service_time_us.get(service).get_value();
+    }
 }
 
 void State::ingress_admit() {
