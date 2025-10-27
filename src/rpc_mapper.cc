@@ -41,7 +41,13 @@ void RPCMapper::allocate_rpc(ConnectionType type, int32_t stream_id, int fd,
     ds_map.at(type).emplace(
         fd, std::unordered_map<int32_t, std::shared_ptr<RPCMessage>>());
   }
-  ds_map.at(type).at(fd).emplace(stream_id, rpc);
+  if (ds_map.at(type).at(fd).find(stream_id) == ds_map.at(type).at(fd).end()) {
+    ds_map.at(type).at(fd).emplace(stream_id, std::move(rpc));
+  } else {
+    LOG(FATAL) << "RPC already exists for stream id: " << stream_id
+               << " and fd: " << fd
+               << " of type: " << type_to_str(type);
+  }
 }
 
 /*
