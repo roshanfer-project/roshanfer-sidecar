@@ -3,14 +3,14 @@ routing:
     upstream:
       host: app-sidecar
       port: 3007
-    limit: 82
-    slo: 60
+    limit: 79
+    slo: 20
   app2:
     upstream:
       host: app-sidecar
       port: 3007
-    limit: 62
-    slo: 60
+    limit: 55
+    slo: 20
 mapping:
   app:
     downstreams:
