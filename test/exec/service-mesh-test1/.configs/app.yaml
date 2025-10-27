@@ -1,7 +1,7 @@
 mapping:
   app:
     min_max_concurrency: 20
-    limit: 51
+    limit: 40
   app2:
     min_max_concurrency: 20
     limit: 30
