@@ -822,6 +822,6 @@ LocalState::LocalState(std::vector<std::string> hosted_services, std::vector<std
             per_api_limit.add(service, (uint32_t)info.limit);
         }
         for (const auto& [service, info] : config.routing) {
-            ingress_limit.set(service, info.ingress_limit.value());
+            ingress_limit.set(service, info.ingress_limit.value_or(0));
         }
     }
