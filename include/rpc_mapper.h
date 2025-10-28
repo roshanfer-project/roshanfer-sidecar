@@ -16,6 +16,7 @@ public:
   std::shared_ptr<RPCMessage> get_us_rpc(ConnectionType, int32_t, int);
   std::shared_ptr<RPCMessage> get_ds_rpc(ConnectionType, int32_t, int);
   void remove_rpc(ConnectionType, std::shared_ptr<RPCMessage>);
+  bool check_fd_exists(ConnectionType, int, bool);
 
 private:
   std::unordered_map<

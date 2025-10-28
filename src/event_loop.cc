@@ -127,7 +127,15 @@ void EventLoop::run() {
                         LOG(FATAL) << "Failed to read from " << orig_conn->get_host() << ":" << orig_conn->get_port()
                                << ", error: " << strerror(-cqe->res);
                     } else if (cqe->res == 0) {
-                        LOG(INFO) << "Closing connection on fd: " << orig_conn->get_fd();
+                        LOG(INFO) << "Closing connection on fd: " << orig_conn->get_fd() 
+                        << " of type: " << orig_conn->type_to_str() 
+                        << " and direction: " << orig_conn->direction_to_str();
+                        if (config.is_ingress && rpc_mapper.check_fd_exists(orig_conn->type, orig_conn->get_fd(), false)) {
+                            listeners.at(orig_conn->type)->dump_connections();
+                            state.dump_entire_state();
+                            LOG(FATAL) << "FD exists in ds map for fd: " << orig_conn->get_fd()
+                                       << " of type: " << orig_conn->type_to_str();
+                        }
                     }
 
                     // update connection status

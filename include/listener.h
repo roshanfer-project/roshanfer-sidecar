@@ -25,6 +25,7 @@ class Listener {
         std::shared_ptr<HTTPConnection> get_connection(int);
         bool no_connections() { return connections.empty(); }
         std::string type_to_str();
+        void dump_connections();
 
     
     private:

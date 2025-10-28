@@ -105,3 +105,33 @@ void RPCMapper::remove_rpc(ConnectionType type,
   ds_map.at(type).at(rpc->get_ds_fd()).erase(rpc->get_ds_stream_id());
   pool.free_rpc(std::move(rpc));
 }
+
+bool RPCMapper::check_fd_exists(ConnectionType type, int fd, bool is_us) {
+  try {
+    if (is_us) {
+      auto it =  us_map.at(type).find(fd);
+      if (it != us_map.at(type).end() && it->second.size() > 0) {
+        return true;
+      } else {
+        return false;
+      }
+    } else {
+      auto it = ds_map.at(type).find(fd);
+      if (it != ds_map.at(type).end() && it->second.size() > 0) {
+        return true;
+      } else {
+        return false;
+      }
+    }
+  } catch (const std::out_of_range &e) {
+    LOG(FATAL) << "Out of range exception in checking if FD exists: " << e.what()
+               << " type: " << type_to_str(type)
+               << " fd: " << fd
+               << " is_us: " << is_us;
+  } catch (const std::exception &e) {
+    LOG(FATAL) << "Exception in checking if FD exists: " << e.what()
+               << " type: " << type_to_str(type)
+               << " fd: " << fd
+               << " is_us: " << is_us;
+  }
+}

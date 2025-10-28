@@ -98,3 +98,12 @@ std::string Listener::type_to_str() {
     }
 };
 
+
+void Listener::dump_connections() {
+    LOG(INFO) << "Dumping connections for listener on port: " << port;
+    LOG(INFO) << "Type: " << type_to_str();
+    for (const auto& [it_fd, conn] : connections) {
+        LOG(INFO) << "  fd: " << it_fd << ", type: " << conn->type_to_str()
+                  << ", direction: " << conn->direction_to_str();
+    }
+}

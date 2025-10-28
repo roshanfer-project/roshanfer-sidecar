@@ -695,6 +695,10 @@ void State::ingress_admit() {
         ppm_queue.queueing_delay(ingress_service),
         extra_slot_system
     );
+    if (ingress.size(ingress_service) != 0) {
+        dump_entire_state();
+        LOG(FATAL) << "Ingress queue size is not 0 for service: " << ingress_service;
+    }
     local_state.ingress_to_be_admitted.add(ingress_service, admitted);
 
     // forward potential dropped requests
