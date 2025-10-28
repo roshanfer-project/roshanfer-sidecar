@@ -53,6 +53,7 @@ Ingress::~Ingress() {}
 
 void Ingress::enqueue(std::shared_ptr<RPCMessage> rpc) {
     try {
+        VLOG(2) << "Enqueued RPC message for service: " << rpc->get_service();
         queue.at(rpc->get_service()).push_back(std::move(rpc));
     } catch (const std::out_of_range&) {
         LOG(FATAL) << "Service not found in ingress queue: " << rpc->get_service();
@@ -72,6 +73,7 @@ std::shared_ptr<RPCMessage> Ingress::dequeue(std::string service) {
     auto rpc = std::move(queue.at(service).front());
     queue.at(service).pop_front();
 
+    VLOG(2) << "Dequeued RPC message for service: " << service;
     return rpc;
 }
 
