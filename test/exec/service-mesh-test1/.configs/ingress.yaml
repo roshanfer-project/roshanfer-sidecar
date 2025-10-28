@@ -29,7 +29,7 @@ ring_size: 2000
 buffer_count: 2000
 buffer_size: 10000
 num_threads: 2
-ingress_pool_connections: 300
+ingress_pool_connections: 200
 frontend_pool_connections: 100
 egress_listener_port: 3000
 ingress_listener_port: 4000
