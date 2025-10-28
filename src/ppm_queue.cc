@@ -2,6 +2,7 @@
 #include "config.h"
 #include "glog/logging.h"
 #include "rpc_message.h"
+#include <chrono>
 #include <queue>
 #include <string>
 #include <unordered_map>
@@ -82,6 +83,25 @@ size_t PPMQueue::size(const std::string& service) {
         LOG(FATAL) << "Service not found in PPM queue: " << service;
     } catch (const std::exception& e) {
         LOG(FATAL) << "Error in getting size from PPM queue: " << e.what()
+                   << " service: " << service;
+    }
+}
+
+int PPMQueue::queueing_delay(const std::string& service) {
+    try {
+        auto it = ppm_queue.find(service);
+        if (it == ppm_queue.end()) {
+            LOG(FATAL) << "Service not found in PPM queue: " << service;
+        }
+        if (it->second.empty()) {
+            return 0;
+        }
+        return (int)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()
+                            - it->second.front()->req_rcv_time).count();
+    } catch (const std::out_of_range& e) {
+        LOG(FATAL) << "Trying to get queueing delay from an empty queue for service: " << service;
+    } catch (const std::exception& e) {
+        LOG(FATAL) << "Error in getting queueing delay from PPM queue: " << e.what()
                    << " service: " << service;
     }
 }

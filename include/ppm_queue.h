@@ -20,6 +20,7 @@ public:
   const std::string &check(std::string_view &);
   int get_fd(const std::string &);
   size_t size(const std::string &);
+  int queueing_delay(const std::string &);
 
 private:
   std::unordered_map<std::string, std::queue<std::shared_ptr<RPCMessage>>,

@@ -76,15 +76,15 @@ std::shared_ptr<RPCMessage> Ingress::dequeue(std::string service) {
 }
 
 int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue& rpc_queue, RPCMapper& rpc_mapper,
-     std::string& service, int64_t current_queue_size, float waiting_time_per_request, int32_t extra_slot) {
+     std::string& service, int64_t extra_slot_ingress, int32_t queueing_delay, int32_t extra_slot_system) {
     int new_requests = (int)queue.at(service).size();
-    float current_slo_us = (float)slo_us.get(service);
+    int32_t current_slo_us = slo_us.get(service);
     int new_added = 0;
 
     // check if we can admit the requests in the queue
     int new_req_tmp = new_requests;
     for (int i = 1; i<= new_requests; i++) {
-        if (extra_slot > 0) {
+        if (extra_slot_system > 0) {
             // use all the available slots in the system
             auto rpc = dequeue(service);
             rpc_queue.enqueue(
@@ -94,9 +94,9 @@ int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue& rpc_queue, RPCMapper& rpc_
                 rpc->get_ds_stream_id()
             );
             VLOG(2) << "New request to be admitted: " << service
-                    << ", ingress standing queue: " << current_queue_size + i
-                    << ", extra slot: " << extra_slot;
-            extra_slot--;
+                    << ", extra slot (ingress): " << extra_slot_ingress
+                    << ", extra slot (system): " << extra_slot_system;
+            extra_slot_system--;
             new_added++;
             new_req_tmp--;
         } else {
@@ -107,7 +107,7 @@ int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue& rpc_queue, RPCMapper& rpc_
     new_req_tmp = new_requests;
     // accept to "to be admitted" if the queueing delay is less than SLO
     for (int i = 1; i<= new_requests; i++) {
-        if (waiting_time_per_request * (float)(current_queue_size + i) < current_slo_us) {
+        if (queueing_delay < current_slo_us && extra_slot_ingress > 0) {
             
             auto rpc = dequeue(service);
             rpc_queue.enqueue(
@@ -118,10 +118,10 @@ int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue& rpc_queue, RPCMapper& rpc_
             );
 
             VLOG(2) << "New request to be admitted: " << service
-                    << ", ingress standing queue: " << current_queue_size + i
-                    << ", waiting time per request: " << waiting_time_per_request
-                    << ", extra slot: " << extra_slot;
+                    << ", extra slot (ingress): " << extra_slot_ingress
+                    << ", queueing delay: " << queueing_delay;
             // update states
+            extra_slot_ingress--;
             new_added++;
             new_req_tmp--;
         } else {
@@ -157,8 +157,9 @@ int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue& rpc_queue, RPCMapper& rpc_
                         drop_rpc->get_us_fd(),
                         drop_rpc->get_us_stream_id());
         VLOG(2) << "Dropped request: " << drop_rpc->get_service()
-                << ", ingress standing queue: " << current_queue_size + new_added
-                << ", extra slot: " << extra_slot;
+                << ", extra slot (ingress): " << extra_slot_ingress
+                << ", extra slot (system): " << extra_slot_system
+                << ", queueing delay: " << queueing_delay;
     }
 
     return new_added;

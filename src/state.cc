@@ -656,9 +656,13 @@ void State::dump_entire_state() {
     for (auto& service : local_state.egress_resp_in.get_all_keys()) {
         LOG(INFO) << "  " << service << ": " << local_state.egress_resp_in.get(service);
     }
-    // log average service time
+    LOG(INFO) << "--- Average Service Time (local_state.avg_service_time_us) ---";
     for (auto& service : local_state.avg_service_time_us.get_all_keys()) {
         LOG(INFO) << "  " << service << ": " << local_state.avg_service_time_us.get(service).get_value();
+    }
+    LOG(INFO) << "--- Queueing Delay (ppm_queue.queueing_delay) ---";
+    for (const auto& [route, _] : config.routing) {
+        LOG(INFO) << "  " << route << ": " << ppm_queue.queueing_delay(route);
     }
 }
 
@@ -680,17 +684,17 @@ void State::ingress_admit() {
     // check for any potential admitting or dropping
     int64_t current_queue_size = local_state.ingress_to_be_admitted.get(ingress_service)
                             - local_state.ingress_admitted.get(ingress_service);
-    float waiting_time_per_request;
-    if (local_state.ingress_limit.get(ingress_service) > 0) {
-        waiting_time_per_request = local_state.avg_service_time_us.get(ingress_service).get_value()/(float)local_state.ingress_limit.get(ingress_service);
-    } else {
-        // maximum int32_t value
-        waiting_time_per_request = std::numeric_limits<float>::max();
-    }
+    int64_t extra_slot_ingress = local_state.ingress_limit.get(ingress_service) - current_queue_size;
 
-    bool extra_slot = shared_state.downstream_concurrency.get(ingress_service) - local_state.ingress_limit.get(ingress_service);
-    int64_t admitted = ingress.add_to_be_admitted_or_drop(rpc_queue, rpc_mapper, ingress_service,
-         current_queue_size, waiting_time_per_request, extra_slot);
+    bool extra_slot_system = shared_state.downstream_concurrency.get(ingress_service) - local_state.ingress_limit.get(ingress_service);
+    int64_t admitted = ingress.add_to_be_admitted_or_drop(
+        rpc_queue,
+        rpc_mapper,
+        ingress_service,
+        extra_slot_ingress,
+        ppm_queue.queueing_delay(ingress_service),
+        extra_slot_system
+    );
     local_state.ingress_to_be_admitted.add(ingress_service, admitted);
 
     // forward potential dropped requests

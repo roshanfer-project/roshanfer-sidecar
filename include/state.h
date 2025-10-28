@@ -124,10 +124,6 @@ class LocalState {
         */
         LocalMap<MovingAverage> avg_service_time_us;
         /*
-        ONLY used by Ingress::Ingress to track the last admission time.
-        */
-        //LocalMap<std::chrono::time_point<std::chrono::steady_clock>> last_admission;
-        /*
         READ-ONLY: ONLY used by Ingress::Ingress to track the ingress limit.
         */
         LocalMap<int32_t> ingress_limit;
