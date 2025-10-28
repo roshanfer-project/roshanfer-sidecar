@@ -664,6 +664,14 @@ void State::dump_entire_state() {
     for (const auto& [route, _] : config.routing) {
         LOG(INFO) << "  " << route << ": " << ppm_queue.queueing_delay(route);
     }
+    LOG(INFO) << "--- extra slot ingress ---";
+    for (const auto& [route, _] : config.routing) {
+        LOG(INFO) << "  " << route << ": " << local_state.ingress_limit.get(route) - local_state.ingress_to_be_admitted.get(route) + local_state.ingress_admitted.get(route);
+    }
+    LOG(INFO) << "--- extra slot system ---";
+    for (const auto& [route, _] : config.routing) {
+        LOG(INFO) << "  " << route << ": " << shared_state.downstream_concurrency.get(route) - local_state.ingress_limit.get(route);
+    }
 }
 
 void State::ingress_admit() {
