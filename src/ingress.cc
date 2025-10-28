@@ -79,89 +79,76 @@ std::shared_ptr<RPCMessage> Ingress::dequeue(std::string service) {
 
 int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue& rpc_queue, RPCMapper& rpc_mapper,
      std::string& service, int64_t extra_slot_ingress, int32_t queueing_delay, int32_t extra_slot_system) {
+
     int new_requests = (int)queue.at(service).size();
     int32_t current_slo_us = slo_us.get(service);
     int new_added = 0;
-
-    // check if we can admit the requests in the queue
-    int new_req_tmp = new_requests;
-    for (int i = 1; i<= new_requests; i++) {
+    
+    while (extra_slot_ingress + extra_slot_system > 0 && new_requests > 0) {
         if (extra_slot_system > 0) {
-            // use all the available slots in the system
             auto rpc = dequeue(service);
-            rpc_queue.enqueue(
-                ConnectionType::EGRESS,
-                ConnectionDirection::DOWNSTREAM,
-                rpc->get_ds_fd(),
-                rpc->get_ds_stream_id()
-            );
-            VLOG(2) << "New request to be admitted: " << service
-                    << ", extra slot (ingress): " << extra_slot_ingress
-                    << ", extra slot (system): " << extra_slot_system;
-            extra_slot_system--;
-            new_added++;
-            new_req_tmp--;
-        } else {
-            break;
-        }
-    }
-    new_requests = new_req_tmp;
-    new_req_tmp = new_requests;
-    // accept to "to be admitted" if the queueing delay is less than SLO
-    for (int i = 1; i<= new_requests; i++) {
-        if (queueing_delay < current_slo_us && extra_slot_ingress > 0) {
-            
+                rpc_queue.enqueue(
+                    ConnectionType::EGRESS,
+                    ConnectionDirection::DOWNSTREAM,
+                    rpc->get_ds_fd(),
+                    rpc->get_ds_stream_id()
+                );
+                VLOG(2) << "New request to be admitted: " << service
+                        << ", extra slot (ingress): " << extra_slot_ingress
+                        << ", extra slot (system): " << extra_slot_system;
+                extra_slot_system--;
+                new_added++;
+                new_requests--;
+        } else if (queueing_delay < current_slo_us && extra_slot_ingress > 0) {
             auto rpc = dequeue(service);
-            rpc_queue.enqueue(
-                ConnectionType::EGRESS,
-                ConnectionDirection::DOWNSTREAM,
-                rpc->get_ds_fd(),
-                rpc->get_ds_stream_id()
-            );
+                rpc_queue.enqueue(
+                    ConnectionType::EGRESS,
+                    ConnectionDirection::DOWNSTREAM,
+                    rpc->get_ds_fd(),
+                    rpc->get_ds_stream_id()
+                );
 
-            VLOG(2) << "New request to be admitted: " << service
-                    << ", extra slot (ingress): " << extra_slot_ingress
-                    << ", queueing delay: " << queueing_delay;
-            // update states
-            extra_slot_ingress--;
-            new_added++;
-            new_req_tmp--;
-        } else {
-            // drop the request
-            break;
+                VLOG(2) << "New request to be admitted: " << service
+                        << ", extra slot (ingress): " << extra_slot_ingress
+                        << ", queueing delay: " << queueing_delay;
+                extra_slot_ingress--;
+                new_added++;
+                new_requests--;
         }
     }
-    new_requests = new_req_tmp;
-    // now drop the remaining requests
-    for (int i = 0; i < new_requests; i++) {
+
+    // drop remaining requests
+    while (new_requests > 0) {
         auto drop_rpc = std::dynamic_pointer_cast<HTTPMessage>(std::move(queue.at(service).back()));
-        if (!drop_rpc) {
-            LOG(FATAL) << "Null pointer after dynamic_pointer_cast"
-                       << " service: " << service
-                       << " queue size: " << queue.at(service).size();
-        }
-        queue.at(service).pop_back();
+            if (!drop_rpc) {
+                LOG(FATAL) << "Null pointer after dynamic_pointer_cast"
+                        << " service: " << service
+                        << " queue size: " << queue.at(service).size();
+            }
+            queue.at(service).pop_back();
 
-        if (drop_rpc->get_service() != service) {
-            LOG(FATAL) << "Service mismatch in drop RPC: expected " << service
-                       << ", got " << drop_rpc->get_service();
-        }
+            if (drop_rpc->get_service() != service) {
+                LOG(FATAL) << "Service mismatch in drop RPC: expected " << service
+                        << ", got " << drop_rpc->get_service();
+            }
 
-        drop_rpc->set_error(true);
-        drop_rpc->set_status(503);
-        drop_id.add(drop_rpc->get_service(), 1);
-        drop_rpc->set_us_fd(drop_fd);
-        drop_rpc->set_us_stream_id(drop_id.get(drop_rpc->get_service()));
-        rpc_mapper.route(ConnectionType::EGRESS, drop_rpc->get_ds_stream_id(),
-                        drop_rpc->get_ds_fd(), drop_rpc->get_us_stream_id(), drop_fd);
-        rpc_queue.enqueue(ConnectionType::EGRESS,
-                        ConnectionDirection::UPSTREAM, // we want this to be forwarded to downstream connection
-                        drop_rpc->get_us_fd(),
-                        drop_rpc->get_us_stream_id());
-        VLOG(2) << "Dropped request: " << drop_rpc->get_service()
-                << ", extra slot (ingress): " << extra_slot_ingress
-                << ", extra slot (system): " << extra_slot_system
-                << ", queueing delay: " << queueing_delay;
+            drop_rpc->set_error(true);
+            drop_rpc->set_status(503);
+            drop_id.add(drop_rpc->get_service(), 1);
+            drop_rpc->set_us_fd(drop_fd);
+            drop_rpc->set_us_stream_id(drop_id.get(drop_rpc->get_service()));
+            rpc_mapper.route(ConnectionType::EGRESS, drop_rpc->get_ds_stream_id(),
+                            drop_rpc->get_ds_fd(), drop_rpc->get_us_stream_id(), drop_fd);
+            rpc_queue.enqueue(ConnectionType::EGRESS,
+                            ConnectionDirection::UPSTREAM, // we want this to be forwarded to downstream connection
+                            drop_rpc->get_us_fd(),
+                            drop_rpc->get_us_stream_id());
+
+            VLOG(2) << "Dropped request: " << drop_rpc->get_service()
+                    << ", extra slot (ingress): " << extra_slot_ingress
+                    << ", extra slot (system): " << extra_slot_system
+                    << ", queueing delay: " << queueing_delay;
+            new_requests--;
     }
 
     return new_added;
