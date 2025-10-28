@@ -39,9 +39,9 @@ void inline report_latency(const std::shared_ptr<RPCMessage>& rpc, ConnectionTyp
     
     // update hist only if we are Ingress and also just for E2E Ingress requests
     if (config.is_ingress) {
-        bool ret = hdr_record_value(hist, static_cast<int64_t>((float)duration.count()/1000.0));
+        bool ret = hdr_record_value(hist, static_cast<int64_t>(duration.count()));
         if (!ret) {
-            LOG(FATAL) << "Failed to record value: " << static_cast<int64_t>((float)duration.count() / 1000.0);
+            LOG(FATAL) << "Failed to record value: " << static_cast<int64_t>(duration.count());
         }
     }
     

@@ -171,7 +171,7 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
         LOG(FATAL) << "Failed to create socket";
     }
 
-    if (int ret = hdr_init(1, 1000, 3, &hist); ret < 0) {
+    if (int ret = hdr_init(1, 1000000, 3, &hist); ret < 0) {
         LOG(FATAL) << "Failed to initialize histogram: " << strerror(ret);
     }
     next_hist_update = std::chrono::steady_clock::now() + std::chrono::seconds(1);
@@ -666,11 +666,11 @@ void State::ingress_admit() {
     // update ingress's p95 estimate
     if (std::chrono::steady_clock::now() >= next_hist_update && hist->total_count >= 500) {
         // FIX: the histogram is not updated correctly
-        /* ingress.update_stats(
-                (int32_t)hdr_value_at_percentile(hist, 50.0) * 1000,
-                (int32_t)hdr_value_at_percentile(hist, 95.0) * 1000,
+        ingress.update_stats(
+                (int32_t)hdr_value_at_percentile(hist, 50.0),
+                (int32_t)hdr_value_at_percentile(hist, 95.0),
                 ingress_service
-        ); */
+        );
         VLOG(1) << "Average service time: " << local_state.avg_service_time_us.get(ingress_service).get_value()
                   << " for service: " << ingress_service;
         hdr_reset(hist);
