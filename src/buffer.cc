@@ -30,7 +30,7 @@ void Buffer::clear() {
 }
 
 void Buffer::set_filled(size_t f) {
-    if (f >= size) {
+    if (f > size) {
         LOG(FATAL) << "Buffer overflow, filled: " << f << ", size: " << size;
     }
     filled = f;
