@@ -25,7 +25,7 @@ mapping:
     listen_port: 3009
     limit: 42
     slo: 60
-ring_size: 2000
+ring_size: 4000
 buffer_count: 2000
 buffer_size: 10000
 num_threads: 2
