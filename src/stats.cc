@@ -16,7 +16,7 @@ Utilization::Utilization(uint32_t period_count, std::vector<std::string>& servic
             last_update.set(service, std::chrono::steady_clock::now());
             last_report.set(service, std::chrono::steady_clock::now());
         }
-        hdr_init(1, 50, 3, &hist);
+        hdr_init(1, 100, 3, &hist);
     }
 
 void Utilization::update(uint32_t in, std::string& service) {
