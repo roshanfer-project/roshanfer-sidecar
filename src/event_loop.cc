@@ -40,11 +40,19 @@ void EventLoop::run() {
         UDPType::REQUEST
     );
 
+    // Add recvmsg submission for responses
+    ring.prepare_rcvmsg(
+        state.get_sockfd(),
+        buffer_manager.get_buffer(),
+        buffer_manager.get_user_data(),
+        UDPType::RESPONSE
+    );
+
     // main event loop
     while(true) {
         ring.submit_and_wait();
 
-        while((cqe = ring.peek_cqe())) {
+        while((cqe = ring.peek_cqe()) != nullptr) {
             VLOG(1) << "Processing completion event";
 
             // Identify the type of event
@@ -329,8 +337,13 @@ void EventLoop::run() {
                         // free the buffer
                         buffer_manager.free_buffer(std::move(old_buffer));
 
-                        // Note that there is no need to re-arm this operation becase
-                        // everytime we send a DN request we also post a recvmsg sqe
+                        // re-arm the recvmsg
+                        ring.prepare_rcvmsg(
+                            state.get_sockfd(),
+                            buffer_manager.get_buffer(),
+                            buffer_manager.get_user_data(),
+                            UDPType::RESPONSE
+                        );
                         break;
                     }
 

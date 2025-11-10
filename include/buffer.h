@@ -3,6 +3,7 @@
 //#include "listener.h"
 #include <cstddef>
 #include <memory>
+#include <netinet/in.h>
 #include <vector>
 
 class Buffer {
@@ -29,6 +30,7 @@ class Buffer {
         void prepare_reply_sendmsg(const std::unique_ptr<Buffer>& old_buffer);
         void prepare_req_sendmsg(struct sockaddr_in);
         void clear();
+        struct sockaddr_in get_addr() { return *addr.get(); }
     
     public:
         std::vector<char> data;

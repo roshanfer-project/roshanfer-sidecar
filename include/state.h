@@ -4,7 +4,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <queue>
 #include <string>
+#include <string_view>
 #include <sys/types.h>
 #include "config.h"
 #include "connection.h"
@@ -38,6 +40,22 @@ class ConnectionNotUPException: public std::runtime_error {
 
 
         std::unique_ptr<HTTPConnection>& conn;
+};
+
+class FailedDNInfoUnit {
+    public:
+        FailedDNInfoUnit(struct sockaddr_in, int);
+
+        // delete copy semantics
+        FailedDNInfoUnit(const FailedDNInfoUnit&) = delete;
+        FailedDNInfoUnit& operator=(const FailedDNInfoUnit&) = delete;
+
+        // delete move semantics
+        FailedDNInfoUnit(FailedDNInfoUnit&&) = delete;
+        FailedDNInfoUnit& operator=(FailedDNInfoUnit&&) = delete;
+    public:
+        std::unique_ptr<struct sockaddr_in> addr;
+        int num_rejected_requests;
 };
 
 class SharedState  {
@@ -93,17 +111,23 @@ class LocalState {
         READ-ONLY: per-API limit (config.mapping.<service>.limit).
         */
         LocalMap<uint32_t> per_api_limit;
+        /*
+        Thread-local information of rejected DN requests.
+        */
+        LocalMap<std::queue<std::unique_ptr<FailedDNInfoUnit>>> failed_dn_info;
 
 
         /*ConnectionType::EGRESS-side metrics*/
 
-        // downstream services and their denied requests
-        LocalMap<uint32_t> denied_reqs;
         // True for downstream services if we have received a response form them or
         // there is a new request in the PPM queue for that service
         std::unordered_map<std::string, bool> ppm_client_dn_send;
         // Number of new requests in the PPM queue for each service
         LocalMap<uint32_t> new_ppm_queue_reqs;
+        /*
+        READ-ONLY: This is a mapping from downstream services to upstream services.
+        */
+        LocalMap<std::string> upstream_service;
         /*
         Number of received responses for each service .
         This is EGRESS equivalent of `per_method_resp_in`.
@@ -160,13 +184,16 @@ class State {
         bool forward_request(std::shared_ptr<HTTPConnection>, std::shared_ptr<RPCMessage>);
         std::shared_ptr<HTTPConnection> route_request(ConnectionType, int32_t, int);
         void dump_entire_state();
+        int get_sockfd() { return sockfd; }
     private:
         void udp_send(std::vector<char>, struct sockaddr_in*);
 
         // PPM-related functions
         void send_dn(HTTPConnection*, const std::string&, size_t);
         std::tuple<const std::string&, bool, size_t> valid_credit(const char*);
-        void send_from_ppm_queue();
+        int get_available_credits(const std::string_view&);
+        void check_credit_transmission(const std::string_view&, bool);
+        void send_credit(std::unique_ptr<struct sockaddr_in>&, const std::string_view&, int);
 
 
     private:
