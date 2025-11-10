@@ -78,43 +78,26 @@ std::shared_ptr<RPCMessage> Ingress::dequeue(std::string service) {
 }
 
 int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue& rpc_queue, RPCMapper& rpc_mapper,
-     std::string& service, int64_t extra_slot_ingress, int32_t queueing_delay, int32_t extra_slot_system) {
+     std::string& service, int64_t extra_slot_ingress, int32_t queueing_delay) {
 
     int new_requests = (int)queue.at(service).size();
     int32_t current_slo_us = slo_us.get(service);
     int new_added = 0;
     
-    while (extra_slot_ingress + extra_slot_system > 0 && new_requests > 0) {
-        if (extra_slot_system > 0) {
-            auto rpc = dequeue(service);
-                rpc_queue.enqueue(
-                    ConnectionType::EGRESS,
-                    ConnectionDirection::DOWNSTREAM,
-                    rpc->get_ds_fd(),
-                    rpc->get_ds_stream_id()
-                );
-                VLOG(2) << "New request to be admitted: " << service
-                        << ", extra slot (ingress): " << extra_slot_ingress
-                        << ", extra slot (system): " << extra_slot_system;
-                extra_slot_system--;
-                new_added++;
-                new_requests--;
-        } else if (queueing_delay < current_slo_us && extra_slot_ingress > 0) {
-            auto rpc = dequeue(service);
-                rpc_queue.enqueue(
-                    ConnectionType::EGRESS,
-                    ConnectionDirection::DOWNSTREAM,
-                    rpc->get_ds_fd(),
-                    rpc->get_ds_stream_id()
-                );
-
-                VLOG(2) << "New request to be admitted: " << service
-                        << ", extra slot (ingress): " << extra_slot_ingress
-                        << ", queueing delay: " << queueing_delay;
-                extra_slot_ingress--;
-                new_added++;
-                new_requests--;
-        }
+    while (extra_slot_ingress > 0 && new_requests > 0 && queueing_delay < current_slo_us) {
+        auto rpc = dequeue(service);
+            rpc_queue.enqueue(
+                ConnectionType::EGRESS,
+                ConnectionDirection::DOWNSTREAM,
+                rpc->get_ds_fd(),
+                rpc->get_ds_stream_id()
+            );
+            extra_slot_ingress--;
+            new_added++;
+            new_requests--;
+            VLOG(2) << "INGRESS: New request to be admitted: " << service
+                    << ", extra slot: " << extra_slot_ingress
+                    << ", queueing delay: " << queueing_delay;
     }
 
     // drop remaining requests
@@ -144,9 +127,8 @@ int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue& rpc_queue, RPCMapper& rpc_
                             drop_rpc->get_us_fd(),
                             drop_rpc->get_us_stream_id());
 
-            VLOG(2) << "Dropped request: " << drop_rpc->get_service()
-                    << ", extra slot (ingress): " << extra_slot_ingress
-                    << ", extra slot (system): " << extra_slot_system
+            VLOG(2) << "INGRESS: Dropped request: " << drop_rpc->get_service()
+                    << ", extra slot: " << extra_slot_ingress
                     << ", queueing delay: " << queueing_delay;
             new_requests--;
     }

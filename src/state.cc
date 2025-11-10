@@ -646,10 +646,6 @@ void State::dump_entire_state() {
     for (const auto& [route, _] : config.routing) {
         LOG(INFO) << "  " << route << ": " << local_state.ingress_limit.get(route) - local_state.ingress_to_be_admitted.get(route) + local_state.ingress_admitted.get(route);
     }
-    LOG(INFO) << "--- extra slot system ---";
-    for (const auto& [route, _] : config.routing) {
-        LOG(INFO) << "  " << route << ": " << shared_state.downstream_concurrency.get(route) - local_state.ingress_limit.get(route);
-    }
 }
 
 void State::ingress_admit() {
@@ -671,15 +667,13 @@ void State::ingress_admit() {
     int64_t current_queue_size = local_state.ingress_to_be_admitted.get(ingress_service)
                             - local_state.ingress_admitted.get(ingress_service);
     int64_t extra_slot_ingress = local_state.ingress_limit.get(ingress_service) - current_queue_size;
-
-    bool extra_slot_system = shared_state.downstream_concurrency.get(ingress_service) - local_state.ingress_limit.get(ingress_service);
+    
     int64_t admitted = ingress.add_to_be_admitted_or_drop(
         rpc_queue,
         rpc_mapper,
         ingress_service,
         extra_slot_ingress,
-        ppm_queue.queueing_delay(ingress_service),
-        extra_slot_system
+        ppm_queue.queueing_delay(ingress_service)
     );
     if (ingress.size(ingress_service) != 0) {
         dump_entire_state();
