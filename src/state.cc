@@ -274,7 +274,7 @@ std::shared_ptr<HTTPConnection> State::route_request(ConnectionType type, int32_
 
     try {
         std::shared_ptr<HTTPConnection> conn;
-        // TODO: implement load balancing within ach pool
+        // TODO: implement load balancing within each connection pool
         if (type == ConnectionType::INGRESS) {
             conn = ingress_pool.get_any_connection();
         } else {
