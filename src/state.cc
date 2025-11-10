@@ -181,7 +181,7 @@ void State::write_http(std::shared_ptr<HTTPConnection> conn) {
     if (conn->want_write() == 0) {
         return;
     }
-    VLOG(1) << "Starting to write batch of HTTP data on fd: " << conn->get_fd();
+    VLOG(3) << "Starting to write batch of HTTP data on fd: " << conn->get_fd();
 
     if (conn->http() == HTTP::HTTP2) {
         std::unique_ptr<Buffer> send_buffer;
@@ -259,7 +259,7 @@ void State::write_http(std::shared_ptr<HTTPConnection> conn) {
 
     
 
-    VLOG(1) << "Finished writing batch of HTTP data written on fd: " << conn->get_fd();
+    VLOG(3) << "Finished writing batch of HTTP data written on fd: " << conn->get_fd();
 }
 
 
@@ -289,7 +289,7 @@ std::shared_ptr<HTTPConnection> State::route_request(ConnectionType type, int32_
         // update RPC message metadata
         rpc->set_us_fd(conn->get_fd());
 
-        VLOG(1) << "Routing request"
+        VLOG(3) << "Routing request"
                 << " of type: " << type_to_str(type)
                 << " service: " << rpc->get_service()
                 << " message (" << ds_fd << "," << ds_stream_id << ") to fd: " << conn->get_fd();
@@ -299,7 +299,8 @@ std::shared_ptr<HTTPConnection> State::route_request(ConnectionType type, int32_
     catch (NoConnectionException& e) {
         dump_entire_state();
         LOG(FATAL) << "No connection available for routing request: " << e.what()
-                   << " type: " << type_to_str(type);
+                   << " type: " << type_to_str(type)
+                   << " service: " << rpc->get_service();
     }
     catch (const std::exception& e) {
         LOG(FATAL) << "Error in routing, " << e.what();
@@ -320,7 +321,7 @@ bool State::forward_request(std::shared_ptr<HTTPConnection> conn, std::shared_pt
         // flush the request
         write_http(conn);
         
-        VLOG(1) << "Submitted request on stream " << rpc->get_us_stream_id();
+        VLOG(3) << "Submitted request on stream " << rpc->get_us_stream_id();
         return true;
     } catch (NoConnectionException& e) {
         LOG(FATAL) << "No connection available. Starting a new connection.";
@@ -341,12 +342,12 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
     if (rpc_queue.empty(type, direction)) {
         return;
     }
-    VLOG(1) << "Starting forwarding on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
+    VLOG(3) << "Starting forwarding on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
 
     // check if we have any RPC message in the queue
     while (!rpc_queue.empty(type, direction)) {
         auto [src_fd, src_stream_id] = rpc_queue.dequeue(type, direction);
-        VLOG(1) << "Forwarding message (" << src_fd << "," << src_stream_id << ") of type " << type_to_str(type)
+        VLOG(3) << "Forwarding message (" << src_fd << "," << src_stream_id << ") of type " << type_to_str(type)
                    << " and direction " << direction_to_str(direction);
 
         if (direction == ConnectionDirection::DOWNSTREAM) {
@@ -358,7 +359,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
             if (!forward_request(conn, rpc)) {
                 break;
             }
-            VLOG(1) << rpc->get_service() << " ---> LOCAL";
+            VLOG(1) << "RPCForward: INGRESS request for service: " << rpc->get_service();
 
             if (!config.is_ingress) {
                 shared_state.ingress_request_admitted.add(rpc->get_service(), 1);
@@ -407,9 +408,9 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
 
                     if (VLOG_IS_ON(1)) {
                         if (type == ConnectionType::EGRESS) {
-                            VLOG(1) << rpc->get_service() << " --> LOCAL";
+                            VLOG(1) << "RPCForward: EGRESS response for service: " << rpc->get_service();
                         } else {
-                            VLOG(1) << "LOCAL --> " << rpc->get_service();
+                            VLOG(1) << "RPCForward: INGRESS response for service: " << rpc->get_service();
                         }
                     }
 
@@ -429,7 +430,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                     conn->submit_response(std::move(rpc));
                 }
                 write_http(conn);
-                VLOG(1) << "Submitted response on stream " << ds_stream_id;
+                VLOG(3) << "Submitted response on stream " << ds_stream_id;
 
 
                 
@@ -448,7 +449,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
         }
     }
 
-    VLOG(1) << "Finished forwarding on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
+    VLOG(3) << "Finished forwarding on type " << type_to_str(type) << " and direction " << direction_to_str(direction);
 }
 
 void State::remove_connection(std::shared_ptr<HTTPConnection> /*conn*/) {
@@ -517,8 +518,9 @@ void State::ppm_client(bool dn_resp, const std::unique_ptr<Buffer>& dn_resp_buff
             shared_state.downstream_concurrency.add(service, 1);
             local_state.ingress_admitted.add(service, 1);
 
-            VLOG(1) << "PPMClient: Forwarded request for service: " << service
-                    << ", admitted: " << local_state.ingress_admitted.get(service);
+            VLOG(1) << "RPCForward: EGRESS request for service: " << service
+                    << ", admitted: " << local_state.ingress_admitted.get(service)
+                    << ", ppm_queue size: " << ppm_queue.size(service);
         }
     } else {
         // we need to send a demand notification
@@ -594,7 +596,6 @@ void State::send_dn(HTTPConnection* conn, const std::string& service, size_t num
     }
     std::copy_n(service.begin(), service.length(), msg.begin() + header_size);
     udp_send(msg, reinterpret_cast<struct sockaddr_in*>(conn->get_addr()));
-    //VLOG(1) << "PPMClient: Sent demand notification for service: " << service;
 }
 
 void State::dump_entire_state() {
@@ -843,5 +844,6 @@ LocalState::LocalState(std::vector<std::string> hosted_services, std::vector<std
         }
         for (const auto& [service, info] : config.routing) {
             ingress_limit.set(service, info.ingress_limit.value_or(0));
+            LOG(INFO) << "Ingress limit for service: " << service << " is " << ingress_limit.get(service);
         }
     }

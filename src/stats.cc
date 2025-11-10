@@ -65,7 +65,7 @@ void Utilization::report(std::string& service) {
     auto p100 =  hdr_value_at_percentile(hist, 100.0);
     hdr_reset(hist);
     //NANO_LOG(NOTICE, "UTILIZATION P50 %ld P70 %ld P90 %ld P100 %ld", p50, p70, p90, p100);
-    VLOG(1) << "Reported utilization for service: " << service
+    VLOG(1) << "Stats: Reported utilization for service: " << service
             << ", utilization: " << std::fixed << std::setprecision(4) << utilization
             << ", p50: " << p50
             << ", p70: " << p70

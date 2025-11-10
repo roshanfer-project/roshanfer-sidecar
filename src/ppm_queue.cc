@@ -61,7 +61,8 @@ const std::string& PPMQueue::check(std::string_view& service) {
         LOG(FATAL) << "Service not found in PPM queue: " << service << " (size: " << service.length() << ")";
     }
     if (it->second.empty()) {
-        LOG(FATAL) << "Trying to find from an empty queue";
+        LOG(FATAL) << "Trying to find from an empty queue"
+                   << " service: " << service;
     }
     return it->first;
 }
