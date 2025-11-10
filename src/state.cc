@@ -464,13 +464,14 @@ void State::remove_connection(std::shared_ptr<HTTPConnection> /*conn*/) {
 }
 
 static std::string_view extract_service_from_ppm_req(const char* data) {
+    size_t header_size = 5;
     if (data[1] != 0x01) {
         LOG(FATAL) << "Invalid message type";
     }
-    if (data[0] < 5) {
+    if ((size_t)data[0] < header_size) {
         LOG(FATAL) << "Invalid message length: " << (int)data[0];
     }
-    return std::string_view(data + 5, (size_t)data[0] - 5);
+    return std::string_view(data + header_size, (size_t)data[0] - header_size);
 }
 
 std::tuple<const std::string&, bool, size_t> State::valid_credit(const char* data) {
