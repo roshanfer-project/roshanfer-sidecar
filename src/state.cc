@@ -567,7 +567,7 @@ void State::send_dn(HTTPConnection* conn, const std::string& service, size_t num
     msg.at(0) = (char)len;
     msg.at(1) = 0x01; // demand notification (0x01)
     msg.at(2) = 0x00; // request (0x00), response (0x01)
-    msg.at(3) = (char)num_credits; // number of credits
+    msg.at(3) = (char)num_credits; // number of requested credits
     // position 4 is for the received number of credits
     if (msg.size() - (size_t)header_size < service.length()) {
         LOG(FATAL) << "Buffer overflow"
