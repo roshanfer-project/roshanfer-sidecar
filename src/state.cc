@@ -448,7 +448,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                         shared_state.per_method_resp_in.add(rpc->get_service(), 1);
                         uint32_t in_local = shared_state.ingress_request_admitted.get(rpc->get_service()) - shared_state.per_method_resp_in.get(rpc->get_service());
                         utilization.update(in_local, rpc->get_service());
-                        check_credit_transmission();
+                        check_credit_transmission(rpc->get_id());
                     }
 
                     if (VLOG_IS_ON(1)) {
@@ -572,7 +572,7 @@ void State::ppm_client(bool dn_resp, const std::unique_ptr<Buffer>& dn_resp_buff
             );
             shared_state.downstream_concurrency.add(service, 1);
             local_state.ingress_admitted.add(service, 1);
-            check_credit_transmission();
+            check_credit_transmission(rpc->get_id());
 
             VLOG(1) << "RPCForward: EGRESS request. "
                     << "| service: " << service
@@ -752,14 +752,15 @@ inline static void write_dn_response(int result, const std::unique_ptr<Buffer>& 
     resp->set_filled(req->get_filled());
 }
 
-void State::check_credit_transmission() {
+void State::check_credit_transmission(int16_t rpc_id) {
     for (const auto& service : shared_state.per_method_resp_in.get_all_keys()) {
         failed_dn_info_lock.lock();
         if (shared_state.failed_dn_info.get(service).size() == 0) {
             failed_dn_info_lock.unlock();
             VLOG(2) << "QM: No failed DN info found "
                     << "| service: " << service
-                    << "| thread id: " << thread_id;
+                    << "| thread id: " << thread_id
+                    << "| id: " << rpc_id;
             continue;
         }
         failed_dn_info_lock.unlock(); // unlock before calling get_available_credits
@@ -870,12 +871,13 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer>& req, const std::uni
         shared_state.sent_credits.add(service, result);
 
         // check failed DN info
-        check_credit_transmission();
+        check_credit_transmission(rpc_id);
 
         // write the response
         write_dn_response(result, req, resp);
         if (VLOG_IS_ON(1)) {
             VLOG(1) << "QM: Wrote DN response "
+               << "| id: " << rpc_id
                << "| service: " << service
                << "| result: " << (int)result
                << "| requested: " << (int)requested_credits

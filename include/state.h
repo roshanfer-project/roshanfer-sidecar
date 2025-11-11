@@ -213,7 +213,7 @@ class State {
         void send_dn(HTTPConnection*, const std::string&, size_t, int16_t);
         std::tuple<const std::string&, bool, size_t, int16_t> valid_credit(const char*);
         int get_available_credits(const std::string_view&);
-        void check_credit_transmission();
+        void check_credit_transmission(int16_t);
         void send_credit(std::unique_ptr<struct sockaddr_in>&, const std::string_view&, int, int16_t);
 
 
