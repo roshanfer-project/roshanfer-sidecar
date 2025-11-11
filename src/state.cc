@@ -857,19 +857,22 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer>& req, const std::uni
             if (available_credits >= (int)requested_credits) {
                 result = (uint8_t)requested_credits;
             } else {
-                // save address and number of rejected requests for future credit transmissions
-                auto failed_dn_info = std::make_unique<FailedDNInfoUnit>(req->get_addr(), (int)requested_credits - available_credits, rpc_id);
-                failed_dn_info_lock.lock();
-                shared_state.failed_dn_info.get(service).push(std::move(failed_dn_info));
-                auto existing_ids = shared_state.failed_dn_info.get(service).id_list();
-                failed_dn_info_lock.unlock();
-                VLOG(2) << "QM: Saving failed DN info "
-                        << "| service: " << service
-                        << "| id: " << rpc_id
-                        << "| existing IDs in queue: " << existing_ids
-                        << "| thread id: " << thread_id;
                 result = (uint8_t)available_credits;
             }
+        }
+
+        if (result == 0) {
+            // save address and number of rejected requests for future credit transmissions
+            auto failed_dn_info = std::make_unique<FailedDNInfoUnit>(req->get_addr(), (int)requested_credits - available_credits, rpc_id);
+            failed_dn_info_lock.lock();
+            shared_state.failed_dn_info.get(service).push(std::move(failed_dn_info));
+            auto existing_ids = shared_state.failed_dn_info.get(service).id_list();
+            failed_dn_info_lock.unlock();
+            VLOG(2) << "QM: Saving failed DN info "
+                    << "| service: " << service
+                    << "| id: " << rpc_id
+                    << "| existing IDs in queue: " << existing_ids
+                    << "| thread id: " << thread_id;
         }
         
         shared_state.sent_credits.add(service, result);
