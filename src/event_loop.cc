@@ -402,7 +402,7 @@ EventLoop::EventLoop(int th_index, std::string& ingress_service_ref, Config pars
     rpc_mapper(),
     rpc_queue(),
     ingress(config.routing, th_index),
-    state(config, ring, buffer_manager, rpc_mapper, rpc_queue, listeners, ingress, shared_state, ingress_service_ref)
+    state(config, ring, buffer_manager, rpc_mapper, rpc_queue, listeners, ingress, shared_state, ingress_service_ref, th_index)
     {   
         uint16_t egress_port;
         if (config.is_ingress) {

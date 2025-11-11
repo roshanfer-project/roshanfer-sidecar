@@ -2,45 +2,43 @@
 #include "config.h"
 #include "glog/logging.h"
 #include "rpc_message.h"
-#include <chrono>
-#include <queue>
 #include <string>
 #include <unordered_map>
 
 PPMQueue::PPMQueue(std::unordered_map<std::string, RoutingEntry, TransparentHash, TransparentEqual> routing)
-: ppm_queue(std::unordered_map<std::string, std::queue<std::shared_ptr<RPCMessage>>,
+: ppm_queue(std::unordered_map<std::string, std::unordered_map<int16_t, std::shared_ptr<RPCMessage>>,
     TransparentHash, TransparentEqual>()) {
     for (const auto& [route, _] : routing) {
-        ppm_queue.emplace(route, std::queue<std::shared_ptr<RPCMessage>>());
+        ppm_queue.emplace(route, std::unordered_map<int16_t, std::shared_ptr<RPCMessage>>());
     }
 }
 
-void PPMQueue::enqueue(std::shared_ptr<RPCMessage> rpc) {
+void PPMQueue::push(std::shared_ptr<RPCMessage> rpc) {
     try {
-        ppm_queue.at(rpc->get_service()).push(rpc);
-    } catch (const std::out_of_range&) {
-        try {
-            ppm_queue.emplace(rpc->get_service(), std::queue<std::shared_ptr<RPCMessage>>());
-            ppm_queue.at(rpc->get_service()).push(rpc);
-        } catch (const std::exception& e) {
-            LOG(FATAL) << "Error in initializing PPM queue for service: "
-                       << rpc->get_service() << ", error: " << e.what();
-        }
+        ppm_queue.at(rpc->get_service()).emplace(rpc->get_id(), rpc);
+    } catch (const std::out_of_range& e) {
+        LOG(FATAL) << "Error in pushing RPC message: " << e.what()
+                    << " service: " << rpc->get_service();
     } catch (const std::exception& e) {
-        LOG(FATAL) << "Error in enqueueing RPC message: " << e.what()
-                   << " service: " << rpc->get_service();
+        LOG(FATAL) << "Error in pushing RPC message: " << e.what()
+                    << " service: " << rpc->get_service();
     }
-    VLOG(1) << "Enqueued RPC message on service " << rpc->get_service();
+    VLOG(1) << "PPMQueue: Pushed RPC message "
+            << "| service: " << rpc->get_service()
+            << "| id: " << rpc->get_id();
 }
 
-std::shared_ptr<RPCMessage> PPMQueue::dequeue(const std::string& service) {
+std::shared_ptr<RPCMessage> PPMQueue::pop(const std::string& service, int16_t id) {
     try {
         if (ppm_queue.at(service).empty()) {
-            LOG(FATAL) << "Trying to dequeue from an empty queue for service: " << service;
+            LOG(FATAL) << "Trying to pop from an empty queue for service: " << service;
         }
-        auto rpc = ppm_queue.at(service).front();
-        ppm_queue.at(service).pop();
-        VLOG(1) << "Dequeued RPC message on service " << service;
+        auto rpc = ppm_queue.at(service).at(id);
+        ppm_queue.at(service).erase(id);
+        VLOG(1) << "PPMQueue: Popped RPC message "
+                << "| service: " << service
+                << "| id: " << id
+                << "| ppm_queue size: " << ppm_queue.at(service).size();
         return rpc;
     } catch (const std::out_of_range&) {
         LOG(FATAL) << "Service not found in PPM queue: " << service;
@@ -67,16 +65,6 @@ const std::string& PPMQueue::check(std::string_view& service) {
     return it->first;
 }
 
-int PPMQueue::get_fd(const std::string& service) {
-    if (ppm_queue.find(service) == ppm_queue.end()) {
-        LOG(FATAL) << "Service not found in PPM queue: " << service;
-    }
-    if (ppm_queue.at(service).empty()) {
-        LOG(FATAL) << "Trying to get fd from an empty queue for service: " << service;
-    }
-    return ppm_queue.at(service).front()->get_us_fd();
-}
-
 size_t PPMQueue::size(const std::string& service) {
     try {
         return ppm_queue.at(service).size();
@@ -84,25 +72,6 @@ size_t PPMQueue::size(const std::string& service) {
         LOG(FATAL) << "Service not found in PPM queue: " << service;
     } catch (const std::exception& e) {
         LOG(FATAL) << "Error in getting size from PPM queue: " << e.what()
-                   << " service: " << service;
-    }
-}
-
-int PPMQueue::queueing_delay(const std::string& service) {
-    try {
-        auto it = ppm_queue.find(service);
-        if (it == ppm_queue.end()) {
-            LOG(FATAL) << "Service not found in PPM queue: " << service;
-        }
-        if (it->second.empty()) {
-            return 0;
-        }
-        return (int)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()
-                            - it->second.front()->req_rcv_time).count();
-    } catch (const std::out_of_range& e) {
-        LOG(FATAL) << "Trying to get queueing delay from an empty queue for service: " << service;
-    } catch (const std::exception& e) {
-        LOG(FATAL) << "Error in getting queueing delay from PPM queue: " << e.what()
                    << " service: " << service;
     }
 }

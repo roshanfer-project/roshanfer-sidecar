@@ -25,6 +25,7 @@ class Ingress {
         void update_stats(int32_t, int32_t, std::string&);
         int64_t add_to_be_admitted_or_drop(RPCQueue&, RPCMapper&, std::string&, int64_t, int32_t);
         void dump_state();
+        void add_rpc_id_header(std::shared_ptr<RPCMessage>&);
 
 
     private:
@@ -35,5 +36,8 @@ class Ingress {
         LocalMap<int32_t> p95_us;
         LocalMap<int32_t> p50_us;
         LocalMap<int32_t> slo_us;
-        //int32_t max_queue;
+        uint16_t last_rpc_id;
+        const uint8_t* RPC_ID_HEADER_NAME = reinterpret_cast<const uint8_t*>("rpc-id");
+        const size_t RPC_ID_HEADER_NAME_LEN = 7;
+        std::array<char, 20> rpc_id_header_value;
 };

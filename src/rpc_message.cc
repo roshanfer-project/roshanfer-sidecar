@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <queue>
+#include <sys/types.h>
 #include <vector>
 #include <glog/logging.h>
 
@@ -72,7 +73,13 @@ void gRPCMessage::add_header_field(const uint8_t* name, size_t name_len,
         //VLOG(1) << "Service: " << service;
     }
 
-
+    if (request) {
+        if (std::strcmp(reinterpret_cast<const char*>(name), "rpc-id") == 0) {
+            id = (int16_t)std::stoi(reinterpret_cast<const char*>(value));
+            VLOG(1) << "RPC ID: " << id;
+        }
+    }
+    
     if (tailer) {
         if (request) {
             LOG(FATAL) << "Tailer in request";
@@ -155,6 +162,7 @@ void gRPCMessage::clear() {
     req_for_time = std::chrono::time_point<std::chrono::steady_clock>();
     req_rcv_time = std::chrono::time_point<std::chrono::steady_clock>();
     res_rcv_time = std::chrono::time_point<std::chrono::steady_clock>();
+    id = -1;
 }
 
 gRPCMessage::~gRPCMessage() {
@@ -237,6 +245,13 @@ void HTTPMessage::add_header_field(const uint8_t* name, size_t name_len,
     
     if (tailer) {
         LOG(FATAL) << "Tailers are not supported in HTTPMessage";
+    }
+
+    if (request) {
+        if (std::strcmp(reinterpret_cast<const char*>(name), "rpc-id") == 0) {
+            id = (int16_t)std::stoi(reinterpret_cast<const char*>(value));
+            VLOG(1) << "RPC ID: " << id;
+        }
     }
 
     if (request) {

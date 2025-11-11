@@ -82,7 +82,7 @@ Utilization create_utilization(const Config& local_config) {
 
 State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_manager_ref,
     RPCMapper& mapper_ref, RPCQueue& queue_ref, std::unordered_map<ConnectionType,
-    std::shared_ptr<Listener>>& listeners_ref, Ingress& ingress_ref, SharedState& shared_state_ref, std::string& ingress_service_ref)
+    std::shared_ptr<Listener>>& listeners_ref, Ingress& ingress_ref, SharedState& shared_state_ref, std::string& ingress_service_ref, int thread_id_arg)
 :   config(parsed_config),
     ingress_pool(ConnectionType::INGRESS),
     upstream_route_mapper(),
@@ -94,6 +94,7 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
     ppm_queue(config.routing),
     ingress(ingress_ref),
     hist(),
+    thread_id(thread_id_arg),
     shared_state(shared_state_ref),
     local_state(create_local_state(parsed_config)),
     utilization(create_utilization(parsed_config)),
@@ -179,8 +180,36 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
     next_hist_update = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 }
 
-FailedDNInfoUnit::FailedDNInfoUnit(struct sockaddr_in addr, int num_rejected_requests)
-: addr(std::make_unique<struct sockaddr_in>(addr)), num_rejected_requests(num_rejected_requests) {}
+FailedDNInfoUnit::FailedDNInfoUnit(struct sockaddr_in addr, int num_rejected_requests, int16_t rpc_id)
+: addr(std::make_unique<struct sockaddr_in>(addr)), num_rejected_requests(num_rejected_requests), id(rpc_id) {
+    if (num_rejected_requests != 1) {
+        LOG(FATAL) << "Batching is not allowed";
+    }
+}
+
+FailedDNInfo::FailedDNInfo()
+: failed_dn_info() {}
+
+void FailedDNInfo::push(std::unique_ptr<FailedDNInfoUnit> failed_dn_info_unit) {
+    failed_dn_info.push_back(std::move(failed_dn_info_unit));
+}
+
+std::unique_ptr<FailedDNInfoUnit> FailedDNInfo::pop() {
+    if (failed_dn_info.empty()) {
+        LOG(FATAL) << "Failed DN info queue is empty";
+    }
+    auto failed_dn_info_unit = std::move(failed_dn_info.front());
+    failed_dn_info.pop_front();
+    return failed_dn_info_unit;
+}
+
+std::string FailedDNInfo::id_list() {
+    std::string id_list;
+    for (const auto& failed_dn_info_unit : failed_dn_info) {
+        id_list += std::to_string(failed_dn_info_unit->id) + ",";
+    }
+    return id_list;
+}
 
 void State::write_http(std::shared_ptr<HTTPConnection> conn) {
     if (conn->want_write() == 0) {
@@ -320,6 +349,11 @@ bool State::forward_request(std::shared_ptr<HTTPConnection> conn, std::shared_pt
         // submit the request
         rpc->set_us_stream_id(conn->submit_request(rpc));
 
+        // check if the request has an ID
+        if (rpc->get_id() == -1) {
+            LOG(FATAL) << "Request has no ID";
+        }
+
         // update the mapping
         rpc_mapper.route(conn->type, rpc->get_ds_stream_id(), rpc->get_ds_fd(), rpc->get_us_stream_id(), conn->get_fd());
 
@@ -364,7 +398,9 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
             if (!forward_request(conn, rpc)) {
                 break;
             }
-            VLOG(1) << "RPCForward: INGRESS request for service: " << rpc->get_service();
+            VLOG(1) << "RPCForward: INGRESS request "
+                    << "| service: " << rpc->get_service()
+                    << "| id: " << rpc->get_id();
 
             if (!config.is_ingress) {
                 shared_state.ingress_request_admitted.add(rpc->get_service(), 1);
@@ -395,6 +431,9 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
 
                 // update stats
                 if (!rpc->is_drop()) {
+                    if (rpc->get_id() == -1) {
+                        LOG(FATAL) << "Response has no ID";
+                    }
                     if (type == ConnectionType::EGRESS) {
                         local_state.ppm_client_dn_send.at(rpc->get_service()) = true;
                         local_state.egress_resp_in.add(rpc->get_service(), 1);
@@ -409,14 +448,18 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                         shared_state.per_method_resp_in.add(rpc->get_service(), 1);
                         uint32_t in_local = shared_state.ingress_request_admitted.get(rpc->get_service()) - shared_state.per_method_resp_in.get(rpc->get_service());
                         utilization.update(in_local, rpc->get_service());
-                        check_credit_transmission(rpc->get_service(), false);
+                        check_credit_transmission();
                     }
 
                     if (VLOG_IS_ON(1)) {
                         if (type == ConnectionType::EGRESS) {
-                            VLOG(1) << "RPCForward: EGRESS response for service: " << rpc->get_service();
+                            VLOG(1) << "RPCForward: EGRESS response "
+                            << "| service: " << rpc->get_service()
+                            << "| id: " << rpc->get_id();
                         } else {
-                            VLOG(1) << "RPCForward: INGRESS response for service: " << rpc->get_service();
+                            VLOG(1) << "RPCForward: INGRESS response "
+                            << "| service: " << rpc->get_service()
+                            << "| id: " << rpc->get_id();
                         }
                     }
 
@@ -464,7 +507,7 @@ void State::remove_connection(std::shared_ptr<HTTPConnection> /*conn*/) {
 }
 
 static std::string_view extract_service_from_ppm_req(const char* data) {
-    size_t header_size = 5;
+    size_t header_size = 7;
     if (data[1] != 0x01) {
         LOG(FATAL) << "Invalid message type";
     }
@@ -474,36 +517,41 @@ static std::string_view extract_service_from_ppm_req(const char* data) {
     return std::string_view(data + header_size, (size_t)data[0] - header_size);
 }
 
-std::tuple<const std::string&, bool, size_t> State::valid_credit(const char* data) {
+std::tuple<const std::string&, bool, size_t, int16_t> State::valid_credit(const char* data) {
     // check the data format and extract the service name
     auto key = extract_service_from_ppm_req(data);
+    int16_t id = (int16_t)(data[5] << 8 | data[6]);
 
     // add the difference between requested credits and available credits to the denied requests
     int credit_diff = (int)(data[3] - data[4]);
     if (credit_diff > 0) {
-        VLOG(1) << "PPMClient: Credit denied for service " << key
-                << ", num denied requests: " << credit_diff
-                << ", ppm_queue size: " << ppm_queue.size(ppm_queue.check(key));
+        VLOG(1) << "PPMClient: Credit denied "
+                << "| service: " << key
+                << "| id: " << id
+                << "| num denied requests: " << credit_diff
+                << "| ppm_queue size: " << ppm_queue.size(ppm_queue.check(key));
     } else if (credit_diff < 0) {
         LOG(FATAL) << "Received more credits than requested: " << (int)data[3] << " vs " << (int)data[4];
     } else {
-        VLOG(1) << "PPMClient: Valid credit for service " << key
-            << ", new credits: " << (int)data[4]
-            << ", ppm_queue size: " << ppm_queue.size(ppm_queue.check(key));
+        VLOG(1) << "PPMClient: Valid credit "
+                << "| id: " << id
+                << "| service: " << key
+                << "| new credits: " << (int)data[4]
+                << "| ppm_queue size: " << ppm_queue.size(ppm_queue.check(key));
     }
 
     if (data[4] >= 1) {
         // make sure we are not receiving more than what we want
-        return {ppm_queue.check(key), true, data[4]};
+        return {ppm_queue.check(key), true, data[4], id};
     } else {
-        return {ppm_queue.check(key), false, 0};
+        return {ppm_queue.check(key), false, 0, id};
     }
 }
 
 void State::ppm_client(bool dn_resp, const std::unique_ptr<Buffer>& dn_resp_buffer) {
     if (dn_resp) {
         // we have received a demand notification response
-        auto [service, ok, num_credits] = valid_credit(dn_resp_buffer->data.data());
+        auto [service, ok, num_credits, id] = valid_credit(dn_resp_buffer->data.data());
         if (!ok) {
             return;
         }
@@ -511,23 +559,26 @@ void State::ppm_client(bool dn_resp, const std::unique_ptr<Buffer>& dn_resp_buff
         if (num_credits > ppm_queue.size(service)) {
             dump_entire_state();
             LOG(FATAL) << "Received more credits than available in the queue for service: " << service
-                       << ", num_credits: " << num_credits
-                       << ", queue size: " << ppm_queue.size(service);
+                       << "| num_credits: " << num_credits
+                       << "| id: " << id
+                       << "| queue size: " << ppm_queue.size(service);
         }
 
         for (size_t i = 0; i < num_credits; i++) {
-            auto rpc = ppm_queue.dequeue(service);
+            auto rpc = ppm_queue.pop(service, id);
             forward_request(
                 upstream_route_mapper.get_pool(service).get_connection(rpc->get_us_fd()),
                 rpc
             );
             shared_state.downstream_concurrency.add(service, 1);
             local_state.ingress_admitted.add(service, 1);
-            check_credit_transmission(rpc->get_service(), true);
+            check_credit_transmission();
 
-            VLOG(1) << "RPCForward: EGRESS request for service: " << service
-                    << ", admitted: " << local_state.ingress_admitted.get(service)
-                    << ", ppm_queue size: " << ppm_queue.size(service);
+            VLOG(1) << "RPCForward: EGRESS request. "
+                    << "| service: " << service
+                    << "| id: " << rpc->get_id()
+                    << "| admitted: " << local_state.ingress_admitted.get(service)
+                    << "| ppm_queue size: " << ppm_queue.size(service);
         }
     } else {
         // we need to send a demand notification
@@ -545,23 +596,25 @@ void State::ppm_client(bool dn_resp, const std::unique_ptr<Buffer>& dn_resp_buff
                 ds_stream_id,
                 ds_fd
             );
-            ppm_queue.enqueue(rpc);
+            ppm_queue.push(rpc);
             send_dn(
-                    upstream_route_mapper.get_pool(rpc->get_service()).get_connection(ppm_queue.get_fd(rpc->get_service())).get(),
+                    upstream_route_mapper.get_pool(rpc->get_service()).get_connection(rpc->get_us_fd()).get(),
                     rpc->get_service(),
-                    1
+                    1,
+                    rpc->get_id()
             );
-            VLOG(1) << "PPMClient: DN for new request. "
-                    << ", service: " << rpc->get_service()
-                    << ", credits: " << 1
-                    << ", queue size: " << ppm_queue.size(rpc->get_service());
+            VLOG(1) << "PPMClient: DN for new request "
+                    << "| service: " << rpc->get_service()
+                    << "| id: " << rpc->get_id()        
+                    << "| credits: " << 1
+                    << "| queue size: " << ppm_queue.size(rpc->get_service());
         }
     }  
 }
 
-void State::send_dn(HTTPConnection* conn, const std::string& service, size_t num_credits) {
+void State::send_dn(HTTPConnection* conn, const std::string& service, size_t num_credits, int16_t id) {
     // send a demand notification
-    ssize_t header_size = 5;
+    ssize_t header_size = 7;
     size_t len = (size_t)header_size + service.length();
     std::vector<char> msg(len);
     msg.at(0) = (char)len;
@@ -569,6 +622,9 @@ void State::send_dn(HTTPConnection* conn, const std::string& service, size_t num
     msg.at(2) = 0x00; // request (0x00), response (0x01)
     msg.at(3) = (char)num_credits; // number of requested credits
     // position 4 is for the received number of credits
+    // position 5 is for the ID of the request (int16_t - two bytes)
+    msg.at(5) = (char)(id >> 8);
+    msg.at(6) = (char)(id & 0xFF);
     if (msg.size() - (size_t)header_size < service.length()) {
         LOG(FATAL) << "Buffer overflow"
                     << " , msg size: " << msg.size()
@@ -638,10 +694,6 @@ void State::dump_entire_state() {
     for (auto& service : local_state.avg_service_time_us.get_all_keys()) {
         LOG(INFO) << "  " << service << ": " << local_state.avg_service_time_us.get(service).get_value();
     }
-    LOG(INFO) << "--- Queueing Delay (ppm_queue.queueing_delay) ---";
-    for (const auto& [route, _] : config.routing) {
-        LOG(INFO) << "  " << route << ": " << ppm_queue.queueing_delay(route);
-    }
     LOG(INFO) << "--- extra slot ingress ---";
     for (const auto& [route, _] : config.routing) {
         LOG(INFO) << "  " << route << ": " << local_state.ingress_limit.get(route) - local_state.ingress_to_be_admitted.get(route) + local_state.ingress_admitted.get(route);
@@ -673,7 +725,7 @@ void State::ingress_admit() {
         rpc_mapper,
         ingress_service,
         extra_slot_ingress,
-        ppm_queue.queueing_delay(ingress_service)
+        0
     );
     if (ingress.size(ingress_service) != 0) {
         dump_entire_state();
@@ -700,48 +752,40 @@ inline static void write_dn_response(int result, const std::unique_ptr<Buffer>& 
     resp->set_filled(req->get_filled());
 }
 
-void State::check_credit_transmission(const std::string_view& in_service, bool is_dn) {
-    if (is_dn && local_state.upstream_service.size() == 0) {
-        VLOG(2) << "QM: No upstream service found";
-        return;
-    }
+void State::check_credit_transmission() {
+    for (const auto& service : shared_state.per_method_resp_in.get_all_keys()) {
+        failed_dn_info_lock.lock();
+        if (shared_state.failed_dn_info.get(service).size() == 0) {
+            failed_dn_info_lock.unlock();
+            VLOG(2) << "QM: No failed DN info found "
+                    << "| service: " << service
+                    << "| thread id: " << thread_id;
+            continue;
+        }
+        failed_dn_info_lock.unlock(); // unlock before calling get_available_credits
+        size_t size = 0;
+        if (int available_credits = get_available_credits(service); available_credits > 0) {
+            while (available_credits > 0) {
 
-    const std::string_view& service = is_dn ? local_state.upstream_service.get(in_service) : in_service;
+                failed_dn_info_lock.lock();
+                std::unique_ptr<FailedDNInfoUnit> failed_dn_info = shared_state.failed_dn_info.get(service).pop();
+                shared_state.sent_credits.add(service, 1);
+                size = shared_state.failed_dn_info.get(service).size();
+                failed_dn_info_lock.unlock();
 
-    if (local_state.failed_dn_info.get(service).size() == 0) {
-        VLOG(2) << "QM: No failed DN info found for service: " << service;
-        return;
-    }
-
-    if (int available_credits = get_available_credits(service); available_credits > 0) {
-        uint32_t num_credits_sent = 0;
-        while (available_credits > 0) {
-            auto failed_dn_info = std::move(local_state.failed_dn_info.get(service).front());
-            local_state.failed_dn_info.get(service).pop();
-
-            if (available_credits >= failed_dn_info->num_rejected_requests) {
-                // fully satisfy this unit
-                send_credit(failed_dn_info->addr, service, failed_dn_info->num_rejected_requests);
+                send_credit(failed_dn_info->addr, service, failed_dn_info->num_rejected_requests, failed_dn_info->id);
                 available_credits -= failed_dn_info->num_rejected_requests;
-                num_credits_sent += (uint32_t)failed_dn_info->num_rejected_requests;
-                VLOG(2) << "QM: Sent failed DN info (fully satisfied) for service: " << service
-                        << ", number of credits: " << failed_dn_info->num_rejected_requests;
-            } else {
-                // partially satisfy this unit
-                send_credit(failed_dn_info->addr, service, available_credits);
-                failed_dn_info->num_rejected_requests -= available_credits;
-                local_state.failed_dn_info.get(service).push(std::move(failed_dn_info));
-                num_credits_sent += (uint32_t)available_credits;
-                available_credits = 0;
-                VLOG(2) << "QM: Sent failed DN info (partially satisfied) for service: " << service
-                        << ", number of credits: " << available_credits
-                        << ", remaining number of rejected requests: " << failed_dn_info->num_rejected_requests;
-            }
-            shared_state.sent_credits.add(service, num_credits_sent);
-            num_credits_sent = 0;
-            VLOG(2) << "QM: Failed DN info size for service: " << service << " is " << local_state.failed_dn_info.get(service).size();
-            if (local_state.failed_dn_info.get(service).size() == 0) {
-                break;
+
+                VLOG(2) << "QM: Sent failed DN info "
+                            << "| service: " << service
+                            << "| id: " << failed_dn_info->id
+                            << "| number of credits: " << failed_dn_info->num_rejected_requests
+                            << "| thread id: " << thread_id
+                            << "| failed DN info size: " << size;
+
+                if (size == 0) {
+                    break;
+                }
             }
         }
     }
@@ -766,10 +810,11 @@ int State::get_available_credits(const std::string_view& service) {
         available_credits = 0;
     }
     VLOG(2) << "QM: Available credits for service: " << service << " is " << available_credits
-    << ", snet credits: " << s_credits
-    << ", per method resp in: " << p_resp_in
-    << ", downstream concurrency: " << downstreams
-    << ", per api limit: " << local_state.per_api_limit.get(service);
+    << "| snet credits: " << s_credits
+    << "| per method resp in: " << p_resp_in
+    << "| downstream concurrency: " << downstreams
+    << "| per api limit: " << local_state.per_api_limit.get(service)
+    << "| thread id: " << thread_id;
     return available_credits;
 }
 
@@ -784,10 +829,16 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer>& req, const std::uni
         }
 
         char requested_credits = req->data.at(3);
+        if (requested_credits != 1) {
+            LOG(FATAL) << "Batching is not allowed";
+        }
 
         std::string_view service = extract_service_from_ppm_req(req->data.data());
-
-        VLOG(2) << "QM: Received DN request for service: " << service;
+        int16_t rpc_id = (int16_t)(req->data.at(5) << 8 | req->data.at(6));
+        VLOG(2) << "QM: Received DN request "
+         << "| service: " << service
+         << "| id: " << rpc_id
+         << "| thread id: " << thread_id;
 
         int available_credits = get_available_credits(service);
         uint8_t result = 0;
@@ -802,27 +853,37 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer>& req, const std::uni
                 result = (uint8_t)requested_credits;
             } else {
                 // save address and number of rejected requests for future credit transmissions
-                auto failed_dn_info = std::make_unique<FailedDNInfoUnit>(req->get_addr(), (int)requested_credits - available_credits);
-                    VLOG(2) << "QM: Saving failed DN info for service: " << service
-                            << ", new rejects: " << failed_dn_info->num_rejected_requests
-                            << ", total reject units: " << local_state.failed_dn_info.get(service).size();
-                    local_state.failed_dn_info.get(service).push(std::move(failed_dn_info));
+                auto failed_dn_info = std::make_unique<FailedDNInfoUnit>(req->get_addr(), (int)requested_credits - available_credits, rpc_id);
+                failed_dn_info_lock.lock();
+                shared_state.failed_dn_info.get(service).push(std::move(failed_dn_info));
+                auto existing_ids = shared_state.failed_dn_info.get(service).id_list();
+                failed_dn_info_lock.unlock();
+                VLOG(2) << "QM: Saving failed DN info "
+                        << "| service: " << service
+                        << "| id: " << rpc_id
+                        << "| existing IDs in queue: " << existing_ids
+                        << "| thread id: " << thread_id;
                 result = (uint8_t)available_credits;
             }
         }
         
         shared_state.sent_credits.add(service, result);
 
+        // check failed DN info
+        check_credit_transmission();
+
         // write the response
         write_dn_response(result, req, resp);
         if (VLOG_IS_ON(1)) {
-            VLOG(1) << "QM: Wrote DN response for service: " << service
-               << ", result: " << (int)result
-               << ", requested: " << (int)requested_credits
-                << ", available: " << available_credits
-                << ", req in sys: " << in_system
-               << ", sent credits: " << shared_state.sent_credits.get(service)
-               << ", resp out: " << shared_state.per_method_resp_in.get(service);
+            VLOG(1) << "QM: Wrote DN response "
+               << "| service: " << service
+               << "| result: " << (int)result
+               << "| requested: " << (int)requested_credits
+               << "| available: " << available_credits
+               << "| req in system: " << in_system
+               << "| sent credits: " << shared_state.sent_credits.get(service)
+               << "| resp out: " << shared_state.per_method_resp_in.get(service)
+               << "| thread id: " << thread_id;  
         }
         
     } else {
@@ -851,8 +912,8 @@ void State::udp_send(std::vector<char> msg, struct sockaddr_in* addr) {
     );
 }
 
-void State::send_credit(std::unique_ptr<struct sockaddr_in>& addr, const std::string_view& service, int num_credits) {
-    ssize_t header_size = 5;
+void State::send_credit(std::unique_ptr<struct sockaddr_in>& addr, const std::string_view& service, int num_credits, int16_t id) {
+    ssize_t header_size = 7;
     size_t len = (size_t)header_size + service.length();
     std::vector<char> msg(len);
     msg.at(0) = (char)len;
@@ -860,6 +921,8 @@ void State::send_credit(std::unique_ptr<struct sockaddr_in>& addr, const std::st
     msg.at(2) = 0x01; // request (0x00), response (0x01)
     msg.at(3) = (char)num_credits; // number of credits
     msg.at(4) = (char)num_credits; // number of credits
+    msg.at(5) = (char)(id >> 8);
+    msg.at(6) = (char)(id & 0xFF);
     if (msg.size() - (size_t)header_size < service.length()) {
         LOG(FATAL) << "Buffer overflow"
                     << " , msg size: " << msg.size()
@@ -874,6 +937,7 @@ SharedState::SharedState(std::vector<std::string> hosted_services, std::vector<s
 :   sent_credits(FastMap<uint32_t>(hosted_services)),
     per_method_resp_in(FastMap<uint32_t>(hosted_services)),
     ingress_request_admitted(FastMap<uint32_t>(hosted_services)),
+    failed_dn_info(LocalMap<FailedDNInfo>(hosted_services)),
     downstream_concurrency(FastMap<int64_t>(downstream_services))
 {
 }
@@ -897,7 +961,6 @@ static bool set_upstream_service(LocalMap<std::string>& upstream_service, const 
 LocalState::LocalState(std::vector<std::string> hosted_services, std::vector<std::string> downstream_services)
 :   local_concurrency_limit(LocalMap<uint32_t>(hosted_services)),
     per_api_limit(LocalMap<uint32_t>(hosted_services)),
-    failed_dn_info(LocalMap<std::queue<std::unique_ptr<FailedDNInfoUnit>>>(hosted_services)),
     ppm_client_dn_send(std::unordered_map<std::string, bool>(downstream_services.size())),
     new_ppm_queue_reqs(LocalMap<uint32_t>(downstream_services)),
     upstream_service(LocalMap<std::string>(downstream_services)),
@@ -906,7 +969,6 @@ LocalState::LocalState(std::vector<std::string> hosted_services, std::vector<std
     ingress_to_be_admitted(LocalMap<int64_t>(downstream_services)),
     ingress_admitted(LocalMap<int64_t>(downstream_services)),
     avg_service_time_us(LocalMap<MovingAverage>(downstream_services)),
-    //last_admission(LocalMap<std::chrono::time_point<std::chrono::steady_clock>>(downstream_services)),
     ingress_limit(LocalMap<int32_t>(downstream_services))
 {
         for (const auto& service : downstream_services) {

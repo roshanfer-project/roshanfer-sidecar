@@ -3,8 +3,8 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <memory>
-#include <queue>
 #include <string>
 #include <string_view>
 #include <sys/types.h>
@@ -20,6 +20,7 @@
 #include "rpc_mapper.h"
 #include "rpc_message.h"
 #include "rpc_queue.h"
+#include "spinlock.hpp"
 #include "stats.h"
 #include <unordered_map>
 #include <vector>
@@ -44,7 +45,7 @@ class ConnectionNotUPException: public std::runtime_error {
 
 class FailedDNInfoUnit {
     public:
-        FailedDNInfoUnit(struct sockaddr_in, int);
+        FailedDNInfoUnit(struct sockaddr_in, int, int16_t);
 
         // delete copy semantics
         FailedDNInfoUnit(const FailedDNInfoUnit&) = delete;
@@ -56,6 +57,28 @@ class FailedDNInfoUnit {
     public:
         std::unique_ptr<struct sockaddr_in> addr;
         int num_rejected_requests;
+        int16_t id;
+};
+
+class FailedDNInfo {
+    public:
+        FailedDNInfo();
+
+        // delete copy semantics
+        FailedDNInfo(const FailedDNInfo&) = delete;
+        FailedDNInfo& operator=(const FailedDNInfo&) = delete;
+
+        // delete move semantics
+        FailedDNInfo(FailedDNInfo&&) = delete;
+        FailedDNInfo& operator=(FailedDNInfo&&) = delete;
+
+        void push(std::unique_ptr<FailedDNInfoUnit>);
+        std::unique_ptr<FailedDNInfoUnit> pop();
+        std::string id_list();
+        size_t size() { return failed_dn_info.size(); }
+
+    public:
+        std::deque<std::unique_ptr<FailedDNInfoUnit>> failed_dn_info;
 };
 
 class SharedState  {
@@ -86,6 +109,8 @@ class SharedState  {
         */
         FastMap<uint32_t> ingress_request_admitted;
 
+        LocalMap<FailedDNInfo> failed_dn_info;
+
 
         /*ConnectionType::EGRESS-side metrics*/
 
@@ -111,10 +136,6 @@ class LocalState {
         READ-ONLY: per-API limit (config.mapping.<service>.limit).
         */
         LocalMap<uint32_t> per_api_limit;
-        /*
-        Thread-local information of rejected DN requests.
-        */
-        LocalMap<std::queue<std::unique_ptr<FailedDNInfoUnit>>> failed_dn_info;
 
 
         /*ConnectionType::EGRESS-side metrics*/
@@ -168,7 +189,7 @@ class State {
 
     public:
         State(Config, RingWrapper&, BufferManager&, RPCMapper&, RPCQueue&,
-            std::unordered_map<ConnectionType, std::shared_ptr<Listener>>&, Ingress&, SharedState&, std::string&);
+            std::unordered_map<ConnectionType, std::shared_ptr<Listener>>&, Ingress&, SharedState&, std::string&, int);
         void forward(ConnectionType, ConnectionDirection);
         void remove_connection(std::shared_ptr<HTTPConnection>);
 
@@ -189,11 +210,11 @@ class State {
         void udp_send(std::vector<char>, struct sockaddr_in*);
 
         // PPM-related functions
-        void send_dn(HTTPConnection*, const std::string&, size_t);
-        std::tuple<const std::string&, bool, size_t> valid_credit(const char*);
+        void send_dn(HTTPConnection*, const std::string&, size_t, int16_t);
+        std::tuple<const std::string&, bool, size_t, int16_t> valid_credit(const char*);
         int get_available_credits(const std::string_view&);
-        void check_credit_transmission(const std::string_view&, bool);
-        void send_credit(std::unique_ptr<struct sockaddr_in>&, const std::string_view&, int);
+        void check_credit_transmission();
+        void send_credit(std::unique_ptr<struct sockaddr_in>&, const std::string_view&, int, int16_t);
 
 
     private:
@@ -210,7 +231,8 @@ class State {
         Ingress& ingress;
         struct hdr_histogram* hist;
         std::chrono::steady_clock::time_point next_hist_update;
-
+        int thread_id;
+        SpinLock failed_dn_info_lock;
     
     public:
         SharedState& shared_state;

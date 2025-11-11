@@ -55,14 +55,15 @@ class RPCMessage {
 
         // getter and setters
         int32_t get_ds_stream_id() const { return ds_stream_id; }
-        void set_ds_stream_id(int32_t id) { ds_stream_id = id; }
+        void set_ds_stream_id(int32_t ds_id) { ds_stream_id = ds_id; }
         int get_ds_fd() const { return ds_fd; }
         void set_ds_fd(int fd) { ds_fd = fd; }
         int32_t get_us_stream_id() const { return us_stream_id; }
-        void set_us_stream_id(int32_t id) { us_stream_id = id; }
+        void set_us_stream_id(int32_t us_id) { us_stream_id = us_id; }
         int get_us_fd() const { return us_fd; }
         void set_us_fd(int fd) { us_fd = fd; }
-
+        int16_t get_id() const { return id; }
+        void set_id(int16_t new_id) { id = new_id; }
         
         virtual void add_header_field(const uint8_t*, size_t, const uint8_t*, size_t, bool, bool) = 0;
         virtual void add_data(const uint8_t*, size_t, bool) = 0;
@@ -82,6 +83,8 @@ class RPCMessage {
         // upstream identifiers
         int32_t us_stream_id;
         int us_fd;
+
+        int16_t id;
 
     public:
         std::chrono::time_point<std::chrono::steady_clock> req_rcv_time;
