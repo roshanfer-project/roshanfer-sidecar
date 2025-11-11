@@ -196,7 +196,7 @@ void FailedDNInfo::push(std::unique_ptr<FailedDNInfoUnit> failed_dn_info_unit) {
 
 std::unique_ptr<FailedDNInfoUnit> FailedDNInfo::pop() {
     if (failed_dn_info.empty()) {
-        LOG(FATAL) << "Failed DN info queue is empty";
+        return nullptr;
     }
     auto failed_dn_info_unit = std::move(failed_dn_info.front());
     failed_dn_info.pop_front();
@@ -770,6 +770,10 @@ void State::check_credit_transmission(int16_t rpc_id) {
 
                 failed_dn_info_lock.lock();
                 std::unique_ptr<FailedDNInfoUnit> failed_dn_info = shared_state.failed_dn_info.get(service).pop();
+                if (failed_dn_info == nullptr) {
+                    failed_dn_info_lock.unlock();
+                    break;
+                }
                 shared_state.sent_credits.add(service, 1);
                 size = shared_state.failed_dn_info.get(service).size();
                 failed_dn_info_lock.unlock();
