@@ -33,7 +33,13 @@ std::shared_ptr<RPCMessage> PPMQueue::pop(const std::string& service, int16_t id
         if (ppm_queue.at(service).empty()) {
             LOG(FATAL) << "Trying to pop from an empty queue for service: " << service;
         }
-        auto rpc = ppm_queue.at(service).at(id);
+        auto it = ppm_queue.at(service).find(id);
+        if (it == ppm_queue.at(service).end()) {
+            LOG(FATAL) << "Trying to pop from a queue with an invalid id. "
+                        << "| id: " << id
+                        << "| service: " << service;
+        }
+        auto rpc = it->second;
         ppm_queue.at(service).erase(id);
         VLOG(1) << "PPMQueue: Popped RPC message "
                 << "| service: " << service
