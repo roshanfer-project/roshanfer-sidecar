@@ -520,7 +520,7 @@ static std::string_view extract_service_from_ppm_req(const char* data) {
 std::tuple<const std::string&, bool, size_t, int16_t> State::valid_credit(const char* data) {
     // check the data format and extract the service name
     auto key = extract_service_from_ppm_req(data);
-    int16_t id = (int16_t)(data[5] << 8 | data[6]);
+    int16_t id = (int16_t)((unsigned char)data[5] << 8 | (unsigned char)data[6]);
 
     // add the difference between requested credits and available credits to the denied requests
     int credit_diff = (int)(data[3] - data[4]);
@@ -623,8 +623,8 @@ void State::send_dn(HTTPConnection* conn, const std::string& service, size_t num
     msg.at(3) = (char)num_credits; // number of requested credits
     // position 4 is for the received number of credits
     // position 5 is for the ID of the request (int16_t - two bytes)
-    msg.at(5) = (char)(id >> 8);
-    msg.at(6) = (char)(id & 0xFF);
+    msg.at(5) = (char)((unsigned char)(id >> 8));
+    msg.at(6) = (char)((unsigned char)(id & 0xFF));
     if (msg.size() - (size_t)header_size < service.length()) {
         LOG(FATAL) << "Buffer overflow"
                     << " , msg size: " << msg.size()
@@ -839,7 +839,7 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer>& req, const std::uni
         }
 
         std::string_view service = extract_service_from_ppm_req(req->data.data());
-        int16_t rpc_id = (int16_t)(req->data.at(5) << 8 | req->data.at(6));
+        int16_t rpc_id = (int16_t)((unsigned char)req->data.at(5) << 8 | (unsigned char)req->data.at(6));
         VLOG(2) << "QM: Received DN request "
          << "| service: " << service
          << "| id: " << rpc_id
@@ -927,8 +927,8 @@ void State::send_credit(std::unique_ptr<struct sockaddr_in>& addr, const std::st
     msg.at(2) = 0x01; // request (0x00), response (0x01)
     msg.at(3) = (char)num_credits; // number of credits
     msg.at(4) = (char)num_credits; // number of credits
-    msg.at(5) = (char)(id >> 8);
-    msg.at(6) = (char)(id & 0xFF);
+    msg.at(5) = (char)((unsigned char)(id >> 8));
+    msg.at(6) = (char)((unsigned char)(id & 0xFF));
     if (msg.size() - (size_t)header_size < service.length()) {
         LOG(FATAL) << "Buffer overflow"
                     << " , msg size: " << msg.size()
