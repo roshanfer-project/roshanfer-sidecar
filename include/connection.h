@@ -17,6 +17,7 @@
 #include "rpc_mapper.h"
 #include "rpc_message.h"
 #include "rpc_queue.h"
+#include "stats.h"
 
 
 
@@ -42,7 +43,7 @@ typedef struct CallbackData {
     RPCQueue* queue;
     RPCMapper* mapper;
     ConnectionStatus* status;
-    struct hdr_histogram* hist;
+    Stats* stats;
 } CallbackData;
 
 class HTTPConnection {
@@ -52,13 +53,13 @@ class HTTPConnection {
          * @brief Construct an upstream connection
          * @note This is used by state
          */
-        HTTPConnection(std::string, uint16_t, ConnectionType, struct hdr_histogram*);
+        HTTPConnection(std::string, uint16_t, ConnectionType, Stats*);
 
         /*
          * @brief Construct an downstream connection
          * @note This is used by listeners
          */
-        HTTPConnection(int, ConnectionType, struct hdr_histogram*);
+        HTTPConnection(int, ConnectionType, Stats*);
         virtual ~HTTPConnection();
 
         // delete copy semantics
@@ -99,7 +100,7 @@ class HTTPConnection {
         ConnectionStatus status;
         std::string host;
         uint16_t port;
-        struct hdr_histogram* hist;
+        Stats* stats;
         bool reserved;
 
     public:
@@ -111,8 +112,8 @@ class HTTPConnection {
 class HTTP2Connection : public HTTPConnection {
 
     public:
-        HTTP2Connection(std::string, uint16_t, ConnectionType, RPCQueue*, RPCMapper*, struct hdr_histogram*);
-        HTTP2Connection(int, ConnectionType, RPCMapper*, RPCQueue*, struct hdr_histogram*);
+        HTTP2Connection(std::string, uint16_t, ConnectionType, RPCQueue*, RPCMapper*, Stats*);
+        HTTP2Connection(int, ConnectionType, RPCMapper*, RPCQueue*, Stats*);
         ~HTTP2Connection();
 
         // delete copy semantics
@@ -151,8 +152,8 @@ const size_t HTTP1Connection_MAX_HEADERS = 10;
 class HTTP1Connection : public HTTPConnection {
 
     public:
-        HTTP1Connection(std::string, uint16_t, ConnectionType, RPCMapper*, RPCQueue*, struct hdr_histogram*);
-        HTTP1Connection(int, ConnectionType, RPCMapper*, RPCQueue*, struct hdr_histogram*);
+        HTTP1Connection(std::string, uint16_t, ConnectionType, RPCMapper*, RPCQueue*, Stats*);
+        HTTP1Connection(int, ConnectionType, RPCMapper*, RPCQueue*, Stats*);
         ~HTTP1Connection();
 
         // delete copy semantics
@@ -204,7 +205,7 @@ class ConnectionPool {
          * @brief Add a connection to the pool
          */
         std::shared_ptr<HTTPConnection> add_connection(const std::string&, int, RPCMapper*, RPCQueue*, HTTP,
-             struct hdr_histogram*);
+             Stats*);
         std::shared_ptr<HTTPConnection> get_connection(int fd);
         std::shared_ptr<HTTPConnection> get_any_connection();
         bool has_connection(int fd);

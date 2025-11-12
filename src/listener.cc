@@ -1,4 +1,5 @@
 #include "connection_enums.h"
+#include "stats.h"
 #include <listener.h>
 #include <connection.h>
 #include <sys/socket.h>
@@ -55,15 +56,15 @@ Listener::~Listener() {
 }
 
 std::shared_ptr<HTTPConnection> Listener::add_connection(int new_fd, RPCMapper* mapper, RPCQueue* queue, HTTP http, 
-                                         struct hdr_histogram* hist) {
-    if (!mapper || !queue || !hist) {
-        LOG(FATAL) << "Null pointer parameters: mapper=" << mapper << ", queue=" << queue << ", hist=" << hist;
+                                         Stats* stats) {
+    if (!mapper || !queue || !stats) {
+        LOG(FATAL) << "Null pointer parameters: mapper=" << mapper << ", queue=" << queue << ", stats=" << stats;
     }
     try {
         if (http == HTTP::HTTP1) {
-            connections.emplace(new_fd, std::make_shared<HTTP1Connection>(new_fd, type, mapper, queue, hist));
+            connections.emplace(new_fd, std::make_shared<HTTP1Connection>(new_fd, type, mapper, queue, stats));
         } else {
-            connections.emplace(new_fd, std::make_shared<HTTP2Connection>(new_fd, type, mapper, queue, hist));
+            connections.emplace(new_fd, std::make_shared<HTTP2Connection>(new_fd, type, mapper, queue, stats));
         }
         return connections.at(new_fd);
     } catch (const std::exception& e) {

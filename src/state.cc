@@ -58,26 +58,20 @@ ConnectionPool& UpstreamRouteMapper::get_pool(const std::string& service) {
     }
 }
 
-LocalState create_local_state(const Config& local_config) {
-    std::vector<std::string> hosted_services;
-    for (const auto& mapping : local_config.mapping) {
-        hosted_services.push_back(mapping.first);
-    }
-
+std::vector<std::string> get_downstream_services(const Config& local_config) {
     std::vector<std::string> downstream_services;
     for (const auto& [route, _] : local_config.routing) {
         downstream_services.push_back(route);
     }
-
-    return LocalState(hosted_services, downstream_services);
+    return downstream_services;
 }
 
-Utilization create_utilization(const Config& local_config) {
+std::vector<std::string> get_hosted_services(const Config& local_config) {
     std::vector<std::string> hosted_services;
     for (const auto& mapping : local_config.mapping) {
         hosted_services.push_back(mapping.first);
     }
-    return Utilization(1000, hosted_services);
+    return hosted_services;
 }
 
 State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_manager_ref,
@@ -95,10 +89,12 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
     ingress(ingress_ref),
     hist(),
     thread_id(thread_id_arg),
+    failed_dn_info_lock(),
     shared_state(shared_state_ref),
-    local_state(create_local_state(parsed_config)),
-    utilization(create_utilization(parsed_config)),
-    ingress_service(ingress_service_ref)
+    local_state(get_hosted_services(parsed_config), get_downstream_services(parsed_config)),
+    utilization(1000, get_hosted_services(parsed_config)),
+    ingress_service(ingress_service_ref),
+    stats(get_downstream_services(parsed_config)) // Note that only ingress uses this list of services (so it should be EGRESS-side)
 {
 
     if (config.buffer_size > HTTP1Connection_BUF_SIZE) {
@@ -117,7 +113,7 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
                 &rpc_mapper,
                 &rpc_queue,
                 http_type,
-                hist
+                &stats
             );
 
             // prepare connect
@@ -161,7 +157,7 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
             &rpc_mapper,
             &rpc_queue,
             (config.is_ingress || config.is_frontend) ? HTTP::HTTP1 : HTTP::HTTP2,
-            hist
+            &stats
         );
 
         // prepare connect
@@ -177,6 +173,11 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
     if (int ret = hdr_init(1, 1000000, 3, &hist); ret < 0) {
         LOG(FATAL) << "Failed to initialize histogram: " << strerror(ret);
     }
+    stats.update_hist(hist);
+    for (const auto& service : get_downstream_services(parsed_config)) {
+        stats.get_avg_service_time_us().get(service).set_description("Response time for service: " + service);
+    }
+    LOG(INFO) << "State initialized";
     next_hist_update = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 }
 
@@ -438,12 +439,6 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                         local_state.ppm_client_dn_send.at(rpc->get_service()) = true;
                         local_state.egress_resp_in.add(rpc->get_service(), 1);
                         shared_state.downstream_concurrency.add(rpc->get_service(), -1);
-                        // update the average service time
-                        local_state.avg_service_time_us.get(rpc->get_service()).update(
-                            (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
-                                rpc->res_rcv_time - rpc->req_for_time
-                            ).count()
-                        );
                     } else if (type == ConnectionType::INGRESS) {
                         shared_state.per_method_resp_in.add(rpc->get_service(), 1);
                         uint32_t in_local = shared_state.ingress_request_admitted.get(rpc->get_service()) - shared_state.per_method_resp_in.get(rpc->get_service());
@@ -690,10 +685,6 @@ void State::dump_entire_state() {
     for (auto& service : local_state.egress_resp_in.get_all_keys()) {
         LOG(INFO) << "  " << service << ": " << local_state.egress_resp_in.get(service);
     }
-    LOG(INFO) << "--- Average Service Time (local_state.avg_service_time_us) ---";
-    for (auto& service : local_state.avg_service_time_us.get_all_keys()) {
-        LOG(INFO) << "  " << service << ": " << local_state.avg_service_time_us.get(service).get_value();
-    }
     LOG(INFO) << "--- extra slot ingress ---";
     for (const auto& [route, _] : config.routing) {
         LOG(INFO) << "  " << route << ": " << local_state.ingress_limit.get(route) - local_state.ingress_to_be_admitted.get(route) + local_state.ingress_admitted.get(route);
@@ -709,8 +700,6 @@ void State::ingress_admit() {
                 (int32_t)hdr_value_at_percentile(hist, 95.0),
                 ingress_service
         );
-        VLOG(1) << "Average service time: " << local_state.avg_service_time_us.get(ingress_service).get_value()
-                  << " for service: " << ingress_service;
         hdr_reset(hist);
         next_hist_update = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
     }
@@ -977,7 +966,6 @@ LocalState::LocalState(std::vector<std::string> hosted_services, std::vector<std
     drops(0),
     ingress_to_be_admitted(LocalMap<int64_t>(downstream_services)),
     ingress_admitted(LocalMap<int64_t>(downstream_services)),
-    avg_service_time_us(LocalMap<MovingAverage>(downstream_services)),
     ingress_limit(LocalMap<int32_t>(downstream_services))
 {
         for (const auto& service : downstream_services) {

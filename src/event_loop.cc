@@ -86,7 +86,7 @@ void EventLoop::run() {
                         std::addressof(rpc_mapper),
                         std::addressof(rpc_queue),
                         http_type,
-                        state.get_histogram()
+                        std::addressof(state.stats)
                     );
 
                     VLOG(1) << "Index:" << index << " accepted connection on " << listener->type_to_str() << " listener"

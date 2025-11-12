@@ -16,7 +16,7 @@
 
 class Utilization {
     public:
-        Utilization(uint32_t, std::vector<std::string>& services);
+        Utilization(uint32_t, std::vector<std::string> services);
         void update(uint32_t, std::string&);
     
     private:
@@ -87,8 +87,31 @@ class MovingAverage {
         void update(int32_t);
         float get_value();
         uint32_t get_count() const;
+        void set_description(std::string desc) { description = desc; }
 
     private:
         uint32_t count;
         float value;
+        std::string description;
+};
+
+class Stats {
+    public:
+        Stats(std::vector<std::string> services);
+
+        // delete copy semantics
+        Stats(const Stats&) = delete;
+        Stats& operator=(const Stats&) = delete;
+
+        // delete move semantics
+        Stats(Stats&&) = delete;
+        Stats& operator=(Stats&&) = delete;
+        
+        void report_latency(const std::shared_ptr<RPCMessage>& rpc);
+        void update_hist(struct hdr_histogram*);
+        LocalMap<MovingAverage>& get_avg_service_time_us() { return avg_service_time_us; }
+    
+    private:
+        struct hdr_histogram* hist;
+        LocalMap<MovingAverage> avg_service_time_us;
 };

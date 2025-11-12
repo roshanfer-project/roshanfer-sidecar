@@ -165,10 +165,6 @@ class LocalState {
         */
         LocalMap<int64_t> ingress_admitted;
         /*
-        ONLY used by Ingress::Ingress to track the admission waiting time.
-        */
-        LocalMap<MovingAverage> avg_service_time_us;
-        /*
         READ-ONLY: ONLY used by Ingress::Ingress to track the ingress limit.
         */
         LocalMap<int32_t> ingress_limit;
@@ -239,4 +235,5 @@ class State {
         LocalState local_state;
         Utilization utilization;
         std::string& ingress_service;
+        Stats stats;
 };

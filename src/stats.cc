@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <ios>
 
-Utilization::Utilization(uint32_t period_count, std::vector<std::string>& services)
+Utilization::Utilization(uint32_t period_count, std::vector<std::string> services)
 :   total(LocalMap<double>(services)),
     last_in(LocalMap<uint32_t>(services)),
     count(LocalMap<uint32_t>(services)),
@@ -80,6 +80,11 @@ void MovingAverage::update(int32_t new_value) {
     count++;
     value += ((float)new_value - value) / (float)count;
     VLOG(2) << "MovingAverage update: " << new_value << " count: " << count << " value: " << value;
+    if (count % 1000 == 0) {
+        VLOG(1) << "Stats: Moving average update. "
+        << "| description: " << description
+        << "| value: " << std::fixed << std::setprecision(4) << value;
+    }
 }
 
 float MovingAverage::get_value() {
@@ -88,4 +93,29 @@ float MovingAverage::get_value() {
 
 uint32_t MovingAverage::get_count() const {
     return count;
+}
+
+Stats::Stats(std::vector<std::string> services)
+: hist(nullptr), avg_service_time_us(services) {}
+
+void Stats::update_hist(struct hdr_histogram* new_hist) {
+    this->hist = new_hist;
+}
+
+void Stats::report_latency(const std::shared_ptr<RPCMessage>& rpc) {
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - rpc->req_rcv_time);
+    
+    // update hist only if we are Ingress and also just for E2E Ingress requests
+    if (config.is_ingress) {
+        bool ret = hdr_record_value(hist, static_cast<int64_t>(duration.count()));
+        if (!ret) {
+            LOG(FATAL) << "Failed to record value: " << static_cast<int64_t>(duration.count());
+        }
+        avg_service_time_us.get(rpc->get_service()).update(static_cast<int32_t>(duration.count()));
+
+        VLOG(2) << "Stats: Reported latency "
+                << "| service: " << rpc->get_service()
+                << "| duration: " << duration.count();
+    }
 }
