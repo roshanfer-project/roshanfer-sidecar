@@ -160,7 +160,7 @@ int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue& rpc_queue, RPCMapper& rpc_
 void Ingress::update_stats(int32_t new_p50_us, int32_t new_p95_us, std::string& service) {
     p50_us.set(service, new_p50_us);
     p95_us.set(service, new_p95_us);
-    VLOG(1) << "Updated ingress p50_us to " << new_p50_us << " and p95_us to " << new_p95_us << " for service: " << service;
+    VLOG(1) << "Ingress: Updated p50_us to " << new_p50_us << " and p95_us to " << new_p95_us << " for service: " << service;
 }
 
 size_t  Ingress::size(std::string service) {
