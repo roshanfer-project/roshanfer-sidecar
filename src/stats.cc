@@ -95,6 +95,31 @@ uint32_t MovingAverage::get_count() const {
     return count;
 }
 
+ExponentialMovingAverage::ExponentialMovingAverage() : count(0), value(0.0), alpha(0.15F) {}
+
+ExponentialMovingAverage::ExponentialMovingAverage(float alpha) : count(0), value(0.0), alpha(alpha) {}
+
+void ExponentialMovingAverage::update(int32_t new_value) {
+    count++;
+    value = alpha * (float)new_value + (1 - alpha) * value;
+    VLOG(2) << "ExponentialMovingAverage update: " << new_value << " count: " << count << " value: " << value;
+    if (count % 1000 == 0) {
+        VLOG(1) << "Stats: Exponential moving average update. "
+        << "| description: " << description
+        << "| alpha: " << std::fixed << std::setprecision(2) << alpha
+        << "| value: " << std::fixed << std::setprecision(4) << value
+        << "| count: " << count;
+    }
+}
+
+float ExponentialMovingAverage::get_value() {
+    return value;
+}
+
+uint32_t ExponentialMovingAverage::get_count() const {
+    return count;
+}
+
 Stats::Stats(std::vector<std::string> services)
 : hist(nullptr), avg_service_time_us(services) {}
 
