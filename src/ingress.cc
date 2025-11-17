@@ -95,13 +95,11 @@ void Ingress::add_rpc_id_header(std::shared_ptr<RPCMessage>& rpc) {
 }
 
 int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue& rpc_queue, RPCMapper& rpc_mapper,
-     std::string& service, int64_t queue_size, int32_t queueing_delay, int32_t norm_avg_service_time_us) {
+     std::string& service, int64_t extra_slot_ingress, int32_t queueing_delay, int32_t norm_avg_service_time_us) {
 
     int new_requests = (int)queue.at(service).size();
     int32_t current_slo_us = (int32_t)((float)slo_us.get(service) * 1.0F);
     int new_added = 0;
-    
-    int64_t extra_slot_ingress = config.routing.at(service).ingress_limit.value() - queue_size;
     
     while (extra_slot_ingress > 0 && new_requests > 0 && (queueing_delay + (new_added+1) * norm_avg_service_time_us)  < current_slo_us) {
         auto rpc = dequeue(service);

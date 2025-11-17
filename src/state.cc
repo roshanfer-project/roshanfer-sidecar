@@ -715,6 +715,7 @@ void State::ingress_admit() {
     } else {
         downstream_concurrency = 1.0;
     }
+    int64_t extra_slot_ingress = config.routing.at(ingress_service).ingress_limit.value() - current_queue_size;
     int32_t norm_avg_service_time_us = (int32_t)(stats.get_avg_service_time_us().get(ingress_service).get_value()/downstream_concurrency);
 
     int32_t queueing_delay = 0;
@@ -728,7 +729,7 @@ void State::ingress_admit() {
         rpc_queue,
         rpc_mapper,
         ingress_service,
-        current_queue_size,
+        extra_slot_ingress,
         queueing_delay,
         norm_avg_service_time_us
     );
