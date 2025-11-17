@@ -113,12 +113,15 @@ class ExponentialMovingAverage {
         uint32_t get_count() const;
         void set_description(std::string desc) { description = desc; }
         void set_alpha(float new_alpha) { this->alpha = new_alpha; }
+        void up();
+        void down();
 
     private:
         uint32_t count;
         float value;
         std::string description;
         float alpha;
+        int32_t last_value;
 };
 
 class Stats {

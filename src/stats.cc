@@ -101,6 +101,7 @@ ExponentialMovingAverage::ExponentialMovingAverage(float alpha) : count(0), valu
 
 void ExponentialMovingAverage::update(int32_t new_value) {
     count++;
+    last_value = new_value;
     value = alpha * (float)new_value + (1 - alpha) * value;
     VLOG(2) << "ExponentialMovingAverage update: " << new_value << " count: " << count << " value: " << value;
     if (count % 1000 == 0) {
@@ -110,6 +111,17 @@ void ExponentialMovingAverage::update(int32_t new_value) {
         << "| value: " << std::fixed << std::setprecision(4) << value
         << "| count: " << count;
     }
+}
+
+void ExponentialMovingAverage::up() {
+    update(last_value+1);
+}
+
+void ExponentialMovingAverage::down() {
+    if (last_value == 0) {
+        LOG(FATAL) << "Last value is 0, cannot decrement";
+    }
+    update(last_value-1);
 }
 
 float ExponentialMovingAverage::get_value() {
