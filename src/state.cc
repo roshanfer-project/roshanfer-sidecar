@@ -439,6 +439,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                         local_state.ppm_client_dn_send.at(rpc->get_service()) = true;
                         local_state.egress_resp_in.add(rpc->get_service(), 1);
                         shared_state.downstream_concurrency.add(rpc->get_service(), -1);
+                        local_state.avg_downstream_concurrency.get(rpc->get_service()).down();
                     } else if (type == ConnectionType::INGRESS) {
                         shared_state.per_method_resp_in.add(rpc->get_service(), 1);
                         uint32_t in_local = shared_state.ingress_request_admitted.get(rpc->get_service()) - shared_state.per_method_resp_in.get(rpc->get_service());
@@ -566,6 +567,7 @@ void State::ppm_client(bool dn_resp, const std::unique_ptr<Buffer>& dn_resp_buff
                 rpc
             );
             shared_state.downstream_concurrency.add(service, 1);
+            local_state.avg_downstream_concurrency.get(service).up();
             local_state.ingress_admitted.add(service, 1);
             check_credit_transmission(rpc->get_id());
 
@@ -707,14 +709,28 @@ void State::ingress_admit() {
     // check for any potential admitting or dropping
     int64_t current_queue_size = local_state.ingress_to_be_admitted.get(ingress_service)
                             - local_state.ingress_admitted.get(ingress_service);
-    int64_t extra_slot_ingress = local_state.ingress_limit.get(ingress_service) - current_queue_size;
+    float downstream_concurrency;
+    if (local_state.avg_downstream_concurrency.get(ingress_service).get_value() > 0) {
+        downstream_concurrency = local_state.avg_downstream_concurrency.get(ingress_service).get_value();
+    } else {
+        downstream_concurrency = 1.0;
+    }
+    int32_t norm_avg_service_time_us = (int32_t)(stats.get_avg_service_time_us().get(ingress_service).get_value()/downstream_concurrency);
+
+    int32_t queueing_delay = 0;
+    if (ingress.p50_us.get(ingress_service) > 0) {
+        queueing_delay = (int32_t)((float)ingress.p50_us.get(ingress_service)/ downstream_concurrency) * (int32_t)current_queue_size ;
+    } else {
+        queueing_delay = norm_avg_service_time_us * (int32_t)current_queue_size;
+    }
     
     int64_t admitted = ingress.add_to_be_admitted_or_drop(
         rpc_queue,
         rpc_mapper,
         ingress_service,
-        extra_slot_ingress,
-        0
+        current_queue_size,
+        queueing_delay,
+        norm_avg_service_time_us
     );
     if (ingress.size(ingress_service) != 0) {
         dump_entire_state();
@@ -966,7 +982,8 @@ LocalState::LocalState(std::vector<std::string> hosted_services, std::vector<std
     drops(0),
     ingress_to_be_admitted(LocalMap<int64_t>(downstream_services)),
     ingress_admitted(LocalMap<int64_t>(downstream_services)),
-    ingress_limit(LocalMap<int32_t>(downstream_services))
+    ingress_limit(LocalMap<int32_t>(downstream_services)),
+    avg_downstream_concurrency(LocalMap<ExponentialMovingAverage>(downstream_services))
 {
         for (const auto& service : downstream_services) {
             ppm_client_dn_send.emplace(service, false);
@@ -975,6 +992,7 @@ LocalState::LocalState(std::vector<std::string> hosted_services, std::vector<std
             if (!set_upstream_service(upstream_service, service)) {
                 LOG(FATAL) << "Upstream service not found for service: " << service;
             }
+            avg_downstream_concurrency.get(service).set_description("Downstream concurrency for service: " + service);
         }
         for (const auto& [service, info] : config.mapping) {
             per_api_limit.add(service, (uint32_t)info.limit);

@@ -1,4 +1,5 @@
 #include "ingress.h"
+#include "config.h"
 #include "connection_enums.h"
 #include "fast_map.hpp"
 #include "glog/logging.h"
@@ -29,12 +30,12 @@ LocalMap<std::chrono::time_point<std::chrono::steady_clock>> make_last_admission
 }
 
 Ingress::Ingress(std::unordered_map<std::string, RoutingEntry, TransparentHash, TransparentEqual> routing, int index_arg) 
-    :   queue(std::unordered_map<std::string, std::deque<std::shared_ptr<RPCMessage>>>()),
+    :   p95_us(make_drop_id(routing)),
+        p50_us(make_drop_id(routing)),
+        queue(std::unordered_map<std::string, std::deque<std::shared_ptr<RPCMessage>>>()),
         drop_id(make_drop_id(routing)),
         services(std::vector<std::string>(routing.size())),
         drop_fd(-index_arg),
-        p95_us(make_drop_id(routing)),
-        p50_us(make_drop_id(routing)),
         slo_us(make_drop_id(routing)),
         last_rpc_id(0)
         //max_queue(0)
@@ -94,13 +95,15 @@ void Ingress::add_rpc_id_header(std::shared_ptr<RPCMessage>& rpc) {
 }
 
 int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue& rpc_queue, RPCMapper& rpc_mapper,
-     std::string& service, int64_t extra_slot_ingress, int32_t queueing_delay) {
+     std::string& service, int64_t queue_size, int32_t queueing_delay, int32_t norm_avg_service_time_us) {
 
     int new_requests = (int)queue.at(service).size();
-    int32_t current_slo_us = slo_us.get(service);
+    int32_t current_slo_us = (int32_t)((float)slo_us.get(service) * 1.0F);
     int new_added = 0;
     
-    while (extra_slot_ingress > 0 && new_requests > 0 && queueing_delay < current_slo_us) {
+    int64_t extra_slot_ingress = config.routing.at(service).ingress_limit.value() - queue_size;
+    
+    while (extra_slot_ingress > 0 && new_requests > 0 && (queueing_delay + (new_added+1) * norm_avg_service_time_us)  < current_slo_us) {
         auto rpc = dequeue(service);
         add_rpc_id_header(rpc);
         rpc_queue.enqueue(
@@ -116,7 +119,8 @@ int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue& rpc_queue, RPCMapper& rpc_
                 << "| service: " << service
                 << "| id: " << rpc->get_id()
                 << "| extra slot: " << extra_slot_ingress
-                << "| queueing delay: " << queueing_delay;
+                << "| queueing delay: " << queueing_delay
+                << "| norm avg service time: " << norm_avg_service_time_us;
     }
 
     // drop remaining requests
@@ -150,7 +154,8 @@ int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue& rpc_queue, RPCMapper& rpc_
                     << "| service: " << drop_rpc->get_service()
                     << "| id: " << drop_rpc->get_id()
                     << "| extra slot: " << extra_slot_ingress
-                    << "| queueing delay: " << queueing_delay;
+                    << "| queueing delay: " << queueing_delay
+                    << "| norm avg service time: " << norm_avg_service_time_us;
             new_requests--;
     }
 

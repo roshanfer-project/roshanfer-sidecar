@@ -168,6 +168,7 @@ class LocalState {
         READ-ONLY: ONLY used by Ingress::Ingress to track the ingress limit.
         */
         LocalMap<int32_t> ingress_limit;
+        LocalMap<ExponentialMovingAverage> avg_downstream_concurrency;
 
 };
 
