@@ -1,4 +1,5 @@
 #include "state.h"
+#include <cstddef>
 #include <cstdint>
 #include <event_loop.h>
 #include <config.h>
@@ -44,6 +45,14 @@ int main(int argc, char* argv[]) {
     std::vector<std::string> downstream_services;
     for (const auto& [route, _] : parsed_config.routing) {
         downstream_services.push_back(route);
+    }
+
+    if (hosted_services.size() != (size_t)parsed_config.num_threads && parsed_config.is_ingress) {
+        LOG(FATAL) << "Number of hosted services (" << hosted_services.size() << ") does not match the number of threads (" << parsed_config.num_threads << ")";
+    }
+
+    if (downstream_services.size() != hosted_services.size() && parsed_config.is_ingress) {
+        LOG(FATAL) << "Number of downstream services (" << downstream_services.size() << ") does not match the number of hosted services (" << hosted_services.size() << ")";
     }
 
     SharedState shared_state = SharedState(hosted_services, downstream_services);

@@ -404,6 +404,12 @@ EventLoop::EventLoop(int th_index, std::string& ingress_service_ref, Config pars
     ingress(config.routing, th_index),
     state(config, ring, buffer_manager, rpc_mapper, rpc_queue, listeners, ingress, shared_state, ingress_service_ref, th_index)
     {   
+        if (config.is_ingress) {
+            if (!parsed_config.routing.at(ingress_service_ref).ingress_limit.has_value()) {
+                LOG(FATAL) << "Ingress limit is not set for ingress service: " << ingress_service_ref;
+            }
+        }
+        
         uint16_t egress_port;
         if (config.is_ingress) {
             egress_port = config.mapping.at(ingress_service_ref).listen_port.value_or(0);
