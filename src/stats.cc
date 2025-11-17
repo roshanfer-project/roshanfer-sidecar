@@ -95,7 +95,7 @@ uint32_t MovingAverage::get_count() const {
     return count;
 }
 
-ExponentialMovingAverage::ExponentialMovingAverage() : count(0), value(0.0), alpha(0.15F) {}
+ExponentialMovingAverage::ExponentialMovingAverage() : count(0), value(0.0), alpha(0.01F) {}
 
 ExponentialMovingAverage::ExponentialMovingAverage(float alpha) : count(0), value(0.0), alpha(alpha) {}
 
