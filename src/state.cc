@@ -89,7 +89,6 @@ State::State(Config parsed_config, RingWrapper& ring_ref, BufferManager& buffer_
     ingress(ingress_ref),
     hist(),
     thread_id(thread_id_arg),
-    failed_dn_info_lock(),
     shared_state(shared_state_ref),
     local_state(get_hosted_services(parsed_config), get_downstream_services(parsed_config)),
     utilization(1000, get_hosted_services(parsed_config)),
@@ -190,6 +189,10 @@ FailedDNInfoUnit::FailedDNInfoUnit(struct sockaddr_in addr, int num_rejected_req
 
 FailedDNInfo::FailedDNInfo()
 : failed_dn_info() {}
+
+FailedDNInfoUnit::~FailedDNInfoUnit() {
+    addr.reset();
+}
 
 void FailedDNInfo::push(std::unique_ptr<FailedDNInfoUnit> failed_dn_info_unit) {
     failed_dn_info.push_back(std::move(failed_dn_info_unit));
@@ -760,31 +763,31 @@ inline static void write_dn_response(int result, const std::unique_ptr<Buffer>& 
 
 void State::check_credit_transmission(int16_t rpc_id) {
     for (const auto& service : shared_state.per_method_resp_in.get_all_keys()) {
-        failed_dn_info_lock.lock();
+        shared_state.failed_dn_info_lock.lock();
         if (shared_state.failed_dn_info.get(service).size() == 0) {
-            failed_dn_info_lock.unlock();
+            shared_state.failed_dn_info_lock.unlock();
             VLOG(2) << "QM: No failed DN info found "
                     << "| service: " << service
                     << "| thread id: " << thread_id
                     << "| id: " << rpc_id;
             continue;
         }
-        failed_dn_info_lock.unlock(); // unlock before calling get_available_credits
+        shared_state.failed_dn_info_lock.unlock(); // unlock before calling get_available_credits
         size_t size = 0;
         if (int available_credits = get_available_credits(service); available_credits > 0) {
             while (available_credits > 0) {
 
-                failed_dn_info_lock.lock();
+                shared_state.failed_dn_info_lock.lock();
                 std::unique_ptr<FailedDNInfoUnit> failed_dn_info = shared_state.failed_dn_info.get(service).pop();
                 if (failed_dn_info == nullptr) {
-                    failed_dn_info_lock.unlock();
+                    shared_state.failed_dn_info_lock.unlock();
                     break;
                 }
                 shared_state.sent_credits.add(service, 1);
                 size = shared_state.failed_dn_info.get(service).size();
-                failed_dn_info_lock.unlock();
+                shared_state.failed_dn_info_lock.unlock();
 
-                send_credit(failed_dn_info->addr, service, failed_dn_info->num_rejected_requests, failed_dn_info->id);
+                send_credit(std::move(failed_dn_info->addr), service, failed_dn_info->num_rejected_requests, failed_dn_info->id);
                 available_credits -= failed_dn_info->num_rejected_requests;
 
                 VLOG(2) << "QM: Sent failed DN info "
@@ -870,10 +873,10 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer>& req, const std::uni
         if (result == 0) {
             // save address and number of rejected requests for future credit transmissions
             auto failed_dn_info = std::make_unique<FailedDNInfoUnit>(req->get_addr(), (int)requested_credits - available_credits, rpc_id);
-            failed_dn_info_lock.lock();
+            shared_state.failed_dn_info_lock.lock();
             shared_state.failed_dn_info.get(service).push(std::move(failed_dn_info));
             auto existing_ids = shared_state.failed_dn_info.get(service).id_list();
-            failed_dn_info_lock.unlock();
+            shared_state.failed_dn_info_lock.unlock();
             VLOG(2) << "QM: Saving failed DN info "
                     << "| service: " << service
                     << "| id: " << rpc_id
@@ -927,7 +930,7 @@ void State::udp_send(std::vector<char> msg, struct sockaddr_in* addr) {
     );
 }
 
-void State::send_credit(std::unique_ptr<struct sockaddr_in>& addr, const std::string_view& service, int num_credits, int16_t id) {
+void State::send_credit(std::unique_ptr<struct sockaddr_in> addr, const std::string_view& service, int num_credits, int16_t id) {
     ssize_t header_size = 7;
     size_t len = (size_t)header_size + service.length();
     std::vector<char> msg(len);
@@ -953,6 +956,7 @@ SharedState::SharedState(std::vector<std::string> hosted_services, std::vector<s
     per_method_resp_in(FastMap<uint32_t>(hosted_services)),
     ingress_request_admitted(FastMap<uint32_t>(hosted_services)),
     failed_dn_info(LocalMap<FailedDNInfo>(hosted_services)),
+    failed_dn_info_lock(),
     downstream_concurrency(FastMap<int64_t>(downstream_services))
 {
 }

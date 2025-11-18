@@ -46,6 +46,7 @@ class ConnectionNotUPException: public std::runtime_error {
 class FailedDNInfoUnit {
     public:
         FailedDNInfoUnit(struct sockaddr_in, int, int16_t);
+        ~FailedDNInfoUnit();
 
         // delete copy semantics
         FailedDNInfoUnit(const FailedDNInfoUnit&) = delete;
@@ -110,6 +111,7 @@ class SharedState  {
         FastMap<uint32_t> ingress_request_admitted;
 
         LocalMap<FailedDNInfo> failed_dn_info;
+        SpinLock failed_dn_info_lock;
 
 
         /*ConnectionType::EGRESS-side metrics*/
@@ -211,7 +213,7 @@ class State {
         std::tuple<const std::string&, bool, size_t, int16_t> valid_credit(const char*);
         int get_available_credits(const std::string_view&);
         void check_credit_transmission(int16_t);
-        void send_credit(std::unique_ptr<struct sockaddr_in>&, const std::string_view&, int, int16_t);
+        void send_credit(std::unique_ptr<struct sockaddr_in>, const std::string_view&, int, int16_t);
 
 
     private:
@@ -229,7 +231,6 @@ class State {
         struct hdr_histogram* hist;
         std::chrono::steady_clock::time_point next_hist_update;
         int thread_id;
-        SpinLock failed_dn_info_lock;
     
     public:
         SharedState& shared_state;

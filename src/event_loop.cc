@@ -283,7 +283,7 @@ void EventLoop::run() {
                 auto old_buffer = ud->get_buffer();
                 auto udp_type = ud->udp_type;
                 if (cqe->res <= 0) {
-                    LOG(FATAL) << "unhandled scenario";
+                    LOG(FATAL) << "Failed to receive UDP message, error: " << strerror(-cqe->res);
                 }
                 old_buffer->set_filled((size_t)cqe->res);
 
@@ -357,16 +357,18 @@ void EventLoop::run() {
 
             case Operation::SENDMSG: {
                 VLOG(1) << "Sendmsg completion event";
+                auto buffer = ud->get_buffer();
 
                 if (cqe->res <= 0) {
                     LOG(FATAL) << "Failed to send message"
                                << " res: " << cqe->res
                                << " error: " << strerror(-cqe->res)
-                               << " udp_type: " << udp_type_to_str(ud->udp_type);
+                               << " udp_type: " << udp_type_to_str(ud->udp_type)
+                               << " buffer content: " << std::string(buffer->data.begin(), buffer->data.begin() + (long)buffer->get_filled());
                 }
 
                 // free the buffer
-                buffer_manager.free_buffer(ud->get_buffer());
+                buffer_manager.free_buffer(std::move(buffer));
 
                 break;
             }
