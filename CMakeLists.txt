@@ -12,6 +12,9 @@ set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -fno-omit-frame-pointer")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g -gdwarf-3 -fno-omit-frame-pointer")
 # options: "-fsanitize=address": to see memory leaks, stack corruption, etc.
 
+# set NANO_LOG_ENABLED to ON to enable NanoLog
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DNANO_LOG_ENABLED")
+
 # enable clang-tidy
 #set(CMAKE_CXX_CLANG_TIDY
 #  clang-tidy;

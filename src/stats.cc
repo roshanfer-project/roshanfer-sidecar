@@ -4,6 +4,14 @@
 #include <chrono>
 #include <cstdint>
 #include <ios>
+#include <memory>
+
+#ifdef NANO_LOG_ENABLED
+#include "NanoLog.h"
+#include "NanoLogCpp17.h"
+
+using namespace NanoLog::LogLevels;
+#endif
 
 Utilization::Utilization(uint32_t period_count, std::vector<std::string> services)
 :   total(LocalMap<double>(services)),
@@ -155,4 +163,36 @@ void Stats::report_latency(const std::shared_ptr<RPCMessage>& rpc) {
                 << "| service: " << rpc->get_service()
                 << "| duration: " << duration.count();
     }
+
+
+    #ifdef NANO_LOG_ENABLED
+
+    if (!rpc->is_error()) {
+        // template: M# <sidecar name> <metric name> <connection type> <service>:<method> <value>
+        NANO_LOG(NOTICE, "M# %s E2E %s %s:%s %ld",
+            config.name.c_str(), type_to_str(rpc->get_type()).c_str(), rpc->get_service().c_str(), rpc->get_method().c_str(), duration.count());
+        
+        NANO_LOG(NOTICE, "M# %s REQ-FOR %s %s:%s %ld",
+            config.name.c_str(), type_to_str(rpc->get_type()).c_str(), rpc->get_service().c_str(), rpc->get_method().c_str(), 
+            std::chrono::duration_cast<std::chrono::microseconds>(rpc->req_for_time - rpc->req_rcv_time).count());
+
+        NANO_LOG(NOTICE, "M# %s RES-FOR %s %s:%s %ld",
+            config.name.c_str(), type_to_str(rpc->get_type()).c_str(), rpc->get_service().c_str(), rpc->get_method().c_str(), 
+            std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - rpc->res_rcv_time).count());
+    } else {
+        if (rpc->http() == HTTP::HTTP1) {
+            auto http_rpc = std::dynamic_pointer_cast<HTTPMessage>(rpc);
+            if (!http_rpc) {
+                LOG(FATAL) << "Null pointer after dynamic_pointer_cast";
+            }
+            NANO_LOG(NOTICE, "M# %s DROP %s %s:%d 1",
+                config.name.c_str(), type_to_str(rpc->get_type()).c_str(), rpc->get_service().c_str(), http_rpc->get_status());
+        } else {
+            NANO_LOG(NOTICE, "M# %s DROP %s %s:%s 1",
+                config.name.c_str(), type_to_str(rpc->get_type()).c_str(), rpc->get_service().c_str(), rpc->get_method().c_str());
+        }
+        
+    }
+
+    #endif
 }

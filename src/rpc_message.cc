@@ -362,7 +362,7 @@ void RPCMessagePool::free_rpc(std::shared_ptr<RPCMessage> rpc) {
     }
 }
 
-std::shared_ptr<RPCMessage> RPCMessagePool::get_rpc(int32_t ds_stream_id, int ds_fd, HTTP http) {
+std::shared_ptr<RPCMessage> RPCMessagePool::get_rpc(int32_t ds_stream_id, int ds_fd, HTTP http, ConnectionType type) {
     std::queue<std::shared_ptr<RPCMessage>>& pool = http == HTTP::HTTP1 ? http_pool : grpc_pool;
     if (pool.empty()) {
         LOG(FATAL) << "No RPCMessage available in the pool";
@@ -371,5 +371,6 @@ std::shared_ptr<RPCMessage> RPCMessagePool::get_rpc(int32_t ds_stream_id, int ds
     pool.pop();
     rpc->set_ds_fd(ds_fd);
     rpc->set_ds_stream_id(ds_stream_id);
+    rpc->set_type(type);
     return rpc;
 }

@@ -36,7 +36,7 @@ RPCMapper::RPCMapper()
 
 void RPCMapper::allocate_rpc(ConnectionType type, int32_t stream_id, int fd,
                              HTTP http) {
-  auto rpc = pool.get_rpc(stream_id, fd, http);
+  auto rpc = pool.get_rpc(stream_id, fd, http, type);
   if (ds_map.at(type).find(fd) == ds_map.at(type).end()) {
     ds_map.at(type).emplace(
         fd, std::unordered_map<int32_t, std::shared_ptr<RPCMessage>>());
