@@ -721,12 +721,7 @@ void State::ingress_admit() {
     int64_t extra_slot_ingress = config.routing.at(ingress_service).ingress_limit.value() - current_queue_size;
     int32_t norm_avg_service_time_us = (int32_t)(stats.get_avg_service_time_us().get(ingress_service).get_value()/downstream_concurrency);
 
-    int32_t queueing_delay = 0;
-    if (ingress.p50_us.get(ingress_service) > 0) {
-        queueing_delay = (int32_t)((float)ingress.p50_us.get(ingress_service)/ downstream_concurrency) * (int32_t)current_queue_size ;
-    } else {
-        queueing_delay = norm_avg_service_time_us * (int32_t)current_queue_size;
-    }
+    int32_t queueing_delay = norm_avg_service_time_us * (int32_t)current_queue_size;
     
     int64_t admitted = ingress.add_to_be_admitted_or_drop(
         rpc_queue,
