@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <ios>
+#include <iomanip>
 #include <memory>
 
 #ifdef NANO_LOG_ENABLED

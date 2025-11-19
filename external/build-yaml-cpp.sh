@@ -23,11 +23,15 @@ cd "${BUILD_DIR}"
 
 # Configure with CMake
 cmake .. \
+    -DCMAKE_C_COMPILER=clang \
+    -DCMAKE_CXX_COMPILER=clang++ \
     -DCMAKE_BUILD_TYPE=Release \
     -DYAML_CPP_BUILD_TESTS=OFF \
     -DYAML_CPP_BUILD_TOOLS=OFF \
     -DYAML_CPP_BUILD_CONTRIB=OFF \
-    -DBUILD_SHARED_LIBS=OFF
+    -DBUILD_SHARED_LIBS=OFF \
+    -DCMAKE_CXX_FLAGS="-stdlib=libc++ -w" \
+    -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++"
 
 # Build
 make -j$(nproc)

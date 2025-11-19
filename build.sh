@@ -16,8 +16,8 @@ if [ ! -d "./build" ]; then
     echo "Created build directory"
 fi
 cd ./build
-scan-build cmake ..   -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
-scan-build cmake --build .
+cmake ..   -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+cmake --build .
 
 # Check if build was successful
 if [ $? -ne 0 ]; then

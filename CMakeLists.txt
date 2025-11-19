@@ -15,6 +15,13 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g -gdwarf-3 -fno-omit-frame-pointer")
 # set NANO_LOG_ENABLED to ON to enable NanoLog
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DNANO_LOG_ENABLED")
 
+# enable hardening
+add_compile_definitions(_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE)
+
+# Use libc++
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++")
+
 # enable clang-tidy
 #set(CMAKE_CXX_CLANG_TIDY
 #  clang-tidy;
@@ -24,35 +31,25 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g -gdwarf-3 -fno-omit-frame-pointer")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror=format -Wshadow -Wnull-dereference -Wuninitialized -Wconversion -Wreorder -Wsign-compare -Wnon-virtual-dtor -Woverloaded-virtual -Wall -Wextra")
 # -Wrange-loop-analysis
 
-# find glog
-find_package (glog 0.7.1 REQUIRED)
+# Build dependencies (glog, NanoLog, yaml-cpp)
+execute_process(COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/setup_deps.sh WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} RESULT_VARIABLE DEPS_RESULT)
+if(NOT DEPS_RESULT EQUAL 0)
+  message(FATAL_ERROR "Failed to build dependencies")
+endif()
+
+# glog
+set(glog_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/glog_install/lib/cmake/glog)
+find_package(glog REQUIRED)
 
 # find liburing
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBURING REQUIRED liburing)
 
-# build yaml-cpp as external project
+# yaml-cpp
 set(YAML_CPP_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/yaml-cpp)
-set(YAML_CPP_BUILD_DIR ${YAML_CPP_ROOT}/build)
-set(YAML_CPP_LIB ${YAML_CPP_BUILD_DIR}/libyaml-cpp.a)
-
-# Build yaml-cpp if not already built
-if(NOT EXISTS ${YAML_CPP_LIB})
-  message(STATUS "Building yaml-cpp...")
-  execute_process(
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/build-yaml-cpp.sh
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/external
-    RESULT_VARIABLE YAML_BUILD_RESULT
-  )
-  if(NOT YAML_BUILD_RESULT EQUAL 0)
-    message(FATAL_ERROR "Failed to build yaml-cpp")
-  endif()
-endif()
-
-# Create imported target for yaml-cpp
 add_library(yaml-cpp STATIC IMPORTED)
 set_target_properties(yaml-cpp PROPERTIES
-  IMPORTED_LOCATION ${YAML_CPP_LIB}
+  IMPORTED_LOCATION ${YAML_CPP_ROOT}/build/libyaml-cpp.a
   INTERFACE_INCLUDE_DIRECTORIES ${YAML_CPP_ROOT}/include
 )
 
