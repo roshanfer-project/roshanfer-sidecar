@@ -119,7 +119,7 @@ void EventLoop::run() {
                 }
                 
                 // get the original connection and listener
-                auto orig_conn = ud->conn;
+                auto orig_conn = std::move(ud->conn);
                 auto orig_listener = ud->listener;
 
                 // log the read event
@@ -212,7 +212,7 @@ void EventLoop::run() {
                     break;
                 }
 
-                auto orig_conn = ud->conn;
+                auto orig_conn = std::move(ud->conn);
 
                 VLOG(1) << "Connect completion event, fd: " << orig_conn->get_fd();
 
@@ -250,7 +250,7 @@ void EventLoop::run() {
             }
 
             case Operation::CANCEL: {
-                auto conn = ud->conn;
+                auto conn = std::move(ud->conn);
                 VLOG(1) << "Cancel completion event, fd: " << conn->get_fd();
 
                 switch (conn->direction) {
@@ -265,8 +265,20 @@ void EventLoop::run() {
                             state.get_one_connection(conn.type),
                             buffer_manager.get_user_data()
                         ); */
+                        // check if the rpc mapper is empty
+                        if (rpc_mapper.check_fd_exists(conn->type, conn->get_fd(), false)) {
+                            //state.dump_entire_state();
+                            LOG(FATAL) << "RPC mapper is not empty for fd: " << conn->get_fd()
+                                       << " of type: " << conn->type_to_str()
+                                       << " when removing connection"
+                                       << " (Maybe a TIMEOUT occurred?)";
+                        }
                         // remove the object of the connection from the listener
                         listeners.at(conn->type)->remove_connection(conn->get_fd());
+                        if (conn.use_count() > 1) {
+                            LOG(FATAL) << "Connection is still in use when removing connection"
+                                       << " count: " << conn.use_count();
+                        }
                         conn.reset();
                         break;
                     default:

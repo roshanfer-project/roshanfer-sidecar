@@ -1091,7 +1091,7 @@ void HTTP1Connection::submit_error_response(std::shared_ptr<RPCMessage> rpc) {
 }
 
 bool HTTP1Connection::available() {
-    return idle;
+    return idle && status == ConnectionStatus::UP;
 }
 
 void HTTP1Connection::set_rpc_message(std::shared_ptr<HTTPMessage> msg) {
@@ -1199,6 +1199,10 @@ bool HTTP2Connection::want_write() {
 /* bool HTTP2Connection::want_read() {
     return nghttp2_session_want_read(session) != 0;
 } */
+
+bool HTTP2Connection::available() {
+    return status == ConnectionStatus::UP;
+}
 
 int HTTP2Connection::http_write(const std::unique_ptr<Buffer>& buffer) {
     const uint8_t* outbuf_ptr = nullptr;

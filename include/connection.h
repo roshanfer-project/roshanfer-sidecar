@@ -131,7 +131,7 @@ class HTTP2Connection : public HTTPConnection {
         int32_t submit_request(std::shared_ptr<RPCMessage>);
         void submit_response(std::shared_ptr<RPCMessage>);
         void submit_error_response(std::shared_ptr<RPCMessage>);
-        bool available() { return true;}
+        bool available();
         HTTP http() { return HTTP::HTTP2; }
 
     private:

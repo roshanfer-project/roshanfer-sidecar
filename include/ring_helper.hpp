@@ -4,6 +4,7 @@
 #include "connection.h"
 #include "listener.h"
 //#include "rpc_message.h"
+#include <cassert>
 #include <cstddef>
 #include <memory>
 #include <string>
