@@ -41,7 +41,8 @@ if [ ! -f "${SCRIPT_DIR}/NanoLog/runtime/libNanoLog.a" ]; then
     make clean
     # NanoLog Makefile uses CXX_ARGS. We need to inject -stdlib=libc++ there.
     # Also need -fPIC.
-    CXX=clang++ CXX_ARGS="-std=c++17 -stdlib=libc++ -O3 -fPIC" make libNanoLog.a -j$(nproc)
+    CXX=clang++ make libNanoLog.a CXX_ARGS="-std=c++17 -stdlib=libc++ -O3 -fPIC" -j$(nproc)
+    CXX=clang++ make decompressor CXX_ARGS="-std=c++17 -stdlib=libc++ -O3 -fPIC" -j$(nproc)
 else
     echo "NanoLog already built. Skipping."
 fi
