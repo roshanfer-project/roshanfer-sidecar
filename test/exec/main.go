@@ -19,12 +19,34 @@ var ctx context.Context
 var wg *sync.WaitGroup
 
 type Args struct {
-	Test string `arg:"required" help:"Test to run: test1, test2"`
+	Test      string   `arg:"required" help:"Test to run: test1, test2"`
+	Plain     bool     `arg:"-p" help:"Run in plain mode"`
+	Sidecar   bool     `arg:"-s" help:"Run in sidecar mode"`
+	Envoy     bool     `arg:"-e" help:"Run in envoy mode"`
+	Overrides []string `arg:"--override,-o" help:"Override env vars (KEY=VALUE)"`
 }
 
 func main() {
 	var args Args
 	arg.MustParse(&args)
+
+	if args.Sidecar {
+		args.Plain = false
+	}
+	if args.Envoy {
+		args.Plain = false
+		args.Sidecar = false
+	}
+
+	if !args.Sidecar && !args.Plain && !args.Envoy {
+		fmt.Println("Either -p, -s or -e must be specified")
+		os.Exit(1)
+	}
+
+	// remove /tmp/HOTEL.ready if it exists
+	if _, err := os.Stat("/tmp/TEST.ready"); err == nil {
+		os.Remove("/tmp/TEST.ready")
+	}
 
 	wg = &sync.WaitGroup{}
 
@@ -33,12 +55,27 @@ func main() {
 	switch args.Test {
 	case "test1":
 		serviceList = [][]string{
-			{"app", "9", "0"},
+			{"app", "6,7,8,9,10", "0"},
 		}
 	case "test2":
 		serviceList = [][]string{
-			{"backend1", "9", "0"},
-			{"app", "11", "0"},
+			{"backend1", "6,7,8,9,10", "0"},
+			{"app", "14,15,16,17,18,19,20", "0"},
+		}
+	case "test3":
+		serviceList = [][]string{
+			{"backend1", "9,11", "0"},
+			{"backend2", "13,15,17,19", "0"},
+			{"app", "21,7", "0"},
+		}
+	case "b1":
+		serviceList = [][]string{
+			{"app-busy", "9,11", "0"},
+		}
+	case "b2":
+		serviceList = [][]string{
+			{"app-busy-chain", "9,11", "0"},
+			{"backend1-b", "13,15", "0"},
 		}
 	}
 
@@ -72,12 +109,46 @@ func main() {
 	var env string
 	switch args.Test {
 	case "test1":
-		env = "test.env"
+		if args.Plain {
+			env = "service-mesh-test1/plain.env"
+		} else {
+			env = "service-mesh-test1/sidecar.env"
+		}
 	case "test2":
-		env = "test2.env"
+		if args.Plain {
+			env = "service-mesh-test2/plain.env"
+		} else {
+			env = "service-mesh-test2/sidecar.env"
+		}
+	case "test3":
+		if args.Plain {
+			env = "service-mesh-test3/plain.env"
+		} else {
+			env = "service-mesh-test3/sidecar.env"
+		}
+	case "b1":
+		if args.Plain {
+			env = "service-mesh-b1/plain.env"
+		} else {
+			env = "service-mesh-b1/sidecar.env"
+		}
+	case "b2":
+		if args.Plain {
+			env = "service-mesh-b2/plain.env"
+		} else {
+			env = "service-mesh-b2/sidecar.env"
+		}
 	}
 
-	run_servicees(env, args.Test, serviceList, true, false, false)
+	run_servicees(env, args.Test, serviceList, args.Sidecar, args.Envoy, false, args.Overrides)
+
+	// create /tmp/HOTEL.ready
+	_, err := os.Create("/tmp/TEST.ready")
+	if err != nil {
+		fmt.Println("Error creating /tmp/TEST.ready:", err)
+		cancel()
+		panic(err)
+	}
 
 	time.Sleep(time.Minute * 100)
 
@@ -93,7 +164,7 @@ func run_docker_compose() {
 	no_env_run(c, dir, false, "docker-compose")
 }
 
-func run_servicees(env string, testName string, serviceList [][]string, sidecar, envoy, profile bool) {
+func run_servicees(env string, testName string, serviceList [][]string, sidecar, envoy, profile bool, overrides []string) {
 	sidecar_dir := get_cwd() + "/service-mesh-" + testName
 	for _, tuple := range serviceList {
 		name := tuple[0]
@@ -116,7 +187,7 @@ func run_servicees(env string, testName string, serviceList [][]string, sidecar,
 				fmt.Printf("Running %s\n", name)
 				c = exec.CommandContext(ctx, "taskset", "-c", cpuset, fmt.Sprintf("./%s.o", name))
 				//c = exec.CommandContext(ctx, fmt.Sprintf("./%s.o", name))
-				env_run(c, dir, env)
+				env_run(c, dir, env, overrides)
 			}(name)
 		}
 
@@ -163,13 +234,26 @@ func compile_sidecar(profile bool) {
 	no_env_run(c, dir, false, "docker-compose")
 }
 
-func read_env(name string) []string {
+func read_env(name string, overrides []string) []string {
 	envFile, err := os.ReadFile(name)
 	if err != nil {
 		fmt.Println("Error reading .env file:", err)
 		cancel()
 		panic(err)
 	}
+
+	overrideMap := make(map[string]string)
+	for _, o := range overrides {
+		parts := strings.SplitN(o, "=", 2)
+		if len(parts) == 2 {
+			overrideMap[parts[0]] = parts[1]
+		}
+	}
+
+	if len(overrideMap) > 0 {
+		fmt.Println("Applying overrides:", overrideMap)
+	}
+
 	envs := make([]string, 0)
 	lines := strings.Split(string(envFile), "\n")
 	for _, line := range lines {
@@ -179,13 +263,24 @@ func read_env(name string) []string {
 		if !strings.Contains(line, "=") {
 			continue // skip lines without '='
 		}
+
+		parts := strings.SplitN(line, "=", 2)
+		key := parts[0]
+		if _, ok := overrideMap[key]; ok {
+			continue // skip overridden keys
+		}
+
 		envs = append(envs, line)
 	}
 
+	for k, v := range overrideMap {
+		envs = append(envs, fmt.Sprintf("%s=%s", k, v))
+	}
+
 	// log the environment variables
-	/* for _, env := range envs {
+	for _, env := range envs {
 		fmt.Println("Environment variable:", env)
-	} */
+	}
 	return envs
 }
 
@@ -248,7 +343,7 @@ func no_env_run(c *exec.Cmd, dir string, profile bool, name string) {
 	}
 }
 
-func env_run(c *exec.Cmd, dir, env string) {
+func env_run(c *exec.Cmd, dir, env string, overrides []string) {
 	c.Dir = dir
 	/* f, err := os.OpenFile(outputFile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
@@ -263,7 +358,7 @@ func env_run(c *exec.Cmd, dir, env string) {
 	c.Stderr = multiWriter */
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
-	c.Env = read_env(env)
+	c.Env = read_env(env, overrides)
 	// create a new process group for the command
 	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 

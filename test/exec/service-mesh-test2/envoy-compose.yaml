@@ -1,0 +1,35 @@
+services:
+  ingress-envoy:
+    image: envoyproxy/envoy:v1.30-latest
+    container_name: ingress-envoy
+    restart: no
+    volumes:
+      - ./.envoy_configs/ingress.yaml:/etc/envoy/envoy.yaml
+    ports:
+      - "3000:3000"
+      - "3009:3009"
+    command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml --concurrency 3
+    cpuset: "42,43,44,38,37"
+
+  app-envoy:
+    image: envoyproxy/envoy:v1.30-latest
+    container_name: app-envoy
+    restart: no
+    volumes:
+      - ./.envoy_configs/app.yaml:/etc/envoy/envoy.yaml
+    ports:
+      - "4007:4007"
+      - "3007:3007"
+    command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml --concurrency 3
+    cpuset: "39,40,41,36"
+
+  backend1-envoy:
+    image: envoyproxy/envoy:v1.30-latest
+    container_name: backend1-envoy
+    restart: no
+    volumes:
+      - ./.envoy_configs/backend1.yaml:/etc/envoy/envoy.yaml
+    ports:
+      - "3005:3005"
+    command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml --concurrency 3
+    cpuset: "24,25,35"

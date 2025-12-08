@@ -53,7 +53,7 @@ func initTracerProvider(ctx context.Context, res *resource.Resource,
 	// Register the trace exporter with a TracerProvider, using a batch
 	// span processor to aggregate spans before export.
 	bsp := sdktrace.NewBatchSpanProcessor(traceExporter,
-		sdktrace.WithBatchTimeout(5*time.Second))
+		sdktrace.WithBatchTimeout(10*time.Second))
 
 	var sampler sdktrace.Sampler
 	if frontend {

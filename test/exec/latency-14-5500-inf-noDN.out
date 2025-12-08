@@ -1,0 +1,85 @@
+metrics.json
+├── app
+│   ├── E2E
+│   │   ├── EGRESS
+│   │   │   └── protobuf.Backend1/SimpleCall:
+│   │   │       ├── 50: 2781.00
+│   │   │       ├── 95: 21477.00
+│   │   │       ├── 99: 40491.92
+│   │   │       └── count: 30549
+│   │   └── INGRESS
+│   │       └── app:GET
+│   │           ├── 50: 3513.00
+│   │           ├── 95: 22816.60
+│   │           ├── 99: 43713.72
+│   │           └── count: 30549
+│   ├── REQ-FOR
+│   │   ├── EGRESS
+│   │   │   └── protobuf.Backend1/SimpleCall:
+│   │   │       ├── 50: 5.00
+│   │   │       ├── 95: 15.00
+│   │   │       ├── 99: 43.00
+│   │   │       └── count: 30549
+│   │   └── INGRESS
+│   │       └── app:GET
+│   │           ├── 50: 2.00
+│   │           ├── 95: 4.00
+│   │           ├── 99: 7.00
+│   │           └── count: 30549
+│   └── RES-FOR
+│       ├── EGRESS
+│       │   └── protobuf.Backend1/SimpleCall:
+│       │       ├── 50: 9.00
+│       │       ├── 95: 64.00
+│       │       ├── 99: 182.52
+│       │       └── count: 30549
+│       └── INGRESS
+│           └── app:GET
+│               ├── 50: 3.00
+│               ├── 95: 7.00
+│               ├── 99: 10.00
+│               └── count: 30549
+├── backend1
+│   ├── E2E
+│   │   └── INGRESS
+│   │       └── protobuf.Backend1/SimpleCall:
+│   │           ├── 50: 2607.00
+│   │           ├── 95: 20942.80
+│   │           ├── 99: 39145.04
+│   │           └── count: 30549
+│   ├── REQ-FOR
+│   │   └── INGRESS
+│   │       └── protobuf.Backend1/SimpleCall:
+│   │           ├── 50: 3.00
+│   │           ├── 95: 9.00
+│   │           ├── 99: 18.00
+│   │           └── count: 30549
+│   └── RES-FOR
+│       └── INGRESS
+│           └── protobuf.Backend1/SimpleCall:
+│               ├── 50: 17.00
+│               ├── 95: 110.00
+│               ├── 99: 306.52
+│               └── count: 30549
+└── ingress
+    ├── E2E
+    │   └── EGRESS
+    │       └── app:GET
+    │           ├── 50: 3646.00
+    │           ├── 95: 23409.40
+    │           ├── 99: 46083.52
+    │           └── count: 30549
+    ├── REQ-FOR
+    │   └── EGRESS
+    │       └── app:GET
+    │           ├── 50: 3.00
+    │           ├── 95: 5.00
+    │           ├── 99: 8.00
+    │           └── count: 30549
+    └── RES-FOR
+        └── EGRESS
+            └── app:GET
+                ├── 50: 3.00
+                ├── 95: 7.00
+                ├── 99: 9.00
+                └── count: 30549

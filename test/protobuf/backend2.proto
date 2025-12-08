@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package protobuf;
+
+option go_package = "test/protobuf";
+
+import "backend1.proto";
+
+service Backend2 {
+  rpc SimpleCall(Arg) returns (Resp);
+  rpc SimpleCall2(Arg) returns (Resp);
+}

@@ -1,0 +1,2432 @@
+[
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254605364.042,
+    "dur": 40329,
+    "pid": "Trace 3040",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 40329
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254645686.116,
+    "dur": 7,
+    "pid": "Trace 3040",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 7
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254645691.208,
+    "dur": 2,
+    "pid": "Trace 3040",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 2
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254605364.042,
+    "dur": 40329.16600036621,
+    "pid": "Trace 3040",
+    "tid": "ingress"
+  },
+  {
+    "name": "ingress",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254605364.042,
+    "dur": 40329.16600036621,
+    "pid": "Trace 3040",
+    "tid": "ingress"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254025141.88,
+    "dur": 37102,
+    "pid": "Trace 3040",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 37102
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254062236.041,
+    "dur": 8,
+    "pid": "Trace 3040",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 8
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254062142.18,
+    "dur": 102,
+    "pid": "Trace 3040",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 102
+    }
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254024463.101,
+    "dur": 38669,
+    "pid": "Trace 3040",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 38669
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254063129.176,
+    "dur": 3,
+    "pid": "Trace 3040",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254063130.269005,
+    "dur": 2,
+    "pid": "Trace 3040",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 2
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254025141.88,
+    "dur": 37102.30000305176,
+    "pid": "Trace 3040",
+    "tid": "app"
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254024463.101,
+    "dur": 38669.16800689697,
+    "pid": "Trace 3040",
+    "tid": "app"
+  },
+  {
+    "name": "app",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254024463.101,
+    "dur": 38669.16800689697,
+    "pid": "Trace 3040",
+    "tid": "app"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254665052.633,
+    "dur": 36361,
+    "pid": "Trace 3040",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 36361
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254701409.709,
+    "dur": 4,
+    "pid": "Trace 3040",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 4
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254701135.804,
+    "dur": 278,
+    "pid": "Trace 3040",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 278
+    }
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254665052.633,
+    "dur": 36361.17099761963,
+    "pid": "Trace 3040",
+    "tid": "backend1"
+  },
+  {
+    "name": "backend1",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254665052.633,
+    "dur": 36361.17099761963,
+    "pid": "Trace 3040",
+    "tid": "backend1"
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254605525.293,
+    "dur": 40202,
+    "pid": "Trace 3042",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 40202
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254645724.44,
+    "dur": 3,
+    "pid": "Trace 3042",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254645725.533005,
+    "dur": 2,
+    "pid": "Trace 3042",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 2
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254605525.293,
+    "dur": 40202.240005493164,
+    "pid": "Trace 3042",
+    "tid": "ingress"
+  },
+  {
+    "name": "ingress",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254605525.293,
+    "dur": 40202.240005493164,
+    "pid": "Trace 3042",
+    "tid": "ingress"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254025145.715996,
+    "dur": 37119,
+    "pid": "Trace 3042",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 37119
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254062255.907,
+    "dur": 9,
+    "pid": "Trace 3042",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 9
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254062159.052,
+    "dur": 106,
+    "pid": "Trace 3042",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 106
+    }
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254024476.339,
+    "dur": 38635,
+    "pid": "Trace 3042",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 38635
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254063108.415,
+    "dur": 3,
+    "pid": "Trace 3042",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254063109.517006,
+    "dur": 2,
+    "pid": "Trace 3042",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 2
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254025145.715996,
+    "dur": 37119.33600616455,
+    "pid": "Trace 3042",
+    "tid": "app"
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254024476.339,
+    "dur": 38635.1780090332,
+    "pid": "Trace 3042",
+    "tid": "app"
+  },
+  {
+    "name": "app",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254024476.339,
+    "dur": 38635.1780090332,
+    "pid": "Trace 3042",
+    "tid": "app"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254665088.123,
+    "dur": 36341,
+    "pid": "Trace 3042",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 36341
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254701426.198,
+    "dur": 3,
+    "pid": "Trace 3042",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254701144.296,
+    "dur": 285,
+    "pid": "Trace 3042",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 285
+    }
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254665088.123,
+    "dur": 36341.172996520996,
+    "pid": "Trace 3042",
+    "tid": "backend1"
+  },
+  {
+    "name": "backend1",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254665088.123,
+    "dur": 36341.172996520996,
+    "pid": "Trace 3042",
+    "tid": "backend1"
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254773430.265,
+    "dur": 40191,
+    "pid": "Trace 4041",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 40191
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254813617.42,
+    "dur": 4,
+    "pid": "Trace 4041",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 4
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254813619.508,
+    "dur": 2,
+    "pid": "Trace 4041",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 2
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254773430.265,
+    "dur": 40191.243003845215,
+    "pid": "Trace 4041",
+    "tid": "ingress"
+  },
+  {
+    "name": "ingress",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254773430.265,
+    "dur": 40191.243003845215,
+    "pid": "Trace 4041",
+    "tid": "ingress"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254192705.312,
+    "dur": 39195,
+    "pid": "Trace 4041",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 39195
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254231896.39,
+    "dur": 4,
+    "pid": "Trace 4041",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 4
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254231841.483,
+    "dur": 59,
+    "pid": "Trace 4041",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 59
+    }
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254192249.516,
+    "dur": 40022,
+    "pid": "Trace 4041",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 40022
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254232269.590004,
+    "dur": 2,
+    "pid": "Trace 4041",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 2
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254232268.68,
+    "dur": 3,
+    "pid": "Trace 4041",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254192705.312,
+    "dur": 39195.17100524902,
+    "pid": "Trace 4041",
+    "tid": "app"
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254192249.516,
+    "dur": 40022.164001464844,
+    "pid": "Trace 4041",
+    "tid": "app"
+  },
+  {
+    "name": "app",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254192249.516,
+    "dur": 40022.164001464844,
+    "pid": "Trace 4041",
+    "tid": "app"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254832608.206,
+    "dur": 38552,
+    "pid": "Trace 4041",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 38552
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254871157.281,
+    "dur": 3,
+    "pid": "Trace 4041",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254871032.374,
+    "dur": 128,
+    "pid": "Trace 4041",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 128
+    }
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254832608.206,
+    "dur": 38552.16799926758,
+    "pid": "Trace 4041",
+    "tid": "backend1"
+  },
+  {
+    "name": "backend1",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254832608.206,
+    "dur": 38552.16799926758,
+    "pid": "Trace 4041",
+    "tid": "backend1"
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254773671.036,
+    "dur": 40290,
+    "pid": "Trace 4046",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 40290
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254813957.208,
+    "dur": 4,
+    "pid": "Trace 4046",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 4
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254813958.314995,
+    "dur": 3,
+    "pid": "Trace 4046",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254773671.036,
+    "dur": 40290.27899169922,
+    "pid": "Trace 4046",
+    "tid": "ingress"
+  },
+  {
+    "name": "ingress",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254773671.036,
+    "dur": 40290.27899169922,
+    "pid": "Trace 4046",
+    "tid": "ingress"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254192928.52,
+    "dur": 39386,
+    "pid": "Trace 4046",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 39386
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254232311.597,
+    "dur": 3,
+    "pid": "Trace 4046",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254232293.687,
+    "dur": 21,
+    "pid": "Trace 4046",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 21
+    }
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254192488.697,
+    "dur": 40097,
+    "pid": "Trace 4046",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 40097
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254232584.842995,
+    "dur": 1,
+    "pid": "Trace 4046",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 1
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254232581.931,
+    "dur": 4,
+    "pid": "Trace 4046",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 4
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254192928.52,
+    "dur": 39386.166999816895,
+    "pid": "Trace 4046",
+    "tid": "app"
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254192488.697,
+    "dur": 40097.23400115967,
+    "pid": "Trace 4046",
+    "tid": "app"
+  },
+  {
+    "name": "app",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254192488.697,
+    "dur": 40097.23400115967,
+    "pid": "Trace 4046",
+    "tid": "app"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254833021.681,
+    "dur": 38203,
+    "pid": "Trace 4046",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 38203
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254871218.947,
+    "dur": 6,
+    "pid": "Trace 4046",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 6
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254871062.122,
+    "dur": 163,
+    "pid": "Trace 4046",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 163
+    }
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254833021.681,
+    "dur": 38203.44100189209,
+    "pid": "Trace 4046",
+    "tid": "backend1"
+  },
+  {
+    "name": "backend1",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254833021.681,
+    "dur": 38203.44100189209,
+    "pid": "Trace 4046",
+    "tid": "backend1"
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254668063.200005,
+    "dur": 40288,
+    "pid": "Trace 3446",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 40288
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254708348.440994,
+    "dur": 3,
+    "pid": "Trace 3446",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254708348.641,
+    "dur": 3,
+    "pid": "Trace 3446",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254668063.200005,
+    "dur": 40288.440994262695,
+    "pid": "Trace 3446",
+    "tid": "ingress"
+  },
+  {
+    "name": "ingress",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254668063.200005,
+    "dur": 40288.440994262695,
+    "pid": "Trace 3446",
+    "tid": "ingress"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254087331.971,
+    "dur": 39457,
+    "pid": "Trace 3446",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 39457
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254126784.141,
+    "dur": 5,
+    "pid": "Trace 3446",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 5
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254126706.315,
+    "dur": 83,
+    "pid": "Trace 3446",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 83
+    }
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254086876.82,
+    "dur": 40212,
+    "pid": "Trace 3446",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 40212
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254127087.018005,
+    "dur": 2,
+    "pid": "Trace 3446",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 2
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254127085.185,
+    "dur": 4,
+    "pid": "Trace 3446",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 4
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254087331.971,
+    "dur": 39457.34400177002,
+    "pid": "Trace 3446",
+    "tid": "app"
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254086876.82,
+    "dur": 40212.36499786377,
+    "pid": "Trace 3446",
+    "tid": "app"
+  },
+  {
+    "name": "app",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254086876.82,
+    "dur": 40212.36499786377,
+    "pid": "Trace 3446",
+    "tid": "app"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254727250.436,
+    "dur": 38743,
+    "pid": "Trace 3446",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 38743
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254765990.590996,
+    "dur": 3,
+    "pid": "Trace 3446",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254765858.67799,
+    "dur": 135,
+    "pid": "Trace 3446",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 135
+    }
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254727250.436,
+    "dur": 38743.24199676514,
+    "pid": "Trace 3446",
+    "tid": "backend1"
+  },
+  {
+    "name": "backend1",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254727250.436,
+    "dur": 38743.24199676514,
+    "pid": "Trace 3446",
+    "tid": "backend1"
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254882839.741005,
+    "dur": 40295,
+    "pid": "Trace 4663",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 40295
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254923132.097,
+    "dur": 3,
+    "pid": "Trace 4663",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254923131.329,
+    "dur": 4,
+    "pid": "Trace 4663",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 4
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254882839.741005,
+    "dur": 40295.58799743652,
+    "pid": "Trace 4663",
+    "tid": "ingress"
+  },
+  {
+    "name": "ingress",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254882839.741005,
+    "dur": 40295.58799743652,
+    "pid": "Trace 4663",
+    "tid": "ingress"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254302144.912994,
+    "dur": 39681,
+    "pid": "Trace 4663",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 39681
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254341822.184,
+    "dur": 4,
+    "pid": "Trace 4663",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 4
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254341824.347,
+    "dur": 2,
+    "pid": "Trace 4663",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 2
+    }
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254301654.783005,
+    "dur": 40248,
+    "pid": "Trace 4663",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 40248
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254341900.455,
+    "dur": 3,
+    "pid": "Trace 4663",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254341897.619,
+    "dur": 6,
+    "pid": "Trace 4663",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 6
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254302144.912994,
+    "dur": 39681.434005737305,
+    "pid": "Trace 4663",
+    "tid": "app"
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254301654.783005,
+    "dur": 40248.835998535156,
+    "pid": "Trace 4663",
+    "tid": "app"
+  },
+  {
+    "name": "app",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254301654.783005,
+    "dur": 40248.835998535156,
+    "pid": "Trace 4663",
+    "tid": "app"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254942043.18,
+    "dur": 39598,
+    "pid": "Trace 4663",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 39598
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254981639.596,
+    "dur": 2,
+    "pid": "Trace 4663",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 2
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254981621.764,
+    "dur": 20,
+    "pid": "Trace 4663",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 20
+    }
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254942043.18,
+    "dur": 39598.58399963379,
+    "pid": "Trace 4663",
+    "tid": "backend1"
+  },
+  {
+    "name": "backend1",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254942043.18,
+    "dur": 39598.58399963379,
+    "pid": "Trace 4663",
+    "tid": "backend1"
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254668597.157,
+    "dur": 40289,
+    "pid": "Trace 3450",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 40289
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254708882.234,
+    "dur": 4,
+    "pid": "Trace 3450",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 4
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254708884.331,
+    "dur": 2,
+    "pid": "Trace 3450",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 2
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254668597.157,
+    "dur": 40289.174003601074,
+    "pid": "Trace 3450",
+    "tid": "ingress"
+  },
+  {
+    "name": "ingress",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254668597.157,
+    "dur": 40289.174003601074,
+    "pid": "Trace 3450",
+    "tid": "ingress"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254087878.097,
+    "dur": 38994,
+    "pid": "Trace 3450",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 38994
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254126869.246994,
+    "dur": 3,
+    "pid": "Trace 3450",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254126767.431,
+    "dur": 105,
+    "pid": "Trace 3450",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 105
+    }
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254087411.607,
+    "dur": 40071,
+    "pid": "Trace 3450",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 40071
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254127480.797,
+    "dur": 2,
+    "pid": "Trace 3450",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 2
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254127477.986,
+    "dur": 5,
+    "pid": "Trace 3450",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 5
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254087878.097,
+    "dur": 38994.33399963379,
+    "pid": "Trace 3450",
+    "tid": "app"
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254087411.607,
+    "dur": 40071.378997802734,
+    "pid": "Trace 3450",
+    "tid": "app"
+  },
+  {
+    "name": "app",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254087411.607,
+    "dur": 40071.378997802734,
+    "pid": "Trace 3450",
+    "tid": "app"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254728103.126,
+    "dur": 37950,
+    "pid": "Trace 3450",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 37950
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254766047.202,
+    "dur": 6,
+    "pid": "Trace 3450",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 6
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254765890.293,
+    "dur": 163,
+    "pid": "Trace 3450",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 163
+    }
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254728103.126,
+    "dur": 37950.166999816895,
+    "pid": "Trace 3450",
+    "tid": "backend1"
+  },
+  {
+    "name": "backend1",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254728103.126,
+    "dur": 37950.166999816895,
+    "pid": "Trace 3450",
+    "tid": "backend1"
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254652614.233,
+    "dur": 40120,
+    "pid": "Trace 3355",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 40120
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254692732.411995,
+    "dur": 2,
+    "pid": "Trace 3355",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 2
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254692731.59,
+    "dur": 3,
+    "pid": "Trace 3355",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254652614.233,
+    "dur": 40120.356994628906,
+    "pid": "Trace 3355",
+    "tid": "ingress"
+  },
+  {
+    "name": "ingress",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254652614.233,
+    "dur": 40120.356994628906,
+    "pid": "Trace 3355",
+    "tid": "ingress"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254072231.753,
+    "dur": 39080,
+    "pid": "Trace 3355",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 39080
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254111308.976,
+    "dur": 3,
+    "pid": "Trace 3355",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254111285.142,
+    "dur": 27,
+    "pid": "Trace 3355",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 27
+    }
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254071457.756996,
+    "dur": 40042,
+    "pid": "Trace 3355",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 40042
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254111497.909,
+    "dur": 2,
+    "pid": "Trace 3355",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 2
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254111497.034,
+    "dur": 3,
+    "pid": "Trace 3355",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254072231.753,
+    "dur": 39080.388999938965,
+    "pid": "Trace 3355",
+    "tid": "app"
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254071457.756996,
+    "dur": 40042.277000427246,
+    "pid": "Trace 3355",
+    "tid": "app"
+  },
+  {
+    "name": "app",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254071457.756996,
+    "dur": 40042.277000427246,
+    "pid": "Trace 3355",
+    "tid": "app"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254712130.92,
+    "dur": 38853,
+    "pid": "Trace 3355",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 38853
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254750981.995995,
+    "dur": 2,
+    "pid": "Trace 3355",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 2
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254750931.090996,
+    "dur": 53,
+    "pid": "Trace 3355",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 53
+    }
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254712130.92,
+    "dur": 38853.17099761963,
+    "pid": "Trace 3355",
+    "tid": "backend1"
+  },
+  {
+    "name": "backend1",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254712130.92,
+    "dur": 38853.17099761963,
+    "pid": "Trace 3355",
+    "tid": "backend1"
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254652900.259995,
+    "dur": 40250,
+    "pid": "Trace 3356",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 40250
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254693145.382996,
+    "dur": 5,
+    "pid": "Trace 3356",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 5
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254693148.48,
+    "dur": 2,
+    "pid": "Trace 3356",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 2
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254652900.259995,
+    "dur": 40250.2200088501,
+    "pid": "Trace 3356",
+    "tid": "ingress"
+  },
+  {
+    "name": "ingress",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254652900.259995,
+    "dur": 40250.2200088501,
+    "pid": "Trace 3356",
+    "tid": "ingress"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254072540.591,
+    "dur": 39018,
+    "pid": "Trace 3356",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 39018
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254111555.698,
+    "dur": 3,
+    "pid": "Trace 3356",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254111533.79301,
+    "dur": 25,
+    "pid": "Trace 3356",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 25
+    }
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254072030.255,
+    "dur": 39746,
+    "pid": "Trace 3356",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 39746
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254111773.643005,
+    "dur": 3,
+    "pid": "Trace 3356",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254111771.834,
+    "dur": 5,
+    "pid": "Trace 3356",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 5
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254072540.591,
+    "dur": 39018.202003479004,
+    "pid": "Trace 3356",
+    "tid": "app"
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254072030.255,
+    "dur": 39746.57900238037,
+    "pid": "Trace 3356",
+    "tid": "app"
+  },
+  {
+    "name": "app",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254072030.255,
+    "dur": 39746.57900238037,
+    "pid": "Trace 3356",
+    "tid": "app"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254712436.25,
+    "dur": 38584,
+    "pid": "Trace 3356",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 38584
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254751017.328,
+    "dur": 3,
+    "pid": "Trace 3356",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254750948.419,
+    "dur": 72,
+    "pid": "Trace 3356",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 72
+    }
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254712436.25,
+    "dur": 38584.16899871826,
+    "pid": "Trace 3356",
+    "tid": "backend1"
+  },
+  {
+    "name": "backend1",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254712436.25,
+    "dur": 38584.16899871826,
+    "pid": "Trace 3356",
+    "tid": "backend1"
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254605320.306,
+    "dur": 40363,
+    "pid": "Trace 3039",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 40363
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254645678.472,
+    "dur": 5,
+    "pid": "Trace 3039",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 5
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254645681.661,
+    "dur": 2,
+    "pid": "Trace 3039",
+    "tid": "ingress",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 2
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254605320.306,
+    "dur": 40363.35500335693,
+    "pid": "Trace 3039",
+    "tid": "ingress"
+  },
+  {
+    "name": "ingress",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254605320.306,
+    "dur": 40363.35500335693,
+    "pid": "Trace 3039",
+    "tid": "ingress"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254024989.017,
+    "dur": 37214,
+    "pid": "Trace 3039",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 37214
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254062199.166,
+    "dur": 4,
+    "pid": "Trace 3039",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 4
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254062115.348,
+    "dur": 88,
+    "pid": "Trace 3039",
+    "tid": "app",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 88
+    }
+  },
+  {
+    "name": "E2E app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254024248.33099,
+    "dur": 38894,
+    "pid": "Trace 3039",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "E2E",
+      "value": 38894
+    }
+  },
+  {
+    "name": "REQ-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254063141.406,
+    "dur": 1,
+    "pid": "Trace 3039",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "REQ-FOR",
+      "value": 1
+    }
+  },
+  {
+    "name": "RES-FOR app:GET",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254063140.499,
+    "dur": 2,
+    "pid": "Trace 3039",
+    "tid": "app",
+    "args": {
+      "service": "app",
+      "method": "GET",
+      "metric": "RES-FOR",
+      "value": 2
+    }
+  },
+  {
+    "name": "EGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254024989.017,
+    "dur": 37214.33100128174,
+    "pid": "Trace 3039",
+    "tid": "app"
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254024248.33099,
+    "dur": 38894.16800689697,
+    "pid": "Trace 3039",
+    "tid": "app"
+  },
+  {
+    "name": "app",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254024248.33099,
+    "dur": 38894.16800689697,
+    "pid": "Trace 3039",
+    "tid": "app"
+  },
+  {
+    "name": "E2E protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254664886.747,
+    "dur": 36496,
+    "pid": "Trace 3039",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "E2E",
+      "value": 36496
+    }
+  },
+  {
+    "name": "REQ-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254701379.823,
+    "dur": 3,
+    "pid": "Trace 3039",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "REQ-FOR",
+      "value": 3
+    }
+  },
+  {
+    "name": "RES-FOR protobuf.Backend1/SimpleCall:",
+    "cat": "metric",
+    "ph": "X",
+    "ts": 56254701118.918,
+    "dur": 264,
+    "pid": "Trace 3039",
+    "tid": "backend1",
+    "args": {
+      "service": "protobuf.Backend1/SimpleCall",
+      "method": "",
+      "metric": "RES-FOR",
+      "value": 264
+    }
+  },
+  {
+    "name": "INGRESS",
+    "cat": "connection",
+    "ph": "X",
+    "ts": 56254664886.747,
+    "dur": 36496.17099761963,
+    "pid": "Trace 3039",
+    "tid": "backend1"
+  },
+  {
+    "name": "backend1",
+    "cat": "sidecar",
+    "ph": "X",
+    "ts": 56254664886.747,
+    "dur": 36496.17099761963,
+    "pid": "Trace 3039",
+    "tid": "backend1"
+  }
+]

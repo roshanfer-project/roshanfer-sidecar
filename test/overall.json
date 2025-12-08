@@ -1,0 +1,18 @@
+{
+  "goodput": 5008.216542772767,
+  "num_goodput": 50088,
+  "slo_ms": 32,
+  "slo_violations": 363.65763388565233,
+  "num_slo_violations": 3637,
+  "dropped_requests": 0.0,
+  "num_dropped_requests": 0,
+  "errors": 0.0,
+  "num_errors": 0,
+  "p50_latency": 3.858,
+  "p95_latency": 42.76799999999996,
+  "p99_latency": 69.46108000000007,
+  "total_requests": 53725,
+  "duration_seconds": 10.001165,
+  "start_time": "2025-11-19T16:44:09.187092581+00:00",
+  "end_time": "2025-11-19T16:44:24.188257969+00:00"
+}

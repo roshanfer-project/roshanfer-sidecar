@@ -3,14 +3,14 @@ routing:
     upstream:
       host: app-sidecar
       port: 3007
-    limit: 40
-    slo: 50
+    limit: 1000000
+    slo: 100000000
   app2:
     upstream:
       host: app-sidecar
       port: 3007
-    limit: 30
-    slo: 50
+    limit: 1000000
+    slo: 10000000
 mapping:
   app:
     downstreams:
@@ -23,13 +23,12 @@ mapping:
       - app2
     min_max_concurrency: 6
     listen_port: 3009
-    limit: 42
-    slo: 60
-ring_size: 4000
-buffer_count: 2000
+    limit: -1
+ring_size: 12000
+buffer_count: 15000
 buffer_size: 10000
 num_threads: 2
-ingress_pool_connections: 200
+ingress_pool_connections: 4000
 frontend_pool_connections: 100
 egress_listener_port: 3000
 ingress_listener_port: 4000
@@ -37,6 +36,5 @@ ingress_upstream_host: 172.17.0.1
 ingress_upstream_port: 2000
 is_ingress: True
 is_frontend: False
-ppm_limit: 2
 report_latency: True
 name: ingress

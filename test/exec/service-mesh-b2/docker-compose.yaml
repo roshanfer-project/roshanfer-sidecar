@@ -1,0 +1,59 @@
+services:
+
+  ingress-sidecar:
+    image: sidecar-sidecar:latest
+    container_name: ingress-sidecar
+    restart: no
+    environment:
+      - PROC_NAME=ingress-sidecar
+      - GLOG_logtostderr=1
+#      - GLOG_v=1
+#      - GLOG_vmodule=ingress=2
+    volumes:
+      - ./.configs/ingress.yaml:/config.yaml
+      - /usr/local/lib:/usr/local/lib:ro
+      - /lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:ro
+    ports:
+      - "4000:4000" # egress_listener_port
+      - "3000:3000"   # app listen_port
+      - "3009:3009"   # app2 listen_port
+    privileged: true
+    cpuset: "36,37,40"
+
+  app-busy-chain-sidecar:
+    image: sidecar-sidecar:latest
+    container_name: app-busy-chain-sidecar
+    restart: no
+    environment:
+      - PROC_NAME=app-busy-chain-sidecar
+      - GLOG_logtostderr=1
+#      - GLOG_v=1
+#      - GLOG_vmodule=stats=2
+    volumes:
+      - ./.configs/app-busy.yaml:/config.yaml
+      - /usr/local/lib:/usr/local/lib:ro
+      - /lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:ro
+    ports:
+      - "4007:4007" # egress_listener_port
+      - "3007:3007"   # ingress_listener_port
+    privileged: true
+    cpuset: "22,23"
+
+  backend1-b-sidecar:
+    image: sidecar-sidecar:latest
+    container_name: backend1-b-sidecar
+    restart: no
+    environment:
+      - PROC_NAME=backend1-b-sidecar
+      - GLOG_logtostderr=1
+#      - GLOG_v=1
+#      - GLOG_vmodule=state=2,ingress=2
+    volumes:
+      - ./.configs/backend1.yaml:/config.yaml
+      - /usr/local/lib:/usr/local/lib:ro
+      - /lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:ro
+    ports:
+      - "4005:4005" # egress_listener_port
+      - "3005:3005" # ingress_listener_port
+    privileged: true
+    cpuset: "24,25"

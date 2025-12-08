@@ -15,4 +15,5 @@ var Opts = []grpc.ServerOption{
 		PermitWithoutStream: true,
 	}),
 	//grpc.UnaryInterceptor(tracingInterceptor),
+	grpc.WriteBufferSize(0),
 }

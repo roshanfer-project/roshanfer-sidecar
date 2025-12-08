@@ -1,0 +1,30 @@
+networks:
+  monitoring:
+    name: monitoring
+
+services:
+  otel-collector:
+    container_name: otel-collector
+    image: otel/opentelemetry-collector-contrib:0.108.0
+    command: ["--config=/etc/otel-collector.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otel-collector.yaml
+    ports:
+      - 4317:4317
+    networks:
+      - monitoring
+    cpuset: "47"
+  
+  jaeger:
+    container_name: jaeger
+    image: jaegertracing/all-in-one:1.60
+    ports:
+      - 16686:16686
+      - 16685:16685     # For querying traces from jaeger
+    depends_on:
+      - otel-collector
+    networks:
+      - monitoring
+    environment:
+    - COLLECTOR_ZIPKIN_HOST_PORT=9411       # To collect envoy's traces
+    cpuset: "46"

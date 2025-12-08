@@ -1,0 +1,4 @@
+2025-12-01 14:12:56.509935815 /home/farzad/files/roshanfer-sidecar/src/stats.cc:213 NOTICE[0]: T# 100 app-sidecar E2E HTTP1 service:method 1000
+2025-12-01 14:12:56.509935815 /home/farzad/files/roshanfer-sidecar/src/stats.cc:213 NOTICE[0]: T# 100 app-sidecar REQ-FOR HTTP1 service:method 100
+2025-12-01 14:12:56.509935815 /home/farzad/files/roshanfer-sidecar/src/stats.cc:213 NOTICE[0]: T# 100 app-sidecar RES-FOR HTTP1 service:method 100
+2025-12-01 14:12:56.509935815 /home/farzad/files/roshanfer-sidecar/src/stats.cc:213 NOTICE[0]: T# 101 app-sidecar E2E HTTP1 service:method 2000

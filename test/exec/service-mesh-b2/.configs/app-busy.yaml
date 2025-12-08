@@ -1,0 +1,26 @@
+routing:
+  protobuf.Backend1/SimpleCall:
+    upstream:
+      host: backend1-sidecar
+      port: 3005
+mapping:
+  app:
+    downstreams:
+      - protobuf.Backend1/SimpleCall
+    min_max_concurrency: 20
+    limit: 3
+ring_size: 1000
+buffer_count: 1000
+buffer_size: 80000
+num_threads: 1
+ingress_pool_connections: 100
+frontend_pool_connections: 100
+egress_listener_port: 4007
+ingress_listener_port: 3007
+ingress_upstream_host: 172.17.0.1
+ingress_upstream_port: 2007
+is_ingress: False
+is_frontend: True
+ppm_limit: 80
+report_latency: True
+name: app
