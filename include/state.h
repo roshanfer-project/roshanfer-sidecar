@@ -43,7 +43,7 @@ public:
 
 class FailedDNInfoUnit {
 public:
-  FailedDNInfoUnit(struct sockaddr_in, int, int16_t);
+  FailedDNInfoUnit(struct sockaddr_in, int, int32_t);
   ~FailedDNInfoUnit();
 
   // delete copy semantics
@@ -57,7 +57,7 @@ public:
 public:
   std::unique_ptr<struct sockaddr_in> addr;
   int num_rejected_requests;
-  int16_t id;
+  int32_t id;
 };
 
 class FailedDNInfo {
@@ -210,13 +210,13 @@ private:
   void udp_send(std::vector<char>, struct sockaddr_in *);
 
   // PPM-related functions
-  void send_dn(HTTPConnection *, const std::string &, size_t, int16_t);
-  std::tuple<const std::string &, bool, size_t, int16_t>
+  void send_dn(HTTPConnection *, const std::string &, size_t, int32_t);
+  std::tuple<const std::string &, bool, size_t, int32_t>
   valid_credit(const char *);
   int get_available_credits(const std::string_view &);
-  void check_credit_transmission(int16_t);
+  void check_credit_transmission(int32_t);
   void send_credit(std::unique_ptr<struct sockaddr_in>,
-                   const std::string_view &, int, int16_t);
+                   const std::string_view &, int, int32_t);
 
 private:
   Config config;

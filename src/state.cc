@@ -177,7 +177,7 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
 }
 
 FailedDNInfoUnit::FailedDNInfoUnit(struct sockaddr_in addr,
-                                   int num_rejected_requests, int16_t rpc_id)
+                                   int num_rejected_requests, int32_t rpc_id)
     : addr(std::make_unique<struct sockaddr_in>(addr)),
       num_rejected_requests(num_rejected_requests), id(rpc_id) {
   if (num_rejected_requests != 1) {
@@ -495,7 +495,7 @@ void State::remove_connection(std::shared_ptr<HTTPConnection> /*conn*/) {
 }
 
 static std::string_view extract_service_from_ppm_req(const char *data) {
-  size_t header_size = 7;
+  size_t header_size = 9;
   if (data[1] != 0x01) {
     LOG(FATAL) << "Invalid message type";
   }
@@ -505,11 +505,14 @@ static std::string_view extract_service_from_ppm_req(const char *data) {
   return std::string_view(data + header_size, (size_t)data[0] - header_size);
 }
 
-std::tuple<const std::string &, bool, size_t, int16_t>
+std::tuple<const std::string &, bool, size_t, int32_t>
 State::valid_credit(const char *data) {
   // check the data format and extract the service name
   auto key = extract_service_from_ppm_req(data);
-  int16_t id = (int16_t)((unsigned char)data[5] << 8 | (unsigned char)data[6]);
+  // extract the ID of the request (int32_t)
+  int32_t id =
+      (int32_t)((unsigned char)data[5] << 24 | (unsigned char)data[6] << 16 |
+                (unsigned char)data[7] << 8 | (unsigned char)data[8]);
 
   // add the difference between requested credits and available credits to the
   // denied requests
@@ -596,9 +599,9 @@ void State::ppm_client(bool dn_resp,
 }
 
 void State::send_dn(HTTPConnection *conn, const std::string &service,
-                    size_t num_credits, int16_t id) {
+                    size_t num_credits, int32_t id) {
   // send a demand notification
-  ssize_t header_size = 7;
+  ssize_t header_size = 9;
   size_t len = (size_t)header_size + service.length();
   std::vector<char> msg(len);
   msg.at(0) = (char)len;
@@ -606,9 +609,11 @@ void State::send_dn(HTTPConnection *conn, const std::string &service,
   msg.at(2) = 0x00;              // request (0x00), response (0x01)
   msg.at(3) = (char)num_credits; // number of requested credits
   // position 4 is for the received number of credits
-  // position 5 is for the ID of the request (int16_t - two bytes)
-  msg.at(5) = (char)((unsigned char)(id >> 8));
-  msg.at(6) = (char)((unsigned char)(id & 0xFF));
+  // position 5 is for the ID of the request (int32_t - four bytes)
+  msg.at(5) = (char)((unsigned char)(id >> 24));
+  msg.at(6) = (char)((unsigned char)(id >> 16));
+  msg.at(7) = (char)((unsigned char)(id >> 8));
+  msg.at(8) = (char)((unsigned char)(id & 0xFF));
   if (msg.size() - (size_t)header_size < service.length()) {
     LOG(FATAL) << "Buffer overflow"
                << " , msg size: " << msg.size()
@@ -763,7 +768,7 @@ inline static void write_dn_response(int result,
   resp->set_filled(req->get_filled());
 }
 
-void State::check_credit_transmission(int16_t rpc_id) {
+void State::check_credit_transmission(int32_t rpc_id) {
   for (const auto &service : shared_state.per_method_resp_in.get_all_keys()) {
     shared_state.failed_dn_info_lock.lock();
     if (shared_state.failed_dn_info.get(service).size() == 0) {
@@ -857,8 +862,10 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req,
     }
 
     std::string_view service = extract_service_from_ppm_req(req->data.data());
-    int16_t rpc_id = (int16_t)((unsigned char)req->data.at(5) << 8 |
-                               (unsigned char)req->data.at(6));
+    int32_t rpc_id = (int32_t)((unsigned char)req->data.at(5) << 24 |
+                               (unsigned char)req->data.at(6) << 16 |
+                               (unsigned char)req->data.at(7) << 8 |
+                               (unsigned char)req->data.at(8));
     VLOG(2) << "QM: Received DN request "
             << "| service: " << service << "| id: " << rpc_id
             << "| thread id: " << thread_id;
@@ -928,8 +935,8 @@ void State::udp_send(std::vector<char> msg, struct sockaddr_in *addr) {
 
 void State::send_credit(std::unique_ptr<struct sockaddr_in> addr,
                         const std::string_view &service, int num_credits,
-                        int16_t id) {
-  ssize_t header_size = 7;
+                        int32_t id) {
+  ssize_t header_size = 9;
   size_t len = (size_t)header_size + service.length();
   std::vector<char> msg(len);
   msg.at(0) = (char)len;
@@ -937,8 +944,10 @@ void State::send_credit(std::unique_ptr<struct sockaddr_in> addr,
   msg.at(2) = 0x01;              // request (0x00), response (0x01)
   msg.at(3) = (char)num_credits; // number of credits
   msg.at(4) = (char)num_credits; // number of credits
-  msg.at(5) = (char)((unsigned char)(id >> 8));
-  msg.at(6) = (char)((unsigned char)(id & 0xFF));
+  msg.at(5) = (char)((unsigned char)(id >> 24));
+  msg.at(6) = (char)((unsigned char)(id >> 16));
+  msg.at(7) = (char)((unsigned char)(id >> 8));
+  msg.at(8) = (char)((unsigned char)(id & 0xFF));
   if (msg.size() - (size_t)header_size < service.length()) {
     LOG(FATAL) << "Buffer overflow"
                << " , msg size: " << msg.size()
