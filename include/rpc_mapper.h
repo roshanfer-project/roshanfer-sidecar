@@ -5,8 +5,8 @@
 #include <cstdint>
 #include <unordered_map>
 
-const size_t MAX_gRPC_POOL_SIZE = 200;
-const size_t MAX_HTTP_POOL_SIZE = 1000;
+const size_t MAX_gRPC_POOL_SIZE = 4000;
+const size_t MAX_HTTP_POOL_SIZE = 4000;
 
 class RPCMapper {
 public:
@@ -17,6 +17,7 @@ public:
   std::shared_ptr<RPCMessage> get_ds_rpc(ConnectionType, int32_t, int);
   void remove_rpc(ConnectionType, std::shared_ptr<RPCMessage>);
   bool check_fd_exists(ConnectionType, int, bool);
+  size_t get_fd_concurrency(int, ConnectionType, bool);
 
 private:
   std::unordered_map<

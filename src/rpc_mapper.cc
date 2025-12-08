@@ -2,6 +2,7 @@
 #include "connection_enums.h"
 #include "glog/logging.h"
 #include "rpc_message.h"
+#include <cstddef>
 #include <cstdint>
 
 RPCMapper::RPCMapper()
@@ -45,8 +46,7 @@ void RPCMapper::allocate_rpc(ConnectionType type, int32_t stream_id, int fd,
     ds_map.at(type).at(fd).emplace(stream_id, std::move(rpc));
   } else {
     LOG(FATAL) << "RPC already exists for stream id: " << stream_id
-               << " and fd: " << fd
-               << " of type: " << type_to_str(type);
+               << " and fd: " << fd << " of type: " << type_to_str(type);
   }
 }
 
@@ -106,10 +106,18 @@ void RPCMapper::remove_rpc(ConnectionType type,
   pool.free_rpc(std::move(rpc));
 }
 
+size_t RPCMapper::get_fd_concurrency(int fd, ConnectionType type, bool is_us) {
+  if (is_us) {
+    return us_map.at(type).at(fd).size();
+  } else {
+    return ds_map.at(type).at(fd).size();
+  }
+}
+
 bool RPCMapper::check_fd_exists(ConnectionType type, int fd, bool is_us) {
   try {
     if (is_us) {
-      auto it =  us_map.at(type).find(fd);
+      auto it = us_map.at(type).find(fd);
       if (it != us_map.at(type).end() && it->second.size() > 0) {
         return true;
       } else {
@@ -124,14 +132,12 @@ bool RPCMapper::check_fd_exists(ConnectionType type, int fd, bool is_us) {
       }
     }
   } catch (const std::out_of_range &e) {
-    LOG(FATAL) << "Out of range exception in checking if FD exists: " << e.what()
-               << " type: " << type_to_str(type)
-               << " fd: " << fd
+    LOG(FATAL) << "Out of range exception in checking if FD exists: "
+               << e.what() << " type: " << type_to_str(type) << " fd: " << fd
                << " is_us: " << is_us;
   } catch (const std::exception &e) {
     LOG(FATAL) << "Exception in checking if FD exists: " << e.what()
-               << " type: " << type_to_str(type)
-               << " fd: " << fd
+               << " type: " << type_to_str(type) << " fd: " << fd
                << " is_us: " << is_us;
   }
 }
