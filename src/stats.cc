@@ -7,7 +7,7 @@
 #include <ios>
 #include <memory>
 
-#ifdef NANO_LOG_ENABLED
+#if defined(NANO_LOG_ENABLED) || defined(NABO_LOG_TRACE_ENABLED)
 #include "NanoLog.h"
 #include "NanoLogCpp17.h"
 
@@ -198,6 +198,33 @@ void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
                type_to_str(rpc->get_type()).c_str(), rpc->get_service().c_str(),
                rpc->get_method().c_str());
     }
+  }
+
+#endif
+
+#ifdef NABO_LOG_TRACE_ENABLED
+
+  if (!rpc->is_error()) {
+    // template: T# <rpc-id> <sidecar name> <metric name> <connection type>
+    // <service>:<method> <value>
+    NANO_LOG(NOTICE, "T# %d %s E2E %s %s:%s %lld", rpc->get_id(),
+             config.name.c_str(), type_to_str(rpc->get_type()).c_str(),
+             rpc->get_service().c_str(), rpc->get_method().c_str(),
+             duration.count());
+
+    NANO_LOG(NOTICE, "T# %d %s REQ-FOR %s %s:%s %lld", rpc->get_id(),
+             config.name.c_str(), type_to_str(rpc->get_type()).c_str(),
+             rpc->get_service().c_str(), rpc->get_method().c_str(),
+             std::chrono::duration_cast<std::chrono::microseconds>(
+                 rpc->req_for_time - rpc->req_rcv_time)
+                 .count());
+
+    NANO_LOG(NOTICE, "T# %d %s RES-FOR %s %s:%s %lld", rpc->get_id(),
+             config.name.c_str(), type_to_str(rpc->get_type()).c_str(),
+             rpc->get_service().c_str(), rpc->get_method().c_str(),
+             std::chrono::duration_cast<std::chrono::microseconds>(
+                 std::chrono::steady_clock::now() - rpc->res_rcv_time)
+                 .count());
   }
 
 #endif
