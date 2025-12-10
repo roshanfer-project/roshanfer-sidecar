@@ -176,38 +176,19 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
   next_hist_update = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 }
 
-FailedDNInfoUnit::FailedDNInfoUnit(struct sockaddr_in addr,
-                                   int num_rejected_requests, int32_t rpc_id)
-    : addr(std::make_unique<struct sockaddr_in>(addr)),
-      num_rejected_requests(num_rejected_requests), id(rpc_id) {
-  if (num_rejected_requests != 1) {
-    LOG(FATAL) << "Batching is not allowed";
-  }
-}
-
 FailedDNInfo::FailedDNInfo() : failed_dn_info() {}
 
-FailedDNInfoUnit::~FailedDNInfoUnit() { addr.reset(); }
-
-void FailedDNInfo::push(std::unique_ptr<FailedDNInfoUnit> failed_dn_info_unit) {
-  failed_dn_info.push_back(std::move(failed_dn_info_unit));
+void FailedDNInfo::push(std::unique_ptr<Buffer> buffer) {
+  failed_dn_info.push(std::move(buffer));
 }
 
-std::unique_ptr<FailedDNInfoUnit> FailedDNInfo::pop() {
+std::unique_ptr<Buffer> FailedDNInfo::pop() {
   if (failed_dn_info.empty()) {
     return nullptr;
   }
-  auto failed_dn_info_unit = std::move(failed_dn_info.front());
-  failed_dn_info.pop_front();
-  return failed_dn_info_unit;
-}
-
-std::string FailedDNInfo::id_list() {
-  std::string id_list;
-  for (const auto &failed_dn_info_unit : failed_dn_info) {
-    id_list += std::to_string(failed_dn_info_unit->id) + ",";
-  }
-  return id_list;
+  auto buffer = std::move(failed_dn_info.front());
+  failed_dn_info.pop();
+  return buffer;
 }
 
 void State::write_http(std::shared_ptr<HTTPConnection> conn) {
@@ -768,6 +749,13 @@ inline static void write_dn_response(int result,
   resp->set_filled(req->get_filled());
 }
 
+inline static void
+write_failed_dn_response(const std::unique_ptr<Buffer> &req,
+                         const std::unique_ptr<Buffer> &resp) {
+  write_dn_response(1, req, resp);
+  resp->prepare_reply_sendmsg(req->get_addr());
+}
+
 void State::check_credit_transmission(int32_t rpc_id) {
   for (const auto &service : shared_state.per_method_resp_in.get_all_keys()) {
     shared_state.failed_dn_info_lock.lock();
@@ -786,9 +774,10 @@ void State::check_credit_transmission(int32_t rpc_id) {
       while (available_credits > 0) {
 
         shared_state.failed_dn_info_lock.lock();
-        std::unique_ptr<FailedDNInfoUnit> failed_dn_info =
+        std::unique_ptr<Buffer> resp =
             shared_state.failed_dn_info.get(service).pop();
-        if (failed_dn_info == nullptr) {
+        if (resp == nullptr) {
+          LOG(FATAL) << "Failed DN info buffer is null";
           shared_state.failed_dn_info_lock.unlock();
           break;
         }
@@ -796,14 +785,16 @@ void State::check_credit_transmission(int32_t rpc_id) {
         size = shared_state.failed_dn_info.get(service).size();
         shared_state.failed_dn_info_lock.unlock();
 
-        send_credit(std::move(failed_dn_info->addr), service,
-                    failed_dn_info->num_rejected_requests, failed_dn_info->id);
-        available_credits -= failed_dn_info->num_rejected_requests;
+        ring.prepare_reply_sendmsg(sockfd, std::move(resp),
+                                   buffer_manager.get_user_data());
+        available_credits -= 1;
 
         VLOG(2) << "QM: Sent failed DN info "
-                << "| service: " << service << "| id: " << failed_dn_info->id
+                << "| service: "
+                << service
+                //<< "| id: " << failed_dn_info->id
                 << "| number of credits: "
-                << failed_dn_info->num_rejected_requests
+                //<< failed_dn_info->num_rejected_requests
                 << "| thread id: " << thread_id
                 << "| failed DN info size: " << size;
 
@@ -845,8 +836,7 @@ int State::get_available_credits(const std::string_view &service) {
   return available_credits;
 }
 
-void State::queue_multiplexer(const std::unique_ptr<Buffer> &req,
-                              const std::unique_ptr<Buffer> &resp) {
+void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
   // read the request
   if (req->data.at(1) == 0x01) {
     // we have demand notification
@@ -881,34 +871,40 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req,
     if (result == 0) {
       // save address and number of rejected requests for future credit
       // transmissions
-      auto failed_dn_info = std::make_unique<FailedDNInfoUnit>(
-          req->get_addr(), (int)requested_credits - available_credits, rpc_id);
+      stats.mode2_credits.up(1);
+      auto resp = buffer_manager.get_buffer();
+      write_failed_dn_response(req, resp);
       shared_state.failed_dn_info_lock.lock();
-      shared_state.failed_dn_info.get(service).push(std::move(failed_dn_info));
-      auto existing_ids = shared_state.failed_dn_info.get(service).id_list();
+      shared_state.failed_dn_info.get(service).push(std::move(resp));
+      // auto existing_ids = shared_state.failed_dn_info.get(service).id_list();
       shared_state.failed_dn_info_lock.unlock();
       VLOG(2) << "QM: Saving failed DN info "
-              << "| service: " << service << "| id: " << rpc_id
-              << "| existing IDs in queue: " << existing_ids
+              << "| service: " << service << "| id: "
+              << rpc_id
+              //<< "| existing IDs in queue: " << existing_ids
               << "| thread id: " << thread_id;
-    }
+    } else {
+      shared_state.sent_credits.add(service, result);
 
-    shared_state.sent_credits.add(service, result);
+      // check failed DN info
+      check_credit_transmission(rpc_id);
 
-    // check failed DN info
-    check_credit_transmission(rpc_id);
-
-    // write the response
-    write_dn_response(result, req, resp);
-    if (VLOG_IS_ON(1)) {
-      VLOG(1) << "QM: Wrote DN response "
-              << "| id: " << rpc_id << "| service: " << service
-              << "| result: " << (int)result
-              << "| requested: " << (int)requested_credits
-              << "| available: " << available_credits
-              << "| sent credits: " << shared_state.sent_credits.get(service)
-              << "| resp out: " << shared_state.per_method_resp_in.get(service)
-              << "| thread id: " << thread_id;
+      // write the response
+      auto resp = buffer_manager.get_buffer();
+      write_dn_response(result, req, resp);
+      ring.prepare_reply_sendmsg(sockfd, req, std::move(resp),
+                                 buffer_manager.get_user_data());
+      if (VLOG_IS_ON(1)) {
+        VLOG(1) << "QM: Wrote DN response "
+                << "| id: " << rpc_id << "| service: " << service
+                << "| result: " << (int)result
+                << "| requested: " << (int)requested_credits
+                << "| available: " << available_credits
+                << "| sent credits: " << shared_state.sent_credits.get(service)
+                << "| resp out: "
+                << shared_state.per_method_resp_in.get(service)
+                << "| thread id: " << thread_id;
+      }
     }
 
   } else {

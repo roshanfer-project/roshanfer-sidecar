@@ -1,5 +1,6 @@
 #pragma once
 
+#include "buffer.h"
 #include "buffer_manager.h"
 #include "config.h"
 #include "connection.h"
@@ -17,7 +18,6 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -41,25 +41,6 @@ public:
   std::unique_ptr<HTTPConnection> &conn;
 };
 
-class FailedDNInfoUnit {
-public:
-  FailedDNInfoUnit(struct sockaddr_in, int, int32_t);
-  ~FailedDNInfoUnit();
-
-  // delete copy semantics
-  FailedDNInfoUnit(const FailedDNInfoUnit &) = delete;
-  FailedDNInfoUnit &operator=(const FailedDNInfoUnit &) = delete;
-
-  // delete move semantics
-  FailedDNInfoUnit(FailedDNInfoUnit &&) = delete;
-  FailedDNInfoUnit &operator=(FailedDNInfoUnit &&) = delete;
-
-public:
-  std::unique_ptr<struct sockaddr_in> addr;
-  int num_rejected_requests;
-  int32_t id;
-};
-
 class FailedDNInfo {
 public:
   FailedDNInfo();
@@ -72,13 +53,13 @@ public:
   FailedDNInfo(FailedDNInfo &&) = delete;
   FailedDNInfo &operator=(FailedDNInfo &&) = delete;
 
-  void push(std::unique_ptr<FailedDNInfoUnit>);
-  std::unique_ptr<FailedDNInfoUnit> pop();
-  std::string id_list();
+  void push(std::unique_ptr<Buffer>);
+  std::unique_ptr<Buffer> pop();
+  // std::string id_list();
   size_t size() { return failed_dn_info.size(); }
 
 public:
-  std::deque<std::unique_ptr<FailedDNInfoUnit>> failed_dn_info;
+  std::queue<std::unique_ptr<Buffer>> failed_dn_info;
 };
 
 class SharedState {
@@ -191,8 +172,7 @@ public:
   void remove_connection(std::shared_ptr<HTTPConnection>);
 
   // PPM-related functions
-  void queue_multiplexer(const std::unique_ptr<Buffer> &,
-                         const std::unique_ptr<Buffer> &);
+  void queue_multiplexer(const std::unique_ptr<Buffer> &);
   void ppm_client(bool, const std::unique_ptr<Buffer> &);
   void ingress_admit();
   struct hdr_histogram *get_histogram() { return hist; }

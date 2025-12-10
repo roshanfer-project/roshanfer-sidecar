@@ -289,13 +289,7 @@ void EventLoop::run() {
           VLOG(1) << "Request for Queue Multiplxer";
 
           // get the new buffer from QM
-          auto new_buffer = buffer_manager.get_buffer();
-          state.queue_multiplexer(old_buffer, new_buffer);
-
-          // prepare the new buffer for sendmsg
-          ring.prepare_reply_sendmsg(udp_listener.get_fd(), old_buffer,
-                                     std::move(new_buffer),
-                                     buffer_manager.get_user_data());
+          state.queue_multiplexer(old_buffer);
 
           // free the old buffer
           buffer_manager.free_buffer(std::move(old_buffer));
