@@ -1,4 +1,5 @@
 #include "stats.h"
+#include "config.h"
 #include "fast_map.hpp"
 #include "hdr/hdr_histogram.h"
 #include <chrono>
