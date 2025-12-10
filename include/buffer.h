@@ -26,12 +26,12 @@ public:
   void set_filled(size_t f);
 
   void prepare_recvmsg();
-  std::unique_ptr<struct msghdr> &get_msg() { return msg; }
+  struct msghdr *get_msg() { return &msg; }
   void prepare_reply_sendmsg(const std::unique_ptr<Buffer> &old_buffer);
   void prepare_reply_sendmsg(struct sockaddr_in);
   void prepare_req_sendmsg(struct sockaddr_in);
   void clear();
-  struct sockaddr_in get_addr() { return *addr.get(); }
+  struct sockaddr_in get_addr() { return addr; }
 
 public:
   std::vector<char> data;
@@ -43,7 +43,7 @@ private:
   size_t index;
   // HTTPConnection* conn;
   // Listener* listener;
-  std::unique_ptr<struct msghdr> msg;
-  std::unique_ptr<struct sockaddr_in> addr;
-  std::unique_ptr<struct iovec> iov;
+  struct msghdr msg;
+  struct sockaddr_in addr;
+  struct iovec iov;
 };

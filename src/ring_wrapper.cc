@@ -11,6 +11,7 @@
 #include <memory>
 #include <netinet/in.h>
 #include <ring_wrapper.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 RingWrapper::RingWrapper(size_t ring_size) : size(ring_size) {
@@ -161,7 +162,7 @@ void RingWrapper::prepare_connect(std::shared_ptr<HTTPConnection> conn,
   struct io_uring_sqe *sqe = get_sqe();
   int fd = conn->get_fd();
 
-  io_uring_prep_connect(sqe, fd, conn->get_addr(), sizeof(*conn->get_addr()));
+  io_uring_prep_connect(sqe, fd, conn->get_addr(), sizeof(struct sockaddr));
 
   ud->conn = std::move(conn);
   ud->op = Operation::CONNECT;
@@ -203,7 +204,7 @@ void RingWrapper::prepare_rcvmsg(int fd, std::unique_ptr<Buffer> buffer,
 
   buffer->prepare_recvmsg();
 
-  io_uring_prep_recvmsg(sqe, fd, buffer->get_msg().get(), 0);
+  io_uring_prep_recvmsg(sqe, fd, buffer->get_msg(), 0);
 
   // io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 
@@ -227,7 +228,7 @@ void RingWrapper::prepare_reply_sendmsg(
 
   new_buffer->prepare_reply_sendmsg(old_buffer);
 
-  io_uring_prep_sendmsg(sqe, fd, new_buffer->get_msg().get(), 0);
+  io_uring_prep_sendmsg(sqe, fd, new_buffer->get_msg(), 0);
 
   // io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 
@@ -243,7 +244,7 @@ void RingWrapper::prepare_reply_sendmsg(int fd,
                                         UserData *ud) {
   struct io_uring_sqe *sqe = get_sqe();
 
-  io_uring_prep_sendmsg(sqe, fd, new_buffer->get_msg().get(), 0);
+  io_uring_prep_sendmsg(sqe, fd, new_buffer->get_msg(), 0);
 
   ud->set_buffer(std::move(new_buffer));
   ud->op = Operation::SENDMSG;
@@ -259,7 +260,7 @@ void RingWrapper::prepare_req_sendmsg(int fd, std::unique_ptr<Buffer> buffer,
 
   buffer->prepare_req_sendmsg(servaddr);
 
-  io_uring_prep_sendmsg(sqe, fd, buffer->get_msg().get(), 0);
+  io_uring_prep_sendmsg(sqe, fd, buffer->get_msg(), 0);
 
   ud->set_buffer(std::move(buffer));
   ud->op = Operation::SENDMSG;

@@ -187,16 +187,12 @@ public:
   int get_sockfd() { return sockfd; }
 
 private:
-  void udp_send(std::vector<char>, struct sockaddr_in *);
-
   // PPM-related functions
   void send_dn(HTTPConnection *, const std::string &, size_t, int32_t);
   std::tuple<const std::string &, bool, size_t, int32_t>
   valid_credit(const char *);
   int get_available_credits(const std::string_view &);
   void check_credit_transmission(int32_t);
-  void send_credit(std::unique_ptr<struct sockaddr_in>,
-                   const std::string_view &, int, int32_t);
 
 private:
   Config config;

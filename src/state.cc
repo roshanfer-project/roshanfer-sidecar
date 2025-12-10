@@ -584,25 +584,28 @@ void State::send_dn(HTTPConnection *conn, const std::string &service,
   // send a demand notification
   ssize_t header_size = 9;
   size_t len = (size_t)header_size + service.length();
-  std::vector<char> msg(len);
-  msg.at(0) = (char)len;
-  msg.at(1) = 0x01;              // demand notification (0x01)
-  msg.at(2) = 0x00;              // request (0x00), response (0x01)
-  msg.at(3) = (char)num_credits; // number of requested credits
+  auto buffer = buffer_manager.get_dn_buffer();
+  buffer->data.at(0) = (char)len;
+  buffer->data.at(1) = 0x01;              // demand notification (0x01)
+  buffer->data.at(2) = 0x00;              // request (0x00), response (0x01)
+  buffer->data.at(3) = (char)num_credits; // number of requested credits
   // position 4 is for the received number of credits
   // position 5 is for the ID of the request (int32_t - four bytes)
-  msg.at(5) = (char)((unsigned char)(id >> 24));
-  msg.at(6) = (char)((unsigned char)(id >> 16));
-  msg.at(7) = (char)((unsigned char)(id >> 8));
-  msg.at(8) = (char)((unsigned char)(id & 0xFF));
-  if (msg.size() - (size_t)header_size < service.length()) {
+  buffer->data.at(5) = (char)((unsigned char)(id >> 24));
+  buffer->data.at(6) = (char)((unsigned char)(id >> 16));
+  buffer->data.at(7) = (char)((unsigned char)(id >> 8));
+  buffer->data.at(8) = (char)((unsigned char)(id & 0xFF));
+  if (buffer->get_size() - (size_t)header_size < service.length()) {
     LOG(FATAL) << "Buffer overflow"
-               << " , msg size: " << msg.size()
+               << " , buffer size: " << buffer->get_size()
                << " , header size: " << header_size
                << " , service length: " << service.length();
   }
-  std::copy_n(service.begin(), service.length(), msg.begin() + header_size);
-  udp_send(msg, reinterpret_cast<struct sockaddr_in *>(conn->get_addr()));
+  std::copy_n(service.begin(), service.length(),
+              buffer->data.begin() + header_size);
+  buffer->set_filled(len);
+  ring.prepare_req_sendmsg(sockfd, std::move(buffer),
+                           buffer_manager.get_user_data(), conn->get_addr_in());
 }
 
 void State::dump_entire_state() {
@@ -872,7 +875,7 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
       // save address and number of rejected requests for future credit
       // transmissions
       stats.mode2_credits.up(1);
-      auto resp = buffer_manager.get_buffer();
+      auto resp = buffer_manager.get_dn_buffer();
       write_failed_dn_response(req, resp);
       shared_state.failed_dn_info_lock.lock();
       shared_state.failed_dn_info.get(service).push(std::move(resp));
@@ -890,7 +893,7 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
       check_credit_transmission(rpc_id);
 
       // write the response
-      auto resp = buffer_manager.get_buffer();
+      auto resp = buffer_manager.get_dn_buffer();
       write_dn_response(result, req, resp);
       ring.prepare_reply_sendmsg(sockfd, req, std::move(resp),
                                  buffer_manager.get_user_data());
@@ -910,48 +913,6 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
   } else {
     LOG(FATAL) << "Unknown message type";
   }
-}
-
-void State::udp_send(std::vector<char> msg, struct sockaddr_in *addr) {
-
-  // write the message to a buffer
-  auto buffer = buffer_manager.get_buffer();
-  if (msg.size() > buffer->get_size()) {
-    LOG(FATAL) << "Buffer overflow"
-               << " , msg size: " << msg.size()
-               << " , buffer size: " << buffer->get_size();
-  }
-  std::copy_n(msg.begin(), msg.size(), buffer->data.begin());
-  buffer->set_filled(msg.size());
-
-  // send the request using the ring
-  ring.prepare_req_sendmsg(sockfd, std::move(buffer),
-                           buffer_manager.get_user_data(), *addr);
-}
-
-void State::send_credit(std::unique_ptr<struct sockaddr_in> addr,
-                        const std::string_view &service, int num_credits,
-                        int32_t id) {
-  ssize_t header_size = 9;
-  size_t len = (size_t)header_size + service.length();
-  std::vector<char> msg(len);
-  msg.at(0) = (char)len;
-  msg.at(1) = 0x01;              // demand notification (0x01)
-  msg.at(2) = 0x01;              // request (0x00), response (0x01)
-  msg.at(3) = (char)num_credits; // number of credits
-  msg.at(4) = (char)num_credits; // number of credits
-  msg.at(5) = (char)((unsigned char)(id >> 24));
-  msg.at(6) = (char)((unsigned char)(id >> 16));
-  msg.at(7) = (char)((unsigned char)(id >> 8));
-  msg.at(8) = (char)((unsigned char)(id & 0xFF));
-  if (msg.size() - (size_t)header_size < service.length()) {
-    LOG(FATAL) << "Buffer overflow"
-               << " , msg size: " << msg.size()
-               << " , header size: " << header_size
-               << " , service length: " << service.length();
-  }
-  std::copy_n(service.begin(), service.length(), msg.begin() + header_size);
-  udp_send(msg, addr.get());
 }
 
 SharedState::SharedState(std::vector<std::string> hosted_services,

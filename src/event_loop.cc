@@ -292,11 +292,11 @@ void EventLoop::run() {
           state.queue_multiplexer(old_buffer);
 
           // free the old buffer
-          buffer_manager.free_buffer(std::move(old_buffer));
+          buffer_manager.free_dn_buffer(std::move(old_buffer));
 
           // re-arm the recvmsg
           ring.prepare_rcvmsg(udp_listener.get_fd(),
-                              buffer_manager.get_buffer(),
+                              buffer_manager.get_dn_buffer(),
                               buffer_manager.get_user_data(), UDPType::REQUEST);
 
           break;
@@ -315,12 +315,12 @@ void EventLoop::run() {
           }
 
           // free the buffer
-          buffer_manager.free_buffer(std::move(old_buffer));
+          buffer_manager.free_dn_buffer(std::move(old_buffer));
 
           // re-arm the recvmsg
-          ring.prepare_rcvmsg(state.get_sockfd(), buffer_manager.get_buffer(),
-                              buffer_manager.get_user_data(),
-                              UDPType::RESPONSE);
+          ring.prepare_rcvmsg(
+              state.get_sockfd(), buffer_manager.get_dn_buffer(),
+              buffer_manager.get_user_data(), UDPType::RESPONSE);
           break;
         }
 
@@ -348,7 +348,7 @@ void EventLoop::run() {
         }
 
         // free the buffer
-        buffer_manager.free_buffer(std::move(buffer));
+        buffer_manager.free_dn_buffer(std::move(buffer));
 
         break;
       }
