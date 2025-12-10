@@ -164,7 +164,7 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
     LOG(FATAL) << "Failed to create socket";
   }
 
-  if (int ret = hdr_init(1, 1000000, 3, &hist); ret < 0) {
+  if (int ret = hdr_init(1, 5000000, 3, &hist); ret < 0) {
     LOG(FATAL) << "Failed to initialize histogram: " << strerror(ret);
   }
   stats.update_hist(hist);
