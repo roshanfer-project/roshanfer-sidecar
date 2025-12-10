@@ -349,8 +349,8 @@ bool State::forward_request(std::shared_ptr<HTTPConnection> conn,
 void State::forward(ConnectionType type, ConnectionDirection direction) {
   if (type == ConnectionType::EGRESS &&
       direction == ConnectionDirection::DOWNSTREAM) {
-    // we don't route EGRESS DOWNSTREAM requests (handled by `ingress_admit` and
-    // `ppm_client`)
+    // we don't route EGRESS DOWNSTREAM requests (handled by `ingress_admit`
+    // and `ppm_client`)
     return;
   }
   if (rpc_queue.empty(type, direction)) {
@@ -628,8 +628,8 @@ void State::dump_entire_state() {
     LOG(INFO) << "  " << service << ": "
               << shared_state.ingress_request_admitted.get(service);
   }
-  LOG(INFO)
-      << "--- Downstream Concurrency (shared_state.downstream_concurrency) ---";
+  LOG(INFO) << "--- Downstream Concurrency "
+               "(shared_state.downstream_concurrency) ---";
   for (auto &service : shared_state.downstream_concurrency.get_all_keys()) {
     LOG(INFO) << "  " << service << ": "
               << shared_state.downstream_concurrency.get(service);
@@ -660,8 +660,8 @@ void State::dump_entire_state() {
                 << rpc_queue.size(type, direction);
     }
   }
-  LOG(INFO)
-      << "--- Ingress To Be Admitted (local_state.ingress_to_be_admitted) ---";
+  LOG(INFO) << "--- Ingress To Be Admitted "
+               "(local_state.ingress_to_be_admitted) ---";
   for (auto &service : local_state.ingress_to_be_admitted.get_all_keys()) {
     LOG(INFO) << "  " << service << ": "
               << local_state.ingress_to_be_admitted.get(service);
