@@ -136,8 +136,23 @@ float ExponentialMovingAverage::get_value() { return value; }
 
 uint32_t ExponentialMovingAverage::get_count() const { return count; }
 
+Counter::Counter(std::string desc) : count(0), description(desc) {}
+
+void Counter::up(int32_t val) {
+  count += val;
+  if (count % 500 == 0) {
+    VLOG(1) << "Stats: Counter update. "
+            << "| description: " << description << "| count: " << count;
+  }
+}
+
+void Counter::down(int32_t val) { count -= val; }
+
+int32_t Counter::get_count() { return count; }
+
 Stats::Stats(std::vector<std::string> services)
-    : hist(nullptr), avg_service_time_us(services) {}
+    : mode2_credits("Mode2 Credits"), hist(nullptr),
+      avg_service_time_us(services) {}
 
 void Stats::update_hist(struct hdr_histogram *new_hist) {
   this->hist = new_hist;
