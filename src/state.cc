@@ -324,6 +324,7 @@ bool State::forward_request(std::shared_ptr<HTTPConnection> conn,
 
     // check if the request has an ID
     if (rpc->get_id() == -1) {
+      rpc->dump_req_headers();
       LOG(FATAL) << "Request has no ID";
     }
 
