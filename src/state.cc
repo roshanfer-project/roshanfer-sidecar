@@ -586,6 +586,9 @@ void State::send_dn(HTTPConnection *conn, const std::string &service,
   ssize_t header_size = 9;
   size_t len = (size_t)header_size + service.length();
   auto buffer = buffer_manager.get_dn_buffer();
+  if (buffer->data.size() < len) {
+    LOG(FATAL) << "Buffer size is too small";
+  }
   buffer->data.at(0) = (char)len;
   buffer->data.at(1) = 0x01;              // demand notification (0x01)
   buffer->data.at(2) = 0x00;              // request (0x00), response (0x01)
@@ -596,12 +599,6 @@ void State::send_dn(HTTPConnection *conn, const std::string &service,
   buffer->data.at(6) = (char)((unsigned char)(id >> 16));
   buffer->data.at(7) = (char)((unsigned char)(id >> 8));
   buffer->data.at(8) = (char)((unsigned char)(id & 0xFF));
-  if (buffer->get_size() - (size_t)header_size < service.length()) {
-    LOG(FATAL) << "Buffer overflow"
-               << " , buffer size: " << buffer->get_size()
-               << " , header size: " << header_size
-               << " , service length: " << service.length();
-  }
   std::copy_n(service.begin(), service.length(),
               buffer->data.begin() + header_size);
   buffer->set_filled(len);
