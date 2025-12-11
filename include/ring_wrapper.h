@@ -1,6 +1,6 @@
 #pragma once
 
-#include <buffer_manager.h>
+#include "ring_helper.hpp"
 #include <connection.h>
 #include <cstddef>
 #include <liburing.h>
@@ -25,8 +25,8 @@ public:
    * @throws std::runtime_error if the submission fails
    * @todo make it multi-shot
    */
-  void prepare_read(std::unique_ptr<Buffer>, UserData *,
-                    std::shared_ptr<Listener>, std::shared_ptr<HTTPConnection>);
+  void prepare_read(UserData *, std::shared_ptr<Listener>,
+                    std::shared_ptr<HTTPConnection>);
 
   void submit_and_wait();
   void submit();
@@ -46,6 +46,7 @@ public:
   void prepare_reply_sendmsg(int, std::unique_ptr<Buffer>, UserData *);
   void prepare_req_sendmsg(int, std::unique_ptr<Buffer>, UserData *,
                            struct sockaddr_in);
+  void add_buffer_to_ring(std::unique_ptr<Buffer> &, int);
 
 private:
   struct io_uring_sqe *get_sqe();
@@ -53,5 +54,7 @@ private:
 
 private:
   struct io_uring ring;
+  struct io_uring_buf_ring *ring_buf;
+  struct io_uring_buf_ring *dn_ring_buf;
   size_t size;
 };

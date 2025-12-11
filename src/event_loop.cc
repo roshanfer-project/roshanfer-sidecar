@@ -84,27 +84,37 @@ void EventLoop::run() {
           conn->submit_settings();
 
           // prepare the first read
-          ring.prepare_read(buffer_manager.get_buffer(),
-                            buffer_manager.get_user_data(), listener,
+          ring.prepare_read(buffer_manager.get_user_data(), listener,
                             std::move(conn));
         }
 
         // re-arm accept on the listener
         ring.prepare_accept(std::move(listener),
                             buffer_manager.get_user_data());
+        // free the user data
+        buffer_manager.free_user_data(ud);
         break;
       }
 
       case Operation::READ: {
         VLOG(1) << "Read completion event";
         // get the buffer from the user data
-        auto buffer = ud->get_buffer();
-        if (!buffer) {
-          LOG(FATAL) << "Buffer is null in read completion event";
+        std::unique_ptr<Buffer> buffer = nullptr;
+        if (cqe->flags & IORING_CQE_F_BUFFER) {
+          auto buffer_index = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
+          buffer = buffer_manager.get_buffer_by_index(buffer_index);
+          if (!buffer) {
+            LOG(FATAL) << "Buffer is null in read completion event";
+          }
+        } else if (cqe->res > 0) {
+          // If we read data but got no (provided) buffer, that's an issue for
+          // multishot
+          LOG(FATAL) << "Read " << cqe->res
+                     << " bytes but no buffer provided (flag missing)";
         }
 
         // get the original connection and listener
-        auto orig_conn = std::move(ud->conn);
+        auto orig_conn = ud->conn;
         auto orig_listener = ud->listener;
 
         // log the read event
@@ -138,7 +148,9 @@ void EventLoop::run() {
           orig_conn->set_status(ConnectionStatus::TEARDOWN);
 
           // free buffer
-          buffer_manager.free_buffer(std::move(buffer));
+          if (buffer) {
+            buffer_manager.free_buffer(std::move(buffer));
+          }
 
           // prepare cancel
           ring.prepare_cancel(std::move(orig_conn),
@@ -179,10 +191,6 @@ void EventLoop::run() {
         // flush every HTTP2 frame out
         state.write_http(orig_conn);
 
-        // re-arm read
-        ring.prepare_read(buffer_manager.get_buffer(),
-                          buffer_manager.get_user_data(),
-                          std::move(orig_listener), std::move(orig_conn));
         break;
       }
 
@@ -212,9 +220,11 @@ void EventLoop::run() {
         }
 
         // arm the first read
-        ring.prepare_read(buffer_manager.get_buffer(),
-                          buffer_manager.get_user_data(),
+        ring.prepare_read(buffer_manager.get_user_data(),
                           listeners.at(orig_conn->type), orig_conn);
+
+        // free the user data
+        buffer_manager.free_user_data(ud);
         break;
       }
 
@@ -225,6 +235,9 @@ void EventLoop::run() {
 
         // free buffer
         buffer_manager.free_buffer(ud->get_buffer());
+
+        // free the user data
+        buffer_manager.free_user_data(ud);
 
         break;
       }
@@ -255,15 +268,14 @@ void EventLoop::run() {
           }
           // remove the object of the connection from the listener
           listeners.at(conn->type)->remove_connection(conn->get_fd());
-          if (conn.use_count() > 1) {
-            LOG(FATAL) << "Connection is still in use when removing connection"
-                       << " count: " << conn.use_count();
-          }
           conn.reset();
           break;
         default:
           LOG(FATAL) << "Unknown connection direction";
         }
+
+        // free the user data
+        buffer_manager.free_user_data(ud);
 
         break;
       }
@@ -329,6 +341,8 @@ void EventLoop::run() {
           break;
         }
         }
+        // free the user data
+        buffer_manager.free_user_data(ud);
         break;
       }
 
@@ -350,6 +364,9 @@ void EventLoop::run() {
         // free the buffer
         buffer_manager.free_dn_buffer(std::move(buffer));
 
+        // free the user data
+        buffer_manager.free_user_data(ud);
+
         break;
       }
 
@@ -363,9 +380,6 @@ void EventLoop::run() {
         break;
       }
 
-      // free the user data
-      buffer_manager.free_user_data(ud);
-
       // Advance the ring
       ring.seen_cqe(cqe);
     }
@@ -376,9 +390,9 @@ EventLoop::EventLoop(int th_index, std::string &ingress_service_ref,
                      Config parsed_config, SharedState &shared_state)
     : index(th_index), ingress_service(ingress_service_ref),
       config(parsed_config), ring(config.ring_size),
-      buffer_manager(config.buffer_count, config.buffer_size), listeners(),
-      udp_listener(config.ingress_listener_port), rpc_mapper(), rpc_queue(),
-      ingress(config.routing, th_index),
+      buffer_manager(config.buffer_count, config.buffer_size, ring),
+      listeners(), udp_listener(config.ingress_listener_port), rpc_mapper(),
+      rpc_queue(), ingress(config.routing, th_index),
       state(config, ring, buffer_manager, rpc_mapper, rpc_queue, listeners,
             ingress, shared_state, ingress_service_ref, th_index) {
   if (config.is_ingress) {

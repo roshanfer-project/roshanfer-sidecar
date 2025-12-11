@@ -7,12 +7,13 @@
 #include <listener.h>
 #include <memory>
 #include <netinet/in.h>
+#include <sys/types.h>
 
 UserData::UserData(size_t id)
     : buffer(), in_ring(false), listener(), conn(), op(Operation::ACCEPT),
-      index(id), udp_type(UDPType::REQUEST),
-      // rpc_message(nullptr),
-      accept_addr(nullptr) {}
+      index(id), udp_type(UDPType::REQUEST) {
+  std::memset(&accept_addr, 0, sizeof(accept_addr));
+}
 
 std::unique_ptr<Buffer> UserData::get_buffer() {
   if (!buffer) {
@@ -39,30 +40,53 @@ void UserData::clear() {
   buffer.reset();
   listener.reset();
   conn.reset();
-  // rpc_message.reset();
   op = Operation::CLEAR;
   udp_type = UDPType::CLEAR;
   in_ring = false;
-  accept_addr.reset();
+  std::memset(&accept_addr, 0, sizeof(accept_addr));
 }
 
-BufferManager::BufferManager(size_t len, size_t buffer_size)
-    : count(len), size(buffer_size), buffer_queue(), dn_buffer_queue(),
-      user_data_queue() {
+BufferManager::BufferManager(size_t len, size_t buffer_size, RingWrapper &ring)
+    : count(len), size(buffer_size), ring(ring), buffer_vector(),
+      dn_buffer_vector(), user_data_queue() {
   for (size_t i = 0; i < count; i++) {
     user_data_queue.push(new UserData(i));
-    buffer_queue.push(std::make_unique<Buffer>(size, i));
-    dn_buffer_queue.push(std::make_unique<Buffer>(40, i + count));
+    buffer_vector.push_back(std::make_unique<Buffer>(size, i));
+    dn_buffer_vector.push_back(std::make_unique<Buffer>(40, i + count));
+
+    if ((double)i < 0.8 * (double)count) {
+      ring.add_buffer_to_ring(buffer_vector.back(), 0);
+      ring.add_buffer_to_ring(dn_buffer_vector.back(), 1);
+      buffer_vector.back()->is_provided = true;
+      dn_buffer_vector.back()->is_provided = true;
+    } else {
+      free_buffer_queue.push(i);
+      free_dn_buffer_queue.push(i + count);
+    }
   }
 };
 
 std::unique_ptr<Buffer> BufferManager::get_buffer() {
-  if (buffer_queue.empty()) {
+  if (free_buffer_queue.empty()) {
     LOG(FATAL) << "No free buffer available";
     return nullptr;
   }
-  auto buffer = std::move(buffer_queue.front());
-  buffer_queue.pop();
+  auto buffer = std::move(buffer_vector.at(free_buffer_queue.front()));
+  free_buffer_queue.pop();
+  if (!buffer->is_free) {
+    LOG(FATAL) << "Buffer is not free, index: " << buffer->get_index();
+    return nullptr;
+  }
+  buffer->is_free = false;
+  return buffer;
+}
+
+std::unique_ptr<Buffer> BufferManager::get_buffer_by_index(size_t index) {
+  if (buffer_vector.at(index) == nullptr) {
+    LOG(FATAL) << "Buffer is null, index: " << index;
+    return nullptr;
+  }
+  auto buffer = std::move(buffer_vector.at(index));
   if (!buffer->is_free) {
     LOG(FATAL) << "Buffer is not free, index: " << buffer->get_index();
     return nullptr;
@@ -72,12 +96,12 @@ std::unique_ptr<Buffer> BufferManager::get_buffer() {
 }
 
 std::unique_ptr<Buffer> BufferManager::get_dn_buffer() {
-  if (dn_buffer_queue.empty()) {
+  if (free_dn_buffer_queue.empty()) {
     LOG(FATAL) << "No free dn buffer available";
     return nullptr;
   }
-  auto buffer = std::move(dn_buffer_queue.front());
-  dn_buffer_queue.pop();
+  auto buffer = std::move(dn_buffer_vector.at(free_dn_buffer_queue.front()));
+  free_dn_buffer_queue.pop();
   if (!buffer->is_free) {
     LOG(FATAL) << "Buffer is not free, index: " << buffer->get_index();
     return nullptr;
@@ -97,7 +121,16 @@ void BufferManager::free_dn_buffer(std::unique_ptr<Buffer> buffer) {
     return;
   }
   buffer->clear();
-  dn_buffer_queue.push(std::move(buffer));
+  size_t index = buffer->get_index();
+  bool is_provided = buffer->is_provided;
+  dn_buffer_vector.at(index) = std::move(buffer);
+  if (is_provided) {
+    ring.add_buffer_to_ring(dn_buffer_vector.at(index),
+                            1 // UDP buffer group
+    );
+  } else {
+    free_dn_buffer_queue.push(index);
+  }
 }
 
 void BufferManager::free_buffer(std::unique_ptr<Buffer> buffer) {
@@ -111,7 +144,16 @@ void BufferManager::free_buffer(std::unique_ptr<Buffer> buffer) {
     return;
   }
   buffer->clear();
-  buffer_queue.push(std::move(buffer));
+  size_t index = buffer->get_index();
+  bool is_provided = buffer->is_provided;
+  buffer_vector.at(index) = std::move(buffer);
+  if (is_provided) {
+    ring.add_buffer_to_ring(buffer_vector.at(index),
+                            0 // TCP buffer group
+    );
+  } else {
+    free_buffer_queue.push(index);
+  }
 }
 
 UserData *BufferManager::get_user_data() {

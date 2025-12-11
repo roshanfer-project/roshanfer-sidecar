@@ -36,6 +36,7 @@ public:
 public:
   std::vector<char> data;
   bool is_free;
+  bool is_provided;
 
 private:
   size_t size;

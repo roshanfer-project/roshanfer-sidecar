@@ -7,8 +7,8 @@
 #include <netinet/in.h>
 
 Buffer::Buffer(size_t length, size_t id)
-    : data(std::vector<char>(length)), is_free(true), size(length - 1),
-      filled(0), index(id), msg({}), addr({}), iov({}) {}
+    : data(std::vector<char>(length)), is_free(true), is_provided(false),
+      size(length - 1), filled(0), index(id), msg({}), addr({}), iov({}) {}
 
 Buffer::~Buffer() {
   LOG(FATAL) << "Buffer deconstructor (should not be called)";

@@ -84,14 +84,11 @@ public:
   enum Operation op;
   size_t index;
   UDPType udp_type;
-  // std::unique_ptr<RPCMessage> rpc_message;
-  std::unique_ptr<struct sockaddr_in> accept_addr; // used for preparing accept
+  struct sockaddr_in accept_addr; // used for preparing accept
 };
 
-void inline prepare_read(UserData *ud, std::unique_ptr<Buffer> buffer,
-                         std::shared_ptr<Listener> listener,
+void inline prepare_read(UserData *ud, std::shared_ptr<Listener> listener,
                          std::shared_ptr<HTTPConnection> conn) {
-  ud->set_buffer(std::move(buffer));
   ud->op = Operation::READ;
   ud->conn = std::move(conn);
   ud->listener = std::move(listener);

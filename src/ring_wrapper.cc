@@ -1,4 +1,5 @@
 #include "buffer.h"
+#include "config.h"
 #include "glog/logging.h"
 #include "ring_helper.hpp"
 #include <buffer_manager.h>
@@ -12,6 +13,7 @@
 #include <netinet/in.h>
 #include <ring_wrapper.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 RingWrapper::RingWrapper(size_t ring_size) : size(ring_size) {
@@ -23,22 +25,88 @@ RingWrapper::RingWrapper(size_t ring_size) : size(ring_size) {
                              std::string(strerror(-ret)));
   }
   VLOG(1) << "Ring initialized";
+
+  // Initialize the buffer ring
+  ssize_t page_size = sysconf(_SC_PAGESIZE);
+  if (page_size < 0) {
+    LOG(FATAL) << "Failed to get page size"
+               << ", error: " << strerror(errno);
+  }
+  LOG(INFO) << "Page size: " << page_size;
+
+  /* check if buffer count is power of 2 */
+  if (config.buffer_count & (config.buffer_count - 1)) {
+    LOG(FATAL) << "Buffer count is not power of 2";
+  }
+
+  if (config.buffer_count > 32 * 1024 * 1024) {
+    LOG(FATAL) << "Buffer count is too large";
+  }
+
+  /* allocate mem for sharing buffer ring */
+  if (posix_memalign((void **)&ring_buf, (size_t)page_size,
+                     config.buffer_count * sizeof(struct io_uring_buf_ring)) !=
+      0) {
+    LOG(FATAL) << "Failed to allocate memory for buffer ring"
+               << ", error: " << strerror(errno);
+  }
+
+  /* allocate mem for sharing buffer ring */
+  if (posix_memalign((void **)&dn_ring_buf, (size_t)page_size,
+                     config.buffer_count * sizeof(struct io_uring_buf_ring)) !=
+      0) {
+    LOG(FATAL) << "Failed to allocate memory for dn buffer ring"
+               << ", error: " << strerror(errno);
+  }
+
+  /* assign and register buffer ring */
+  struct io_uring_buf_reg reg;
+  std::memset(&reg, 0, sizeof(reg));
+  reg.ring_addr = (unsigned long)ring_buf;
+  reg.ring_entries = (uint32_t)config.buffer_count;
+  reg.bgid = 0;
+  if (io_uring_register_buf_ring(&ring, &reg, 0) != 0) {
+    LOG(FATAL) << "Failed to register buffer ring"
+               << ", error: " << strerror(errno);
+  }
+  io_uring_buf_ring_init(ring_buf);
+
+  /* assign and register dn buffer ring */
+  struct io_uring_buf_reg dn_reg;
+  std::memset(&dn_reg, 0, sizeof(dn_reg));
+  dn_reg.ring_addr = (unsigned long)dn_ring_buf;
+  dn_reg.ring_entries = (uint32_t)config.buffer_count;
+  dn_reg.bgid = 1;
+  if (io_uring_register_buf_ring(&ring, &dn_reg, 0) != 0) {
+    LOG(FATAL) << "Failed to register dn buffer ring"
+               << ", error: " << strerror(errno);
+  }
+  io_uring_buf_ring_init(dn_ring_buf);
 }
 
 RingWrapper::~RingWrapper() { io_uring_queue_exit(&ring); }
+
+void RingWrapper::add_buffer_to_ring(std::unique_ptr<Buffer> &buffer,
+                                     int bgid) {
+  struct io_uring_buf_ring *buf = bgid == 0 ? ring_buf : dn_ring_buf;
+  io_uring_buf_ring_add(
+      buf, static_cast<void *>(buffer->data.data()),
+      (uint32_t)buffer->get_size(), (uint16_t)buffer->get_index(),
+      io_uring_buf_ring_mask((uint32_t)config.buffer_count), 0);
+
+  io_uring_buf_ring_advance(buf, 1);
+}
 
 void RingWrapper::prepare_accept(std::shared_ptr<Listener> listener,
                                  UserData *ud) {
   struct io_uring_sqe *sqe = get_sqe();
   int fd = listener->get_fd();
 
-  ud->accept_addr = std::make_unique<struct sockaddr_in>();
   // zero initialize the structure
-  std::memset(ud->accept_addr.get(), 0, sizeof(struct sockaddr_in));
-  socklen_t server_addr_len = sizeof(*ud->accept_addr.get());
+  std::memset(&ud->accept_addr, 0, sizeof(struct sockaddr_in));
+  socklen_t server_addr_len = sizeof(ud->accept_addr);
 
-  io_uring_prep_accept(sqe, fd,
-                       reinterpret_cast<sockaddr *>(ud->accept_addr.get()),
+  io_uring_prep_accept(sqe, fd, reinterpret_cast<sockaddr *>(&ud->accept_addr),
                        &server_addr_len, 0);
 
   ud->listener = std::move(listener);
@@ -47,16 +115,16 @@ void RingWrapper::prepare_accept(std::shared_ptr<Listener> listener,
   VLOG(1) << "Prepared accept, fd: " << fd;
 }
 
-void RingWrapper::prepare_read(std::unique_ptr<Buffer> buffer, UserData *ud,
-                               std::shared_ptr<Listener> listener,
+void RingWrapper::prepare_read(UserData *ud, std::shared_ptr<Listener> listener,
                                std::shared_ptr<HTTPConnection> conn) {
   struct io_uring_sqe *sqe = get_sqe();
+  sqe->buf_group = 0; // TCP buffer group
   int fd = conn->get_fd();
 
-  io_uring_prep_read(sqe, fd, buffer->data.data(), (uint32_t)buffer->get_size(),
-                     0);
+  io_uring_prep_recv_multishot(sqe, fd, NULL, 0, 0);
+  io_uring_sqe_set_flags(sqe, IOSQE_BUFFER_SELECT);
 
-  ::prepare_read(ud, std::move(buffer), std::move(listener), std::move(conn));
+  ::prepare_read(ud, std::move(listener), std::move(conn));
 
   // Set the buffer as the data for the SQE.
   // This will help us identify connection and buffer index after completion
@@ -119,10 +187,6 @@ UserData *RingWrapper::get_user_data(struct io_uring_cqe *cqe) {
   if (ret->op == Operation::CLEAR) {
     LOG(FATAL) << "UserData is in CLEAR state, index: " << ret->index;
   }
-  if (ret->in_ring == false) {
-    LOG(FATAL) << "UserData is not in ring, this should not happen";
-  }
-  ret->in_ring = false;
   VLOG(2) << "get ud " << ret->index;
   return ret;
 }
@@ -134,10 +198,6 @@ void RingWrapper::set_user_data(struct io_uring_sqe *sqe, UserData *ud) {
   if (ud->op == Operation::CLEAR) {
     LOG(FATAL) << "UserData is in CLEAR state, this should not happen";
   }
-  if (ud->in_ring) {
-    LOG(FATAL) << "UserData is already in ring, this should not happen";
-  }
-  ud->in_ring = true;
   io_uring_sqe_set_data(sqe, static_cast<void *>(ud));
   VLOG(2) << "set ud " << ud->index;
 }
