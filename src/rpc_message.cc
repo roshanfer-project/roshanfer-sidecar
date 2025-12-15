@@ -126,7 +126,7 @@ void gRPCMessage::add_data(const uint8_t *data, size_t len, bool request) {
 }
 
 void gRPCMessage::clear() {
-  VLOG(2) << "Clearing gRPCMessage for ds_id: " << ds_stream_id
+  VLOG(3) << "Clearing gRPCMessage for ds_id: " << ds_stream_id
           << " ds_fd: " << ds_fd << " us_id: " << us_stream_id
           << " us_fd: " << us_fd;
   ds_stream_id = -1;
@@ -278,7 +278,7 @@ void HTTPMessage::add_data(const uint8_t *data, size_t len, bool request) {
 }
 
 void HTTPMessage::clear() {
-  VLOG(2) << "Clearing HTTPMessage for ds_id: " << ds_stream_id
+  VLOG(3) << "Clearing HTTPMessage for ds_id: " << ds_stream_id
           << " ds_fd: " << ds_fd << " us_id: " << us_stream_id
           << " us_fd: " << us_fd;
   ds_stream_id = -1;
