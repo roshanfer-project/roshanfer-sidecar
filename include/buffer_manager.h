@@ -14,6 +14,7 @@ public:
   BufferManager(size_t, size_t, RingWrapper &);
   std::unique_ptr<Buffer> get_buffer();
   std::unique_ptr<Buffer> get_buffer_by_index(size_t);
+  std::unique_ptr<Buffer> get_dn_buffer_by_index(size_t);
   std::unique_ptr<Buffer> get_dn_buffer();
   void free_buffer(std::unique_ptr<Buffer>);
   void free_dn_buffer(std::unique_ptr<Buffer>);

@@ -40,13 +40,15 @@ public:
                      UserData *);
   void prepare_cancel(std::shared_ptr<HTTPConnection>, UserData *);
 
-  void prepare_rcvmsg(int, std::unique_ptr<Buffer>, UserData *, UDPType);
+  void prepare_rcvmsg(int, UserData *, UDPType);
   void prepare_reply_sendmsg(int, const std::unique_ptr<Buffer> &,
                              std::unique_ptr<Buffer>, UserData *);
   void prepare_reply_sendmsg(int, std::unique_ptr<Buffer>, UserData *);
   void prepare_req_sendmsg(int, std::unique_ptr<Buffer>, UserData *,
                            struct sockaddr_in);
   void add_buffer_to_ring(std::unique_ptr<Buffer> &, int);
+  static void handle_multishot_recv(std::unique_ptr<Buffer> &buffer,
+                                    int cqe_res);
 
 private:
   struct io_uring_sqe *get_sqe();

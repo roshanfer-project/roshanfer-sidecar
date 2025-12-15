@@ -258,17 +258,12 @@ void RingWrapper::prepare_cancel(std::shared_ptr<HTTPConnection> conn,
   VLOG(1) << "Prepared cancel, fd: " << fd;
 }
 
-void RingWrapper::prepare_rcvmsg(int fd, std::unique_ptr<Buffer> buffer,
-                                 UserData *ud, UDPType udp_type) {
+void RingWrapper::prepare_rcvmsg(int fd, UserData *ud, UDPType udp_type) {
   struct io_uring_sqe *sqe = get_sqe();
+  io_uring_prep_recvmsg_multishot(sqe, fd, &ud->msg, 0);
+  sqe->buf_group = 1; // UDP buffer group
+  io_uring_sqe_set_flags(sqe, IOSQE_BUFFER_SELECT);
 
-  buffer->prepare_recvmsg();
-
-  io_uring_prep_recvmsg(sqe, fd, buffer->get_msg(), 0);
-
-  // io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-
-  ud->set_buffer(std::move(buffer));
   ud->op = Operation::RCVMSG;
   ud->udp_type = udp_type;
   set_user_data(sqe, ud);
@@ -327,4 +322,39 @@ void RingWrapper::prepare_req_sendmsg(int fd, std::unique_ptr<Buffer> buffer,
   set_user_data(sqe, ud);
 
   VLOG(1) << "Prepared sendmsg (req), fd: " << fd;
+}
+
+void RingWrapper::handle_multishot_recv(std::unique_ptr<Buffer> &buffer,
+                                        int cqe_res) {
+  // Handle multishot header
+  struct io_uring_recvmsg_out *out =
+      reinterpret_cast<struct io_uring_recvmsg_out *>(buffer->data.data());
+
+  size_t header_len = sizeof(struct io_uring_recvmsg_out);
+  if (out->namelen > 0) {
+    struct sockaddr *addr =
+        reinterpret_cast<struct sockaddr *>(buffer->data.data() + header_len);
+    if (out->namelen == sizeof(struct sockaddr_in)) {
+      buffer->set_addr(*reinterpret_cast<struct sockaddr_in *>(addr));
+    } else {
+      LOG(FATAL) << "Unexpected address length: " << out->namelen;
+    }
+    header_len += out->namelen;
+  }
+
+  header_len += out->controllen;
+
+  if ((size_t)cqe_res < header_len) {
+    LOG(FATAL) << "Received message smaller than header length";
+  }
+
+  size_t payload_len = (size_t)cqe_res - header_len;
+
+  // Move payload to start of buffer
+  if (payload_len > 0) {
+    std::memmove(buffer->data.data(), buffer->data.data() + header_len,
+                 payload_len);
+  }
+
+  buffer->set_filled(payload_len);
 }

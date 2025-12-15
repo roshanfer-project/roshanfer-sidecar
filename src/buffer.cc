@@ -29,21 +29,6 @@ void Buffer::set_filled(size_t f) {
   filled = f;
 }
 
-void Buffer::prepare_recvmsg() {
-  iov.iov_base = data.data();
-  iov.iov_len = get_size();
-
-  msg.msg_name = &addr;
-  msg.msg_namelen = sizeof(struct sockaddr_in);
-  msg.msg_iov = &iov;
-  msg.msg_iovlen = 1;
-
-  // Ensure no control buffer is exposed to kernel
-  msg.msg_control = nullptr;
-  msg.msg_controllen = 0;
-  msg.msg_flags = 0;
-}
-
 void Buffer::prepare_reply_sendmsg(const std::unique_ptr<Buffer> &old_buffer) {
   iov.iov_base = data.data();
   iov.iov_len = get_filled();

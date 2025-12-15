@@ -13,6 +13,11 @@ UserData::UserData(size_t id)
     : buffer(), in_ring(false), listener(), conn(), op(Operation::ACCEPT),
       index(id), udp_type(UDPType::REQUEST) {
   std::memset(&accept_addr, 0, sizeof(accept_addr));
+
+  msg.msg_name = 0;
+  msg.msg_namelen = sizeof(struct sockaddr_in);
+  msg.msg_iov = 0;
+  msg.msg_iovlen = 0;
 }
 
 std::unique_ptr<Buffer> UserData::get_buffer() {
@@ -52,7 +57,7 @@ BufferManager::BufferManager(size_t len, size_t buffer_size, RingWrapper &ring)
   for (size_t i = 0; i < count; i++) {
     user_data_queue.push(new UserData(i));
     buffer_vector.push_back(std::make_unique<Buffer>(size, i));
-    dn_buffer_vector.push_back(std::make_unique<Buffer>(40, i + count));
+    dn_buffer_vector.push_back(std::make_unique<Buffer>(256, i + count));
 
     if ((double)i < 0.8 * (double)count) {
       ring.add_buffer_to_ring(buffer_vector.back(), 0);
@@ -95,12 +100,27 @@ std::unique_ptr<Buffer> BufferManager::get_buffer_by_index(size_t index) {
   return buffer;
 }
 
+std::unique_ptr<Buffer> BufferManager::get_dn_buffer_by_index(size_t index) {
+  if (dn_buffer_vector.at(index - count) == nullptr) {
+    LOG(FATAL) << "Buffer is null, index: " << index;
+    return nullptr;
+  }
+  auto buffer = std::move(dn_buffer_vector.at(index - count));
+  if (!buffer->is_free) {
+    LOG(FATAL) << "Buffer is not free, index: " << buffer->get_index();
+    return nullptr;
+  }
+  buffer->is_free = false;
+  return buffer;
+}
+
 std::unique_ptr<Buffer> BufferManager::get_dn_buffer() {
   if (free_dn_buffer_queue.empty()) {
     LOG(FATAL) << "No free dn buffer available";
     return nullptr;
   }
-  auto buffer = std::move(dn_buffer_vector.at(free_dn_buffer_queue.front()));
+  auto buffer =
+      std::move(dn_buffer_vector.at(free_dn_buffer_queue.front() - count));
   free_dn_buffer_queue.pop();
   if (!buffer->is_free) {
     LOG(FATAL) << "Buffer is not free, index: " << buffer->get_index();
@@ -123,9 +143,9 @@ void BufferManager::free_dn_buffer(std::unique_ptr<Buffer> buffer) {
   buffer->clear();
   size_t index = buffer->get_index();
   bool is_provided = buffer->is_provided;
-  dn_buffer_vector.at(index) = std::move(buffer);
+  dn_buffer_vector.at(index - count) = std::move(buffer);
   if (is_provided) {
-    ring.add_buffer_to_ring(dn_buffer_vector.at(index),
+    ring.add_buffer_to_ring(dn_buffer_vector.at(index - count),
                             1 // UDP buffer group
     );
   } else {

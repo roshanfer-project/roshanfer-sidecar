@@ -25,13 +25,13 @@ public:
   size_t get_index() { return index; }
   void set_filled(size_t f);
 
-  void prepare_recvmsg();
   struct msghdr *get_msg() { return &msg; }
   void prepare_reply_sendmsg(const std::unique_ptr<Buffer> &old_buffer);
   void prepare_reply_sendmsg(struct sockaddr_in);
   void prepare_req_sendmsg(struct sockaddr_in);
   void clear();
   struct sockaddr_in get_addr() { return addr; }
+  void set_addr(struct sockaddr_in a) { addr = a; }
 
 public:
   std::vector<char> data;

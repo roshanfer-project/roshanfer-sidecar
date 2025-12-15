@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <event_loop.h>
 #include <glog/logging.h>
 #include <iostream>
@@ -18,6 +19,7 @@
 #include <ring_wrapper.h>
 #include <string>
 #include <strings.h>
+#include <sys/socket.h>
 
 void EventLoop::run() {
   // Pointers to accept and identify completion events
@@ -32,12 +34,12 @@ void EventLoop::run() {
   }
 
   // Add recvmsg submission
-  ring.prepare_rcvmsg(udp_listener.get_fd(), buffer_manager.get_buffer(),
-                      buffer_manager.get_user_data(), UDPType::REQUEST);
+  ring.prepare_rcvmsg(udp_listener.get_fd(), buffer_manager.get_user_data(),
+                      UDPType::REQUEST);
 
   // Add recvmsg submission for responses
-  ring.prepare_rcvmsg(state.get_sockfd(), buffer_manager.get_buffer(),
-                      buffer_manager.get_user_data(), UDPType::RESPONSE);
+  ring.prepare_rcvmsg(state.get_sockfd(), buffer_manager.get_user_data(),
+                      UDPType::RESPONSE);
 
   // main event loop
   while (true) {
@@ -284,13 +286,28 @@ void EventLoop::run() {
         VLOG(1) << "Recvmsg completion event";
 
         // get the buffer from the user data
-        auto old_buffer = ud->get_buffer();
+        std::unique_ptr<Buffer> old_buffer = nullptr;
+        if (cqe->flags & IORING_CQE_F_BUFFER) {
+          auto buffer_index = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
+          old_buffer = buffer_manager.get_dn_buffer_by_index(buffer_index);
+          if (!old_buffer) {
+            LOG(FATAL) << "DN Buffer is null in read completion event";
+          }
+        } else if (cqe->res > 0) {
+          // If we read data but got no (provided) buffer, that's an issue for
+          // multishot
+          LOG(FATAL) << "Read " << cqe->res
+                     << " bytes but no DN buffer provided (flag missing)";
+        }
         auto udp_type = ud->udp_type;
+
         if (cqe->res <= 0) {
           LOG(FATAL) << "Failed to receive UDP message, error: "
                      << strerror(-cqe->res);
         }
-        old_buffer->set_filled((size_t)cqe->res);
+
+        // Handle multishot header
+        RingWrapper::handle_multishot_recv(old_buffer, cqe->res);
 
         // TODO: check if the received message is a request for QM,
         // or is a response for DN (In the second case, there is no need
@@ -301,15 +318,14 @@ void EventLoop::run() {
           VLOG(1) << "Request for Queue Multiplxer";
 
           // get the new buffer from QM
-          state.queue_multiplexer(old_buffer);
+          try {
+            state.queue_multiplexer(old_buffer);
+          } catch (const std::exception &e) {
+            LOG(FATAL) << "Error in queue multiplexer: " << e.what();
+          }
 
           // free the old buffer
           buffer_manager.free_dn_buffer(std::move(old_buffer));
-
-          // re-arm the recvmsg
-          ring.prepare_rcvmsg(udp_listener.get_fd(),
-                              buffer_manager.get_dn_buffer(),
-                              buffer_manager.get_user_data(), UDPType::REQUEST);
 
           break;
         }
@@ -329,10 +345,6 @@ void EventLoop::run() {
           // free the buffer
           buffer_manager.free_dn_buffer(std::move(old_buffer));
 
-          // re-arm the recvmsg
-          ring.prepare_rcvmsg(
-              state.get_sockfd(), buffer_manager.get_dn_buffer(),
-              buffer_manager.get_user_data(), UDPType::RESPONSE);
           break;
         }
 
@@ -341,8 +353,6 @@ void EventLoop::run() {
           break;
         }
         }
-        // free the user data
-        buffer_manager.free_user_data(ud);
         break;
       }
 

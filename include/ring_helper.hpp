@@ -73,6 +73,7 @@ public:
   std::unique_ptr<Buffer> get_buffer();
   void set_buffer(std::unique_ptr<Buffer>);
   void clear();
+  void prepare_recvmsg();
 
 private:
   std::unique_ptr<Buffer> buffer;
@@ -85,6 +86,9 @@ public:
   size_t index;
   UDPType udp_type;
   struct sockaddr_in accept_addr; // used for preparing accept
+
+  // used for preparing sendmsg
+  struct msghdr msg;
 };
 
 void inline prepare_read(UserData *ud, std::shared_ptr<Listener> listener,
