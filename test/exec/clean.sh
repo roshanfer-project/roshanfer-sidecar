@@ -2,7 +2,7 @@
 
 sudo docker compose down -v
 
-names=("app" "backend1" "backend2" "app-busy")
+names=("app" "backend1" "backend2" "app-busy" "chain-node-1" "chain-node-2" "chain-node-3")
 
 for name in "${names[@]}"; do
     name_full="${name}.o"

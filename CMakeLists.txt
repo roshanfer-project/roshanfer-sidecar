@@ -15,6 +15,9 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g -gdwarf-3 -fno-omit-frame-pointer")
 # set NANO_LOG_ENABLED to ON to enable NanoLog
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DNANO_LOG_ENABLED")
 
+# set NABO_LOG_TRACE_ENABLED to ON to enable NanoLog trace logging
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DNABO_LOG_TRACE_ENABLED")
+
 # enable hardening
 add_compile_definitions(_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE)
 
@@ -60,7 +63,8 @@ pkg_check_modules(NGHTTP2 REQUIRED libnghttp2)
 add_subdirectory(external/HdrHistogram_c)
 
 # add NanoLog
-include_directories(include external/NanoLog/runtime)
+include_directories(include)
+include_directories(SYSTEM external/NanoLog/runtime)
 
 file(GLOB_RECURSE SOURCES src/*.cc src/*.c)
 

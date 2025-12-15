@@ -1,5 +1,17 @@
 services:
 
+  ingress-envoy:
+    image: envoyproxy/envoy:v1.30-latest
+    container_name: ingress-envoy
+    restart: no
+    volumes:
+      - ./.configs/envoy-ingress.yaml:/etc/envoy/envoy.yaml
+    ports:
+      - "3000:3000"
+      - "3009:3009"
+    command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml --concurrency 2
+    cpuset: "22,23"
+
   ingress-sidecar:
     image: sidecar-sidecar:latest
     container_name: ingress-sidecar
@@ -18,7 +30,7 @@ services:
       - "3000:3000"   # hotels listen_port
       - "3009:3009"   # reservation listen_port
     privileged: true
-    cpuset: "36,37,40"
+    cpuset: "22,23"
 
   app-sidecar:
     image: sidecar-sidecar:latest
@@ -37,4 +49,4 @@ services:
       - "4007:4007" # egress_listener_port
       - "3007:3007"   # ingress_listener_port
     privileged: true
-    cpuset: "22,23,24"
+    cpuset: "20,21"

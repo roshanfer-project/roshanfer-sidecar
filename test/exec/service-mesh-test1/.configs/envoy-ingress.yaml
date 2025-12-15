@@ -1,0 +1,90 @@
+node:
+  cluster: envoy-ingress
+
+admin:
+  access_log_path: "/dev/null"
+  address:
+    socket_address:
+      address: 0.0.0.0
+      port_value: 9901
+
+static_resources:
+  listeners:
+  - name: ingress_3000
+    address:
+      socket_address:
+        address: 0.0.0.0
+        port_value: 3000
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress_3000
+          use_remote_address: true
+          http_filters:
+          - name: envoy.filters.http.grpc_stats
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.grpc_stats.v3.FilterConfig
+              stats_for_all_methods: true
+              enable_upstream_stats: true
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+          route_config:
+            name: local_route
+            virtual_hosts:
+            - name: backend
+              domains: ["*"]
+              routes:
+              - match:
+                  prefix: "/"
+                route:
+                  cluster: app_sidecar
+                  timeout: 100s
+#  - name: ingress_3009
+#    address:
+#      socket_address:
+#        address: 0.0.0.0
+#        port_value: 3009
+#    filter_chains:
+#    - filters:
+#      - name: envoy.filters.network.http_connection_manager
+#        typed_config:
+#          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+#          stat_prefix: ingress_3009
+#          use_remote_address: true
+#          http_filters:
+#          - name: envoy.filters.http.grpc_stats
+#            typed_config:
+#              "@type": type.googleapis.com/envoy.extensions.filters.http.grpc_stats.v3.FilterConfig
+#              stats_for_all_methods: true
+#              enable_upstream_stats: true
+#          - name: envoy.filters.http.router
+#            typed_config:
+#              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+#          route_config:
+#            name: local_route
+#            virtual_hosts:
+#            - name: backend
+#              domains: ["*"]
+#              routes:
+#              - match:
+#                  prefix: "/"
+#                route:
+#                  cluster: app_sidecar
+#                  timeout: 100s
+
+  clusters:
+  - name: app_sidecar
+    type: STRICT_DNS
+    connect_timeout: 100s
+    load_assignment:
+      cluster_name: app_sidecar
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: 172.17.0.1
+                port_value: 2007

@@ -77,13 +77,20 @@ func main() {
 			{"app-busy-chain", "9,11", "0"},
 			{"backend1-b", "13,15", "0"},
 		}
+	case "plain-chain3":
+		serviceList = [][]string{
+			{"chain-node-1", "6,7", "0"},
+			{"chain-node-2", "11,12", "0"},
+			{"chain-node-3", "16,17,18,19,20", "0"},
+		}
 	}
 
 	/* serviceList := [][]string{
 		{"app", "9", "0"},
 	} */
-
-	serviceList = append(serviceList, []string{"ingress", "_", "_"})
+	if args.Sidecar || args.Envoy {
+		serviceList = append(serviceList, []string{"ingress", "_", "_"})
+	}
 
 	// listen for SIGINT (Ctrl-C)
 	sigCh := make(chan os.Signal, 1)
@@ -138,9 +145,16 @@ func main() {
 		} else {
 			env = "service-mesh-b2/sidecar.env"
 		}
+	case "plain-chain3":
+		if args.Plain {
+			env = "service-mesh-plain-chain3/plain.env"
+		} else {
+			fmt.Println("plain-chain3 only supports plain mode")
+			os.Exit(1)
+		}
 	}
 
-	run_servicees(env, args.Test, serviceList, args.Sidecar, args.Envoy, false, args.Overrides)
+	run_servicees(env, args.Test, serviceList, args.Sidecar, args.Envoy, args.Plain, false, args.Overrides)
 
 	// create /tmp/HOTEL.ready
 	_, err := os.Create("/tmp/TEST.ready")
@@ -164,7 +178,7 @@ func run_docker_compose() {
 	no_env_run(c, dir, false, "docker-compose")
 }
 
-func run_servicees(env string, testName string, serviceList [][]string, sidecar, envoy, profile bool, overrides []string) {
+func run_servicees(env string, testName string, serviceList [][]string, sidecar, envoy, plain, profile bool, overrides []string) {
 	sidecar_dir := get_cwd() + "/service-mesh-" + testName
 	for _, tuple := range serviceList {
 		name := tuple[0]
@@ -174,19 +188,33 @@ func run_servicees(env string, testName string, serviceList [][]string, sidecar,
 		fmt.Println("/////////////////////////", name, "/////////////////////////")
 		if name != "ingress" {
 			// build the service
-			folder := fmt.Sprintf("../%s", name)
+			var folder string
+			if strings.HasPrefix(name, "chain-node-") {
+				folder = "../app-chain"
+			} else {
+				folder = fmt.Sprintf("../%s", name)
+			}
 			dir := get_cwd() + "/" + folder
-			c := exec.CommandContext(ctx, "go", "build", "-o", fmt.Sprintf("%s.o", name), ".")
-			c.Dir = dir
-			no_env_run(c, dir, false, name)
+			if name == "app-cpp" {
+				name = "app"
+				c := exec.CommandContext(ctx, "make")
+				c.Dir = dir
+				no_env_run(c, dir, false, name+"-build")
+			} else {
+				c := exec.CommandContext(ctx, "go", "build", "-o", fmt.Sprintf("%s.o", name), ".")
+				c.Dir = dir
+				no_env_run(c, dir, false, name)
+			}
 
 			// run the service
 			wg.Add(1)
 			go func(name string) {
 				defer wg.Done()
 				fmt.Printf("Running %s\n", name)
-				c = exec.CommandContext(ctx, "taskset", "-c", cpuset, fmt.Sprintf("./%s.o", name))
+				c := exec.CommandContext(ctx, "taskset", "-c", cpuset, fmt.Sprintf("./%s.o", name))
 				//c = exec.CommandContext(ctx, fmt.Sprintf("./%s.o", name))
+				// Inject SERVICE_NAME for chain nodes (or all nodes if useful)
+				overrides = append(overrides, fmt.Sprintf("SERVICE_NAME=%s", name))
 				env_run(c, dir, env, overrides)
 			}(name)
 		}
@@ -211,6 +239,14 @@ func run_servicees(env string, testName string, serviceList [][]string, sidecar,
 				c.Dir = sidecar_dir
 				no_env_run(c, sidecar_dir, false, "envoy-compose")
 			}
+		}
+
+		// if plain, run ingress-envoy
+		if plain {
+			c := exec.CommandContext(ctx, "docker", "compose", "run", "-d", "-T", "-P",
+				"--name", "ingress-envoy", "ingress-envoy")
+			c.Dir = sidecar_dir
+			no_env_run(c, sidecar_dir, false, "docker-compose")
 		}
 
 		time.Sleep(time.Millisecond * 100)

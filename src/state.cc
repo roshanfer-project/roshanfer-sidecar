@@ -572,6 +572,13 @@ void State::ppm_client(bool dn_resp,
                   .get_connection(rpc->get_us_fd())
                   .get(),
               rpc->get_service(), 1, rpc->get_id());
+      /* forward_request(upstream_route_mapper.get_pool(rpc->get_service())
+                          .get_connection(rpc->get_us_fd()),
+                      rpc);
+      shared_state.downstream_concurrency.add(rpc->get_service(), 1);
+      local_state.avg_downstream_concurrency.get(rpc->get_service()).up();
+      local_state.ingress_admitted.add(rpc->get_service(), 1);
+      check_credit_transmission(rpc->get_id()); */
       VLOG(1) << "PPMClient: DN for new request "
               << "| service: " << rpc->get_service()
               << "| id: " << rpc->get_id() << "| credits: " << 1

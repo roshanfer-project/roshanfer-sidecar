@@ -1,15 +1,12 @@
 mapping:
   app:
-    min_max_concurrency: 20
     limit: 10
   app2:
-    min_max_concurrency: 20
     limit: 10000
 ring_size: 10000
-buffer_count: 12000
+buffer_count: 16384
 buffer_size: 80000
 num_threads: 1
-ingress_pool_connections: 100
 frontend_pool_connections: 4000
 egress_listener_port: 4007
 ingress_listener_port: 3007
