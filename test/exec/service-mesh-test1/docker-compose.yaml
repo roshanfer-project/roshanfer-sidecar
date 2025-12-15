@@ -9,8 +9,8 @@ services:
     ports:
       - "3000:3000"
       - "3009:3009"
-    command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml --concurrency 2
-    cpuset: "22,23"
+    command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml --concurrency 3 --disable-hot-restart
+    cpuset: "20,21,22"
 
   ingress-sidecar:
     image: sidecar-sidecar:latest
