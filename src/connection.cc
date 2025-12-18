@@ -407,8 +407,12 @@ ssize_t data_read_callback_response(nghttp2_session *session, int32_t stream_id,
 
 ConnectionPool::ConnectionPool(ConnectionType conn_type)
     : connections(std::unordered_map<int, std::shared_ptr<HTTPConnection>>()),
-      type(conn_type), addr({}), addr_set(false) {
+      type(conn_type), addr({}), addr_set(false),
+      next_conn(
+          std::unordered_map<int,
+                             std::shared_ptr<HTTPConnection>>::iterator()) {
   std::memset(&addr, 0, sizeof(struct sockaddr_in));
+  next_conn = connections.begin();
 };
 
 std::shared_ptr<HTTPConnection>
@@ -429,6 +433,7 @@ ConnectionPool::add_connection(const std::string &host, int port,
     addr_set = true;
   }
   connections.emplace(fd, std::move(c));
+  next_conn = connections.begin();
   return connections.at(fd);
 };
 
@@ -453,6 +458,12 @@ std::shared_ptr<HTTPConnection> ConnectionPool::get_connection(int fd) {
   }
 };
 
+void ConnectionPool::remove_connection(int fd) {
+  connections.erase(fd);
+  // reset iterator on modification
+  next_conn = connections.begin();
+}
+
 // This should return any "available" connections.
 // HTTP/1.1 connections doen't allow multiplexing.
 std::shared_ptr<HTTPConnection> ConnectionPool::get_any_connection() {
@@ -460,13 +471,19 @@ std::shared_ptr<HTTPConnection> ConnectionPool::get_any_connection() {
     throw NoConnectionException("Pool is empty");
   }
 
-  // return first available connection
-  for (auto &conn : connections) {
-    if (conn.second->available()) {
-      return conn.second;
+  bool wrap = false;
+  while (1) {
+    if (next_conn->second->available()) {
+      return next_conn->second;
+    }
+    next_conn++;
+    if (wrap && next_conn == connections.end()) {
+      throw NoConnectionException("No available connections in the pool");
+    } else if (!wrap && next_conn == connections.end()) {
+      wrap = true;
+      next_conn = connections.begin();
     }
   }
-  throw NoConnectionException("No available connections in the pool");
 };
 
 ///// HTTPConnection implementation
@@ -974,13 +991,12 @@ int HTTP1Connection::http_write(const std::unique_ptr<Buffer> &buffer) {
     rpc->req_for_time = std::chrono::steady_clock::now();
 
     // update idle
-    if (idle == false) {
+    if (idle == true) {
       LOG(FATAL) << "Writing a request to non-idle connection, fd: " << fd
                  << ", type: " << type_to_str()
                  << ", direction: " << direction_to_str()
                  << ", buf: " << std::string(buf->data(), buf_len);
     }
-    idle = false;
 
     return written;
   } else {
@@ -1075,6 +1091,7 @@ int32_t HTTP1Connection::submit_request(std::shared_ptr<RPCMessage> rpc) {
   }
   set_rpc_message(std::move(http_rpc));
   last_id++;
+  idle = false;
   return last_id;
 }
 

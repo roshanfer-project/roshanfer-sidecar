@@ -203,7 +203,7 @@ public:
   std::shared_ptr<HTTPConnection> get_connection(int fd);
   std::shared_ptr<HTTPConnection> get_any_connection();
   bool has_connection(int fd);
-  void remove_connection(int fd) { connections.erase(fd); }
+  void remove_connection(int fd);
   struct sockaddr_in get_addr();
 
 private:
@@ -212,4 +212,5 @@ private:
   ConnectionType type;
   struct sockaddr_in addr;
   bool addr_set;
+  std::unordered_map<int, std::shared_ptr<HTTPConnection>>::iterator next_conn;
 };
