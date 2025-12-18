@@ -188,7 +188,7 @@ public:
 
 private:
   // PPM-related functions
-  void send_dn(HTTPConnection *, const std::string &, size_t, int32_t);
+  void send_dn(struct sockaddr_in, const std::string &, size_t, int32_t);
   std::tuple<const std::string &, bool, size_t, int32_t>
   valid_credit(const char *);
   int get_available_credits(const std::string_view &);

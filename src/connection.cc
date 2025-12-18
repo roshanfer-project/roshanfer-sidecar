@@ -407,7 +407,9 @@ ssize_t data_read_callback_response(nghttp2_session *session, int32_t stream_id,
 
 ConnectionPool::ConnectionPool(ConnectionType conn_type)
     : connections(std::unordered_map<int, std::shared_ptr<HTTPConnection>>()),
-      type(conn_type) {};
+      type(conn_type), addr({}), addr_set(false) {
+  std::memset(&addr, 0, sizeof(struct sockaddr_in));
+};
 
 std::shared_ptr<HTTPConnection>
 ConnectionPool::add_connection(const std::string &host, int port,
@@ -422,9 +424,21 @@ ConnectionPool::add_connection(const std::string &host, int port,
                                           stats);
   }
   int fd = c->get_fd();
+  if (!addr_set) {
+    addr = c->get_addr_in();
+    addr_set = true;
+  }
   connections.emplace(fd, std::move(c));
   return connections.at(fd);
 };
+
+struct sockaddr_in ConnectionPool::get_addr() {
+  if (!addr_set) {
+    LOG(FATAL) << "Address not set for connection pool of type: "
+               << type_to_str(type);
+  }
+  return addr;
+}
 
 bool ConnectionPool::has_connection(int fd) {
   return connections.find(fd) != connections.end();
@@ -448,10 +462,7 @@ std::shared_ptr<HTTPConnection> ConnectionPool::get_any_connection() {
 
   // return first available connection
   for (auto &conn : connections) {
-    if (conn.second->available() && !conn.second->is_reserved()) {
-      if (conn.second->http() == HTTP::HTTP1) {
-        conn.second->set_reserved(true);
-      }
+    if (conn.second->available()) {
       return conn.second;
     }
   }
@@ -463,7 +474,7 @@ std::shared_ptr<HTTPConnection> ConnectionPool::get_any_connection() {
 HTTPConnection::HTTPConnection(int conn_fd, ConnectionType conn_type,
                                Stats *stats)
     : fd(conn_fd), addr({}), status(ConnectionStatus::UP), host(""), port(0),
-      stats(stats), reserved(false), type(conn_type),
+      stats(stats), type(conn_type),
       direction(ConnectionDirection::DOWNSTREAM) {
   // zero out the addr
   std::memset(&addr, 0, sizeof(sockaddr_in));
@@ -494,7 +505,7 @@ HTTPConnection::HTTPConnection(int conn_fd, ConnectionType conn_type,
 HTTPConnection::HTTPConnection(std::string conn_host, uint16_t conn_port,
                                ConnectionType conn_type, Stats *stats)
     : fd(0), addr({}), status(ConnectionStatus::DOWN), host(conn_host),
-      port(conn_port), stats(stats), reserved(false), type(conn_type),
+      port(conn_port), stats(stats), type(conn_type),
       direction(ConnectionDirection::UPSTREAM) {
   // zero out the addr
   std::memset(&addr, 0, sizeof(sockaddr_in));
@@ -970,7 +981,6 @@ int HTTP1Connection::http_write(const std::unique_ptr<Buffer> &buffer) {
                  << ", buf: " << std::string(buf->data(), buf_len);
     }
     idle = false;
-    set_reserved(false);
 
     return written;
   } else {

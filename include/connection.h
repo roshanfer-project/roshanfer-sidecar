@@ -79,8 +79,6 @@ public:
   void set_status(ConnectionStatus s) { status = s; }
   uint16_t get_port() { return port; }
   std::string &get_host() { return host; }
-  void set_reserved(bool new_reserved) { this->reserved = new_reserved; }
-  bool is_reserved() { return reserved; }
 
   // pure virtual functions
   virtual void http_read(const std::unique_ptr<Buffer> &, Ingress &) = 0;
@@ -100,7 +98,6 @@ protected:
   std::string host;
   uint16_t port;
   Stats *stats;
-  bool reserved;
 
 public:
   ConnectionType type;
@@ -207,9 +204,12 @@ public:
   std::shared_ptr<HTTPConnection> get_any_connection();
   bool has_connection(int fd);
   void remove_connection(int fd) { connections.erase(fd); }
+  struct sockaddr_in get_addr();
 
 private:
   std::unordered_map<int, std::shared_ptr<HTTPConnection>>
       connections; // fd: connection
   ConnectionType type;
+  struct sockaddr_in addr;
+  bool addr_set;
 };

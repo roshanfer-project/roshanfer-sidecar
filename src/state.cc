@@ -542,6 +542,8 @@ void State::ppm_client(bool dn_resp,
 
     for (size_t i = 0; i < num_credits; i++) {
       auto rpc = ppm_queue.pop(service, id);
+      route_request(ConnectionType::EGRESS, rpc->get_ds_stream_id(),
+                    rpc->get_ds_fd());
       forward_request(upstream_route_mapper.get_pool(service).get_connection(
                           rpc->get_us_fd()),
                       rpc);
@@ -564,13 +566,10 @@ void State::ppm_client(bool dn_resp,
     for (size_t i = 0; i < size; i++) {
       auto [ds_fd, ds_stream_id] = rpc_queue.dequeue(
           ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM);
-      route_request(ConnectionType::EGRESS, ds_stream_id, ds_fd);
       auto rpc =
           rpc_mapper.get_ds_rpc(ConnectionType::EGRESS, ds_stream_id, ds_fd);
       ppm_queue.push(rpc);
-      send_dn(upstream_route_mapper.get_pool(rpc->get_service())
-                  .get_connection(rpc->get_us_fd())
-                  .get(),
+      send_dn(upstream_route_mapper.get_pool(rpc->get_service()).get_addr(),
               rpc->get_service(), 1, rpc->get_id());
       /* forward_request(upstream_route_mapper.get_pool(rpc->get_service())
                           .get_connection(rpc->get_us_fd()),
@@ -587,7 +586,7 @@ void State::ppm_client(bool dn_resp,
   }
 }
 
-void State::send_dn(HTTPConnection *conn, const std::string &service,
+void State::send_dn(struct sockaddr_in addr, const std::string &service,
                     size_t num_credits, int32_t id) {
   // send a demand notification
   ssize_t header_size = 9;
@@ -610,7 +609,7 @@ void State::send_dn(HTTPConnection *conn, const std::string &service,
               buffer->data.begin() + header_size);
   buffer->set_filled(len);
   ring.prepare_req_sendmsg(sockfd, std::move(buffer),
-                           buffer_manager.get_user_data(), conn->get_addr_in());
+                           buffer_manager.get_user_data(), addr);
 }
 
 void State::dump_entire_state() {
