@@ -59,8 +59,8 @@ func main() {
 		}
 	case "test2":
 		serviceList = [][]string{
-			{"backend1", "6,7,8,9,10", "0"},
-			{"app", "14,15,16,17,18,19,20", "0"},
+			{"backend1", "3,4,5,6,7", "0"},
+			{"app", "10,11,12,13", "0"},
 		}
 	case "test3":
 		serviceList = [][]string{
@@ -88,9 +88,8 @@ func main() {
 	/* serviceList := [][]string{
 		{"app", "9", "0"},
 	} */
-	if args.Sidecar || args.Envoy {
-		serviceList = append(serviceList, []string{"ingress", "_", "_"})
-	}
+
+	serviceList = append(serviceList, []string{"ingress", "_", "_"})
 
 	// listen for SIGINT (Ctrl-C)
 	sigCh := make(chan os.Signal, 1)
@@ -220,7 +219,7 @@ func run_servicees(env string, testName string, serviceList [][]string, sidecar,
 		}
 
 		// run the sidecar
-		if sidecar || envoy {
+		if sidecar || envoy || plain {
 			if sidecar {
 				c := exec.CommandContext(ctx, "docker", "compose", "run", "-d", "-T", "-P",
 					"--name", fmt.Sprintf("%s-sidecar", name), fmt.Sprintf("%s-sidecar", name))
@@ -233,23 +232,22 @@ func run_servicees(env string, testName string, serviceList [][]string, sidecar,
 					c_prof.Stderr = os.Stderr
 					c_prof.Start()
 				}
-			} else {
+			} else if envoy {
 				c := exec.CommandContext(ctx, "docker", "compose", "-f", "envoy-compose.yaml", "run", "-d", "-T", "-P",
 					"--name", fmt.Sprintf("%s-envoy", name), fmt.Sprintf("%s-envoy", name))
 				c.Dir = sidecar_dir
 				no_env_run(c, sidecar_dir, false, "envoy-compose")
+			} else if plain {
+				if name == "ingress" {
+					c := exec.CommandContext(ctx, "docker", "compose", "run", "-d", "-T", "-P",
+						"--name", "ingress-plain", "ingress-plain")
+					c.Dir = sidecar_dir
+					no_env_run(c, sidecar_dir, false, "docker-compose")
+				}
 			}
 		}
 
-		// if plain, run ingress-envoy
-		if plain {
-			c := exec.CommandContext(ctx, "docker", "compose", "run", "-d", "-T", "-P",
-				"--name", "ingress-envoy", "ingress-envoy")
-			c.Dir = sidecar_dir
-			no_env_run(c, sidecar_dir, false, "docker-compose")
-		}
-
-		time.Sleep(time.Millisecond * 100)
+		time.Sleep(time.Millisecond * 1000)
 	}
 }
 
