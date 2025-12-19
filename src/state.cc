@@ -342,10 +342,10 @@ bool State::forward_request(std::shared_ptr<HTTPConnection> conn,
     rpc->set_us_stream_id(conn->submit_request(rpc));
 
     // check if the request has an ID
-    if (rpc->get_id() == -1) {
+    /* if (rpc->get_id() == -1) {
       rpc->dump_req_headers();
       LOG(FATAL) << "Request has no ID";
-    }
+    } */
 
     // update the mapping
     rpc_mapper.route(conn->type, rpc->get_ds_stream_id(), rpc->get_ds_fd(),
@@ -426,9 +426,9 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
 
         // update stats
         if (!rpc->is_drop()) {
-          if (rpc->get_id() == -1) {
+          /* if (rpc->get_id() == -1) {
             LOG(FATAL) << "Response has no ID";
-          }
+          } */
           if (type == ConnectionType::EGRESS) {
             shared_state.in_flight.fetch_add(1);
             local_state.ppm_client_dn_send.at(rpc->get_service()) = true;
