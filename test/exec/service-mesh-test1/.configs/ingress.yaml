@@ -3,8 +3,8 @@ routing:
     upstream:
       host: app-sidecar
       port: 3007
-    limit: 1000000
-    slo: 100000000
+    limit: 1000
+    slo: 13
 #  app2:
 #    upstream:
 #      host: app-sidecar
@@ -16,13 +16,11 @@ mapping:
     downstreams:
       - app
     listen_port: 3000
-    limit: -1
 #  app2:
 #    downstreams:
 #      - app2
 #    min_max_concurrency: 6
 #    listen_port: 3009
-#    limit: -1
 ring_size: 12000
 buffer_count: 16384
 buffer_size: 10000

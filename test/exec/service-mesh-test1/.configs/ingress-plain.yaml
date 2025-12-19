@@ -7,11 +7,11 @@ buffer_size: 80000
 num_threads: 1
 frontend_pool_connections: 4000
 egress_listener_port: 4007
-ingress_listener_port: 3007
+ingress_listener_port: 3000
 ingress_upstream_host: 172.17.0.1
 ingress_upstream_port: 2007
 is_ingress: False
 is_frontend: True
 report_latency: True
 ppm_limit: 10
-name: app
+name: ingress

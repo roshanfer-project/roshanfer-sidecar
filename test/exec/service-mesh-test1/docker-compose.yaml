@@ -1,16 +1,22 @@
 services:
 
-  ingress-envoy:
-    image: envoyproxy/envoy:v1.30-latest
-    container_name: ingress-envoy
+  ingress-plain:
+    image: sidecar-sidecar:latest
+    container_name: ingress-plain
     restart: no
+    environment:
+      - PROC_NAME=ingress-plain
+      - GLOG_logtostderr=1
+#      - GLOG_v=1
+#      - GLOG_vmodule=stats=1
     volumes:
-      - ./.configs/envoy-ingress.yaml:/etc/envoy/envoy.yaml
+      - ./.configs/ingress-plain.yaml:/config.yaml
+      - /usr/local/lib:/usr/local/lib:ro
+      - /lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:ro
     ports:
-      - "3000:3000"
-      - "3009:3009"
-    command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml --concurrency 3 --disable-hot-restart
-    cpuset: "20,21,22"
+      - "3000:3000"   # hotels listen_port
+    privileged: true
+    cpuset: "22,23"
 
   ingress-sidecar:
     image: sidecar-sidecar:latest
