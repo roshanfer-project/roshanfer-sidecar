@@ -21,7 +21,6 @@ struct RoutingEntry {
 
 struct MappingInfo {
   std::vector<std::string> downstreams;
-  int limit;
   std::optional<uint16_t> listen_port;
 };
 
@@ -46,6 +45,7 @@ struct Config {
   bool report_latency;
   std::optional<int> ingress_pool_connections;
   std::optional<int> frontend_pool_connections;
+  std::optional<int32_t> ppm_limit;
 };
 
 Config load_config(const std::string &filename);

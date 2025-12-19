@@ -15,12 +15,13 @@
 #include "rpc_queue.h"
 #include "spinlock.hpp"
 #include "stats.h"
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <string>
-#include <string_view>
 #include <sys/types.h>
 #include <unordered_map>
 #include <vector>
@@ -53,13 +54,18 @@ public:
   FailedDNInfo(FailedDNInfo &&) = delete;
   FailedDNInfo &operator=(FailedDNInfo &&) = delete;
 
-  void push(std::unique_ptr<Buffer>);
+  void push_back(std::unique_ptr<Buffer>);
+  void push_front(std::unique_ptr<Buffer>);
   std::unique_ptr<Buffer> pop();
   // std::string id_list();
-  size_t size() { return failed_dn_info.size(); }
+  size_t size();
 
 public:
-  std::queue<std::unique_ptr<Buffer>> failed_dn_info;
+  std::deque<std::unique_ptr<Buffer>> failed_dn_info;
+
+private:
+  SpinLock lock;
+  std::atomic<size_t> _size;
 };
 
 class SharedState {
@@ -69,12 +75,7 @@ public:
 public:
   /*ConnectionType::INGRESS-side metrics*/
 
-  /*
-  hosted services and their sent credits
-  Note that this is shared among threads for the same reason as
-  ingress_admitted.
-  */
-  FastMap<uint32_t> sent_credits;
+  std::atomic<int32_t> in_flight;
   /*
   per-method ConnectionType::INGRESS responses in to the sidecar (from the local
   app). In other words, this is final response for a service method. Note that
@@ -93,8 +94,7 @@ public:
   */
   FastMap<uint32_t> ingress_request_admitted;
 
-  LocalMap<FailedDNInfo> failed_dn_info;
-  SpinLock failed_dn_info_lock;
+  FailedDNInfo failed_dn_info;
 
   /*ConnectionType::EGRESS-side metrics*/
 
@@ -191,8 +191,8 @@ private:
   void send_dn(struct sockaddr_in, const std::string &, size_t, int32_t);
   std::tuple<const std::string &, bool, size_t, int32_t>
   valid_credit(const char *);
-  int get_available_credits(const std::string_view &);
-  void check_credit_transmission(int32_t);
+  bool check_credit_available();
+  void check_credit_transmission();
 
 private:
   Config config;

@@ -12,11 +12,8 @@ PPM is a stateful protocol, so both client and server rely on some state variabl
 1. PPMQueue: It holds requests that should be sent to server using the PPM protocol.
 
 ## Server-side
-1. sent_credits: This is the number of credits already sent to the client(s).
-2. per_method_resp_in: This counter shows the number of complete requests that is (or about to) exit from the sidecar to the clients.
-3. downstream_concurrency: This counts the number of requests that are on fly to other dosntream servers.
-4. per_api_limit: This is the configured limit for the server.
-5. failed_dn_info: This is a queue of all DNs that have been rejected. It helps the server to keep track of rejected DNs in case it wants to send a credit when a slot becomes available. There are two ways a credit can become available: 1. The server sends back an INGRESS response (increasing per_method_resp_in). 2. the server sends an EGRESS request (increasing downstream_concurrency).
+1. in_flight: This is number indicating how many requests are either active in the server or on the way to the server.
+2. failed_dn_info: This is a queue of all DNs that have been rejected. It helps the server to keep track of rejected DNs in case it wants to send a credit when a slot becomes available. There are two ways a credit can become available: 1. The server sends back an INGRESS response (decreasing in_flight). 2. the server sends an EGRESS request (decreasing in_flight).
 
 # Logic
 
@@ -32,7 +29,7 @@ PPM is a stateful protocol, so both client and server rely on some state variabl
 
 1. At some point `State::ppm_client` is called (See `rpc_flow.md` for details).
 2. Dequeue an RPC from PPMQueue and send it.
-5. Increment downstream_concurrency by 1.
+5. Decrement in_flight by 1.
 
 
 ## Server-side
@@ -40,13 +37,25 @@ PPM is a stateful protocol, so both client and server rely on some state variabl
 ### On every DN
 
 1. `State::queue_multiplexer` gets called.
-2. Number of available credits is calculated.
-3. If the available credit is more than requested credits, the grant it and increment sent_credits. Otherwise, store the DN address and its requested credits in failed_dn_info.
+2. Checks if the in_flight is less than limit.
+3. If the in_flight is less than limit, the grant it and increment in_flight. Otherwise, store the rejected DN info in a global queue (shared among all threads).
 
 ### When a credit becomes available
-1. Number of available credits is calculated.
-2. We pop from failed_dn_info and start sending credits.
+1. Increment in_flight by 1.
+2. We pop from the global queue and start sending credits.
 
+# Note about sidecar roles
+In every deployment, we definitely have one sidecar as Ingress, one as Frontend. Rest of the sidecars are neither ingress nor frontend.
+
+A simple topology is shown below:
+
+External clients --HTTP/1 (without PPM protocol)--> Ingress --HTTP/1 (with PPM protocol)--> Frontend --HTTP/2 (with PPM protocol)--> Backend 1 --HTTP/2 (with PPM protocol)--> ...
+
+**Role-Specific Logic:**
+*   **Ingress**: 
+    *   **Drops**: Dropping Logic (`local_state.drops` and associated checks) **only happens at the Ingress sidecar**. Downstream sidecars (Frontend/Backend) do not drop requests (at all).
+    *   **Credits**: The Ingress sidecar (receiving external traffic) does **not** use the `in_flight` credit accounting mechanism for admission control. Credits are strictly for the internal PPM protocol between mesh services.
+*   **Mesh Services**: Strictly enforce PPM credits and do not drop requests (at all).
 
 # Visual Flow
 
@@ -94,82 +103,3 @@ sequenceDiagram
     end
     deactivate SS
 ```
-
-# PPM Credit Logic & Lifecycle
-
-This diagram explains how the "Available Credits" are calculated and how the lifecycle of a request affects this balance.
-
-## The Formula
-The number of available credits determines if a new request can be admitted.
-
-$$
-\text{Available} = (\underbrace{\text{Limit}}_{\text{Configured}} + \underbrace{\text{Responses}}_{\text{Completed}} + \underbrace{\text{Downstream}}_{\text{Offloaded}}) - \underbrace{\text{Sent Credits}}_{\text{Total Admitted}}
-$$
-
-**Interpretation**: The limit applies to requests **currently processing** within the local service.
-- **Processing Locally**: Consumes 1 Credit.
-- **Waiting for Downstream**: Consumes 0 Credits (Credit is "refunded" while waiting).
-- **Completed**: Consumes 0 Credits (Credit is permanently returned).
-
-## Lifecycle Diagram
-The following sequence diagram tracks the **Credit Balance** (assuming Limit = 10) as a request moves through the system.
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant Sidecar
-    participant App as Local Service
-    participant Downstream
-
-    Note right of Sidecar: Initial Balance = 10
-
-    Client->>Sidecar: Demand Notification (DN)
-    activate Sidecar
-    Sidecar->>Sidecar: Check Balance (10 > 0)
-    Sidecar->>Client: Grant Credit
-    Note right of Sidecar: Balance = 9 (10 - 1)
-    deactivate Sidecar
-
-    Client->>Sidecar: Send Request
-    Sidecar->>App: Forward Request
-    activate App
-    
-    Note over App: App Processing...
-
-    App->>Sidecar: Call Downstream
-    activate Sidecar
-    Sidecar->>Downstream: Forward Request
-    Note right of Sidecar: Balance = 10 (9 + 1)
-    Note right of Sidecar: Request is "Offloaded"
-    deactivate Sidecar
-    deactivate App
-
-    Note over Downstream: Downstream Processing...
-
-    Downstream-->>Sidecar: Response
-    activate Sidecar
-    Sidecar->>App: Forward Response
-    Note right of Sidecar: Balance = 9 (10 - 1)
-    Note right of Sidecar: Request "Re-enters"
-    deactivate Sidecar
-    activate App
-
-    Note over App: App Processing...
-
-    App-->>Sidecar: Final Response
-    activate Sidecar
-    Sidecar->>Client: Forward Response
-    Note right of Sidecar: Balance = 10 (9 + 1)
-    Note right of Sidecar: Request Completed
-    deactivate Sidecar
-    deactivate App
-```
-
-## Key State Transitions
-
-| Event | Effect on Formula | Effect on Balance | Meaning |
-| :--- | :--- | :--- | :--- |
-| **Grant DN** | `Sent Credits` ++ | **-1** | Request enters system. |
-| **Call Downstream** | `Downstream` ++ | **+1** | Request leaves local CPU/Memory scope. |
-| **Downstream Return** | `Downstream` -- | **-1** | Request returns to local scope. |
-| **Final Response** | `Responses` ++ | **+1** | Request leaves system entirely. |

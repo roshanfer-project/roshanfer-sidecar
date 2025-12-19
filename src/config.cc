@@ -53,6 +53,14 @@ Config load_config(const std::string &filename) {
   }
   LOG(INFO) << "config.report_latency: " << local_config.report_latency;
 
+  if (!local_config.is_ingress && !node["ppm_limit"]) {
+    LOG(FATAL) << "ppm_limit is required for non-ingress";
+  }
+
+  if (!local_config.is_ingress) {
+    local_config.ppm_limit = (int32_t)node["ppm_limit"].as<int>();
+  }
+
   // Optional is_frontend
   if (node["is_frontend"]) {
     local_config.is_frontend = node["is_frontend"].as<bool>();
@@ -165,13 +173,6 @@ Config load_config(const std::string &filename) {
           }
         }
 
-        if (mapping_node.second["limit"]) {
-          mapping_info.limit = mapping_node.second["limit"].as<int>();
-        } else {
-          LOG(FATAL) << "Missing mandatory limit for upstream '" << upstream
-                     << "' in mapping section";
-        }
-
         if (mapping_node.second["listen_port"]) {
           mapping_info.listen_port =
               mapping_node.second["listen_port"].as<uint16_t>();
@@ -186,6 +187,9 @@ Config load_config(const std::string &filename) {
     LOG(INFO) << "Mapping section not found (optional)";
   }
 
+  if (!local_config.is_ingress)
+    LOG(INFO) << "config.ppm_limit: " << local_config.ppm_limit.value();
+
   if (config.is_ingress &&
       (local_config.num_threads != (int)local_config.mapping.size())) {
     LOG(FATAL) << "Number of threads (" << local_config.num_threads
@@ -196,7 +200,6 @@ Config load_config(const std::string &filename) {
   // Log parsed mapping configuration
   for (const auto &pair : local_config.mapping) {
     LOG(INFO) << "Mapping: upstream=" << pair.first;
-    LOG(INFO) << "  limit: " << pair.second.limit;
     LOG(INFO) << "  listen_port: "
               << (pair.second.listen_port.has_value()
                       ? std::to_string(pair.second.listen_port.value())

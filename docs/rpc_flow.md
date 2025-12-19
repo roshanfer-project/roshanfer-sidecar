@@ -1,7 +1,7 @@
 # Request Flow
 
 # Ingress
-We are using `ConnectionType::EGRESS` path because it fits better with `ppm` logics. Only HTTP/1 is used here.
+We are using `ConnectionType::EGRESS` path because it fits better with `ppm` logics.This means requests enter the sidecar from `ConnectionType::INGRESS`. Then it is forwarded to upstream of EGRESS. The responses follow the reverse path. Therefore, we do not use `ConnectionType::INGRESS` for Ingress at all. Only HTTP/1 is used here.
 
 ## Request
 Requests are recieved on `ConnectionDirection::DOWNSTREAM` direction.
@@ -23,11 +23,13 @@ Requests are recieved on `ConnectionDirection::DOWNSTREAM` direction.
 7. If a valid credit has been recieved, `State::ppm_client` pops from `PPMQueue` and calls`State::forward_request` that maps the downstream and upstream connections and stream ids can calls thw `State::write_http`.
 8. `write_http` uses the `HTTPConnection::http_write` **virtual** method to write the rpc to the `iouring`.
 
-### Dropped request
+### Dropped request (Ingress Only)
+**Note:** Request dropping happens **only at the Ingress Sidecar**. Downstream sidecars do not invoke this logic.
+
 4. In `Ingress::check_drop` we prepare the request for dropping (e.g., setting the status code), map it to upstream connection (drop connection with `drop_fd` fd).
 5. Add the RPC to `RPCQueue` of the upstream side.
 6. Then, in `State::ingress_admit` we call `State::forward` that calls `State::write_http`.
-5. `State::write_http` uses **virtual** `HTTPConnection::http_write` methods to write back the response.
+7. `State::write_http` uses **virtual** `HTTPConnection::http_write` methods to write back the response.
 
 ## Response
 
