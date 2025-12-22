@@ -45,6 +45,14 @@ Config load_config(const std::string &filename) {
   }
   LOG(INFO) << "config.is_ingress: " << local_config.is_ingress;
 
+  if (node["is_plain_frontend"]) {
+    local_config.is_plain_frontend = node["is_plain_frontend"].as<bool>();
+  } else {
+    local_config.is_plain_frontend = false;
+  }
+
+  LOG(INFO) << "config.is_plain_frontend: " << local_config.is_plain_frontend;
+
   // Optional report_latency
   if (node["report_latency"]) {
     local_config.report_latency = node["report_latency"].as<bool>();
