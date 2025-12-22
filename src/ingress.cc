@@ -103,16 +103,14 @@ int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue &rpc_queue,
                                             RPCMapper &rpc_mapper,
                                             std::string &service,
                                             int64_t extra_slot_ingress,
-                                            int32_t queueing_delay,
-                                            int32_t norm_avg_service_time_us) {
+                                            int32_t queueing_delay) {
 
   int new_requests = (int)queue.at(service).size();
   int32_t current_slo_us = (int32_t)((float)slo_us.get(service) * 1.0F);
   int new_added = 0;
 
   while (extra_slot_ingress > 0 && new_requests > 0 &&
-         (queueing_delay + (new_added + 1) * norm_avg_service_time_us) <
-             current_slo_us) {
+         queueing_delay < current_slo_us) {
     auto rpc = dequeue(service);
     add_rpc_id_header(rpc);
     rpc_queue.enqueue(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM,
@@ -123,8 +121,7 @@ int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue &rpc_queue,
     VLOG(2) << "INGRESS: New request to be admitted "
             << "| service: " << service << "| id: " << rpc->get_id()
             << "| extra slot: " << extra_slot_ingress
-            << "| queueing delay: " << queueing_delay
-            << "| norm avg service time: " << norm_avg_service_time_us;
+            << "| queueing delay: " << queueing_delay;
   }
 
   // drop remaining requests
@@ -161,8 +158,8 @@ int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue &rpc_queue,
             << "| service: " << drop_rpc->get_service()
             << "| id: " << drop_rpc->get_id()
             << "| extra slot: " << extra_slot_ingress
-            << "| queueing delay: " << queueing_delay
-            << "| norm avg service time: " << norm_avg_service_time_us;
+            << "| queueing delay: " << queueing_delay;
+    //<< "| norm avg service time: " << norm_avg_service_time_us;
     new_requests--;
   }
 

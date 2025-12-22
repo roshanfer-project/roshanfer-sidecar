@@ -2,19 +2,19 @@
 #include "config.h"
 #include "glog/logging.h"
 #include "rpc_message.h"
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 
 PPMQueue::PPMQueue(std::unordered_map<std::string, RoutingEntry,
                                       TransparentHash, TransparentEqual>
                        routing)
-    : ppm_queue(std::unordered_map<
-                std::string,
-                std::unordered_map<int32_t, std::shared_ptr<RPCMessage>>,
-                TransparentHash, TransparentEqual>()) {
+    : ppm_queue(
+          std::unordered_map<std::string,
+                             std::map<int32_t, std::shared_ptr<RPCMessage>>,
+                             TransparentHash, TransparentEqual>()) {
   for (const auto &[route, _] : routing) {
-    ppm_queue.emplace(
-        route, std::unordered_map<int32_t, std::shared_ptr<RPCMessage>>());
+    ppm_queue.emplace(route, std::map<int32_t, std::shared_ptr<RPCMessage>>());
   }
 }
 
@@ -78,6 +78,23 @@ size_t PPMQueue::size(const std::string &service) {
     LOG(FATAL) << "Service not found in PPM queue: " << service;
   } catch (const std::exception &e) {
     LOG(FATAL) << "Error in getting size from PPM queue: " << e.what()
+               << " service: " << service;
+  }
+}
+
+int32_t PPMQueue::get_waiting_delay(const std::string &service) {
+  try {
+    if (ppm_queue.at(service).empty()) {
+      return 0;
+    }
+    auto first_req_for = ppm_queue.at(service).begin()->second->req_rcv_time;
+    return (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
+               std::chrono::steady_clock::now() - first_req_for)
+        .count();
+  } catch (const std::out_of_range &e) {
+    LOG(FATAL) << "Service not found in PPM queue: " << service;
+  } catch (const std::exception &e) {
+    LOG(FATAL) << "Error in getting queueing delay from PPM queue: " << e.what()
                << " service: " << service;
   }
 }

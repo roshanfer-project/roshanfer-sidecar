@@ -76,34 +76,11 @@ public:
   /*ConnectionType::INGRESS-side metrics*/
 
   std::atomic<int32_t> in_flight;
-  /*
-  per-method ConnectionType::INGRESS responses in to the sidecar (from the local
-  app). In other words, this is final response for a service method. Note that
-  Ingress::Ingress does not use this because it relies on ConnectionType::EGRESS
-  responses. This is shared among threads for the same reason as
-  ingress_admitted.
-  */
-  FastMap<uint32_t> per_method_resp_in;
-  /*
-  This counts the number of ConnectionType::INGRESS requests admitted to the
-  sidecar Note that Ingress::Ingress does not use this. The reason that this is
-  shared among threads is because we are relying on the kernel to balance
-  connections between threads. Therefore, we might have different threads
-  receiving requests for the same service (For frontend, this is defenitely the
-  case now).
-  */
-  FastMap<uint32_t> ingress_request_admitted;
+  std::atomic<int32_t> in_local;
 
   FailedDNInfo failed_dn_info;
 
   /*ConnectionType::EGRESS-side metrics*/
-
-  /*
-  downstream services and their concurrency
-  Note that this is shared among threads for the same reason as
-  ingress_admitted.
-  */
-  FastMap<int64_t> downstream_concurrency;
 };
 
 class LocalState {
@@ -112,10 +89,6 @@ public:
 
 public:
   /*ConnectionType::INGRESS-side metrics*/
-  /*
-  READ-ONLY: per-API limit (config.mapping.<service>.limit).
-  */
-  LocalMap<uint32_t> per_api_limit;
 
   /*ConnectionType::EGRESS-side metrics*/
 
@@ -128,28 +101,12 @@ public:
   READ-ONLY: This is a mapping from downstream services to upstream services.
   */
   LocalMap<std::string> upstream_service;
-  /*
-  Number of received responses for each service .
-  This is EGRESS equivalent of `per_method_resp_in`.
-  */
-  LocalMap<uint32_t> egress_resp_in;
   // number of drops (updated if only config.is_ingress is true)
   uint32_t drops;
-  /*
-  ONLY used by Ingress::Ingress to track the number of requests admitted to
-  RPCQueue for admittion.
-  */
-  LocalMap<int64_t> ingress_to_be_admitted;
-  /*
-  ONLY used by Ingress::Ingress to track the number of requests admitted to
-  frontend.
-  */
-  LocalMap<int64_t> ingress_admitted;
   /*
   READ-ONLY: ONLY used by Ingress::Ingress to track the ingress limit.
   */
   LocalMap<int32_t> ingress_limit;
-  LocalMap<ExponentialMovingAverage> avg_downstream_concurrency;
 };
 
 class UpstreamRouteMapper {

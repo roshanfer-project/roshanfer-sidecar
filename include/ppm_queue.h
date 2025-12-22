@@ -4,6 +4,7 @@
 #include "rpc_message.h"
 #include "utils.h"
 #include <cstdint>
+#include <map>
 #include <string>
 #include <string_view>
 #include <sys/socket.h>
@@ -19,10 +20,11 @@ public:
   // checks if the service exists and the queue is not empty
   const std::string &check(std::string_view &);
   size_t size(const std::string &);
+  int32_t get_waiting_delay(const std::string &service);
 
 private:
   std::unordered_map<std::string,
-                     std::unordered_map<int32_t, std::shared_ptr<RPCMessage>>,
+                     std::map<int32_t, std::shared_ptr<RPCMessage>>,
                      TransparentHash, TransparentEqual>
       ppm_queue;
 };

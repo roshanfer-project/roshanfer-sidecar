@@ -24,7 +24,7 @@ public:
   size_t size(std::string);
   void update_stats(int32_t, int32_t, std::string &);
   int64_t add_to_be_admitted_or_drop(RPCQueue &, RPCMapper &, std::string &,
-                                     int64_t, int32_t, int32_t);
+                                     int64_t, int32_t);
   void dump_state();
   void add_rpc_id_header(std::shared_ptr<RPCMessage> &);
 
