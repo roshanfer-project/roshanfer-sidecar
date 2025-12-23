@@ -434,7 +434,8 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
         if (!rpc->is_drop()) {
           if (rpc->get_id() == -1 && !config.is_plain_frontend) {
             LOG(FATAL)
-                << "Response has no ID (probably service does not provide IDs "
+                << "Response has no ID (probably service does not provide "
+                   "IDs "
                    "or perhanps you should set is_plain_frontend to true)";
           }
           if (type == ConnectionType::EGRESS) {
