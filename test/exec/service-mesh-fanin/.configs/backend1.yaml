@@ -1,12 +1,20 @@
+routing:
+  protobuf.Backend3/SimpleCall:
+    upstream:
+      host: backend3-sidecar
+      port: 3009
+
 mapping:
   protobuf.Backend1/SimpleCall:
+    downstreams:
+      - protobuf.Backend3/SimpleCall
   protobuf.Backend1/SimpleCall2:
+
 ring_size: 1000
-buffer_count: 1024
+buffer_count: 16384
 buffer_size: 80000
 num_threads: 1
 ingress_pool_connections: 100
-frontend_pool_connections: 100
 egress_listener_port: 4005
 ingress_listener_port: 3005
 ingress_upstream_host: 172.17.0.1

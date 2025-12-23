@@ -83,7 +83,7 @@ def main():
                 if rpc_path not in metrics[service_name][metric_name][conn_type]:
                     metrics[service_name][metric_name][conn_type][rpc_path] = {"values": [], "timestamps": []}
 
-                metrics[service_name][metric_name][conn_type][rpc_path]["values"].append(int(value))
+                metrics[service_name][metric_name][conn_type][rpc_path]["values"].append(int(float(value)))
                 #metrics[service_name][metric_name][conn_type][rpc_path]["timestamps"].append(timestamp)
     
     # Process metrics

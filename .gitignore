@@ -4,3 +4,4 @@ glog
 glog_install
 *.log
 *.pcap
+*.out

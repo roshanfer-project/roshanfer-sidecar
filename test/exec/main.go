@@ -64,9 +64,9 @@ func main() {
 		}
 	case "test3":
 		serviceList = [][]string{
-			{"backend1", "9,11", "0"},
-			{"backend2", "13,15,17,19", "0"},
-			{"app", "21,7", "0"},
+			{"backend1", "3,4", "0"},
+			{"backend2", "5,6,7,8,9", "0"},
+			{"app", "10,11,12", "0"},
 		}
 	case "b1":
 		serviceList = [][]string{
@@ -151,6 +151,42 @@ func main() {
 			fmt.Println("plain-chain3 only supports plain mode")
 			os.Exit(1)
 		}
+	case "chain3":
+		var nextHopS2, portS3 string
+		if args.Plain {
+			nextHopS2 = "localhost:3006"
+			portS3 = "3006"
+		} else {
+			nextHopS2 = "localhost:4005"
+			portS3 = "2006"
+		}
+
+		serviceList = [][]string{
+			{"node3", "3,4,5,6,14", fmt.Sprintf("PORT=%s;NEXT_HOP=", portS3)},
+			{"node2", "7,8,9,10", fmt.Sprintf("NEXT_HOP=%s", nextHopS2)},
+			{"app", "11,12,13", "0"},
+			{"ingress", "_", "0"},
+		}
+
+		if args.Plain {
+			env = "service-mesh-chain3/plain.env"
+		} else {
+			env = "service-mesh-chain3/sidecar.env"
+		}
+	case "fanin":
+		serviceList = [][]string{
+			{"backend3", "3,4,5,6", "0"},
+			{"backend1", "7,13", "0"},
+			{"backend2", "8,9,10", "0"},
+			{"app", "11,12", "0"},
+			{"ingress", "_", "0"},
+		}
+
+		if args.Plain {
+			env = "service-mesh-fanin/plain.env"
+		} else {
+			env = "service-mesh-fanin/sidecar.env"
+		}
 	}
 
 	run_servicees(env, args.Test, serviceList, args.Sidecar, args.Envoy, args.Plain, false, args.Overrides)
@@ -182,7 +218,19 @@ func run_servicees(env string, testName string, serviceList [][]string, sidecar,
 	for _, tuple := range serviceList {
 		name := tuple[0]
 		cpuset := tuple[1]
-		//sidecar_cpuset := tuple[2]
+		var serviceOverrides string
+		if len(tuple) > 2 {
+			serviceOverrides = tuple[2]
+		}
+
+		// Make a copy of overrides to avoid accumulation
+		currentOverrides := make([]string, len(overrides))
+		copy(currentOverrides, overrides)
+
+		if serviceOverrides != "" && serviceOverrides != "0" {
+			parts := strings.Split(serviceOverrides, ";")
+			currentOverrides = append(currentOverrides, parts...)
+		}
 
 		fmt.Println("/////////////////////////", name, "/////////////////////////")
 		if name != "ingress" {
@@ -190,6 +238,12 @@ func run_servicees(env string, testName string, serviceList [][]string, sidecar,
 			var folder string
 			if strings.HasPrefix(name, "chain-node-") {
 				folder = "../app-chain"
+			} else if name == "node2" {
+				folder = "../backend1"
+			} else if name == "node3" {
+				folder = "../backend2"
+			} else if strings.HasPrefix(name, "backend3") {
+				folder = "../backend3"
 			} else {
 				folder = fmt.Sprintf("../%s", name)
 			}
@@ -207,15 +261,15 @@ func run_servicees(env string, testName string, serviceList [][]string, sidecar,
 
 			// run the service
 			wg.Add(1)
-			go func(name string) {
+			go func(name string, loopOverrides []string) {
 				defer wg.Done()
 				fmt.Printf("Running %s\n", name)
 				c := exec.CommandContext(ctx, "taskset", "-c", cpuset, fmt.Sprintf("./%s.o", name))
 				//c = exec.CommandContext(ctx, fmt.Sprintf("./%s.o", name))
 				// Inject SERVICE_NAME for chain nodes (or all nodes if useful)
-				overrides = append(overrides, fmt.Sprintf("SERVICE_NAME=%s", name))
-				env_run(c, dir, env, overrides)
-			}(name)
+				loopOverrides = append(loopOverrides, fmt.Sprintf("SERVICE_NAME=%s", name))
+				env_run(c, dir, env, loopOverrides)
+			}(name, currentOverrides)
 		}
 
 		// run the sidecar

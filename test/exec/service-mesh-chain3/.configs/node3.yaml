@@ -1,18 +1,15 @@
 mapping:
   protobuf.Backend2/SimpleCall:
-  protobuf.Backend2/SimpleCall2:
-ring_size: 1000
-buffer_count: 1024
-buffer_size: 80000
+ring_size: 4000
+buffer_count: 16384
+buffer_size: 100000
 num_threads: 1
-ingress_pool_connections: 100
-frontend_pool_connections: 100
 egress_listener_port: 4006
 ingress_listener_port: 3006
 ingress_upstream_host: 172.17.0.1
 ingress_upstream_port: 2006
 is_ingress: False
 is_frontend: False
-ppm_limit: 8
 report_latency: True
-name: backend2
+ppm_limit: 10
+name: node3

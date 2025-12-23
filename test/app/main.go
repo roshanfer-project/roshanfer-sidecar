@@ -25,7 +25,7 @@ var deployment string
 var appSize int
 var lastRpcId int
 
-// var app2Size int
+var app2Size int
 var client protobuf.Backend1Client
 
 // var client2 protobuf.Backend1Client
@@ -39,8 +39,8 @@ var listenPort int
 var sidecar bool
 var tracer trace.Tracer
 
-// var app2PreRepeat int
-// var app2PostRepeat int
+var app2PreRepeat int
+var app2PostRepeat int
 
 var log = utils.GetLogger("app")
 
@@ -64,6 +64,7 @@ func main() {
 		appLogic(w, getContextWithRpcId(r))
 	}) */
 	mux.Handle("/app", tracingMiddleware(http.HandlerFunc(appLogic)))
+	mux.Handle("/app2", tracingMiddleware(http.HandlerFunc(app2Logic)))
 
 	// Start pprof server
 	go func() {
@@ -108,20 +109,18 @@ func init() {
 	sidecar = utils.GetEnvVar("sidecar", true) == "true"
 	listenPort = utils.StrToInt(utils.GetEnvVar("appListenPort", true))
 	appSize = utils.StrToInt(utils.GetEnvVar("appSize", true))
-	// app2Size = utils.StrToInt(utils.GetEnvVar("app2Size", true))
-	appPreRepeat = utils.StrToInt(utils.GetEnvVar("appPreRepeat", true))
-	appPostRepeat = utils.StrToInt(utils.GetEnvVar("appPostRepeat", true))
-	// app2PreRepeat = utils.StrToInt(utils.GetEnvVar("app2PreRepeat", true))
-	// app2PostRepeat = utils.StrToInt(utils.GetEnvVar("app2PostRepeat", true))
+	app2Size = utils.StrToInt(utils.GetEnvVar("app2Size", true))
+	app2PreRepeat = utils.StrToInt(utils.GetEnvVar("app2PreRepeat", true))
+	app2PostRepeat = utils.StrToInt(utils.GetEnvVar("app2PostRepeat", true))
 	fmt.Printf("deployment: %s\n", deployment)
 	fmt.Printf("appSize: %d\n", appSize)
 	switch deployment {
-	case "test2":
+	case "test2", "chain3":
 		conn := test.GetConn(utils.GetEnvVar("Backend1AppEgress", true))
 		client = protobuf.NewBackend1Client(conn)
 		// conn = test.GetConn(utils.GetEnvVar("AppEgress", true))
 		// client2 = protobuf.NewBackend1Client(conn)
-	case "test3":
+	case "test3", "fanin":
 		conn := test.GetConn(utils.GetEnvVar("Backend1AppEgress", true))
 		client = protobuf.NewBackend1Client(conn)
 		// conn = test.GetConn(utils.GetEnvVar("AppEgress", true))
@@ -173,7 +172,7 @@ func appLogic(w http.ResponseWriter, r *http.Request) {
 	case "test1":
 		busyLoop(appPreRepeat + appPostRepeat)
 		writeResponseWithoutchunkEncoding(w, makebigString(appSize))
-	case "test2":
+	case "test2", "chain3":
 		_, span := tracer.Start(ctx, "pre-processing")
 		busyLoop(appPreRepeat)
 		bigString := makebigString(appSize)
@@ -205,36 +204,39 @@ func appLogic(w http.ResponseWriter, r *http.Request) {
 		}
 		busyLoop(appPostRepeat)
 		writeResponseWithoutchunkEncoding(w, resp.Data)
+	case "fanin":
+		busyLoop(appPreRepeat)
+		bigString := makebigString(appSize)
+		arg := &protobuf.Arg{Data: bigString}
+		if _, err := client.SimpleCall(ctx, arg); err != nil {
+			log.Error("SimpleCall to client1 failed", "error", err)
+			return
+		}
+		resp, err := clientBackend2.SimpleCall(ctx, arg)
+		if err != nil {
+			log.Error("SimpleCall to client2 failed", "error", err)
+			return
+		}
+		busyLoop(appPostRepeat)
+		writeResponseWithoutchunkEncoding(w, resp.Data)
 	}
 }
 
-/* func app2Logic(w http.ResponseWriter, ctx context.Context) {
-	switch testVar {
-	case "test":
-		time.Sleep(time.Duration(app2Time) * time.Millisecond)
-		writeResponseWithoutchunkEncoding(w, makebigString(app2Size))
-	case "test2":
-		time.Sleep(time.Duration(appTime) * time.Millisecond)
+func app2Logic(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	switch deployment {
+	case "fanin":
+		busyLoop(app2PreRepeat)
 		bigString := makebigString(app2Size)
-		resp, err := client2.SimpleCall2(ctx, &protobuf.Arg{Data: bigString})
+		arg := &protobuf.Arg{Data: bigString}
+
+		// Call backend1 using SimpleCall2 (does not chain to backend3)
+		resp, err := client.SimpleCall2(ctx, arg)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Error("SimpleCall2 to client1 failed", "error", err)
 			return
 		}
-		writeResponseWithoutchunkEncoding(w, resp.Data)
-	case "test3":
-		bigString := makebigString(app2Size)
-		_, err := client2.SimpleCall2(ctx, &protobuf.Arg{Data: bigString})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		time.Sleep(time.Duration(app2Time) * time.Millisecond)
-		resp, err := client2Backend2.SimpleCall2(ctx, &protobuf.Arg{Data: bigString})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+		busyLoop(app2PostRepeat)
 		writeResponseWithoutchunkEncoding(w, resp.Data)
 	}
-} */
+}

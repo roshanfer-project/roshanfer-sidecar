@@ -4,7 +4,7 @@ routing:
       host: app-sidecar
       port: 3007
     limit: 100000
-    slo: 20
+    slo: 17
 #  app2:
 #    upstream:
 #      host: app-sidecar

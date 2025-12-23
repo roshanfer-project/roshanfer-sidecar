@@ -13,72 +13,48 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/stats/opentelemetry"
 )
 
-const serviceName = "backend2"
+const serviceName = "backend3"
 
 var log = utils.GetLogger(serviceName)
-var backend2repeat int
-var client protobuf.Backend3Client
+var backend3repeat int
 
 func configOTL(ctx context.Context, serviceName string) (grpc.ServerOption, []func(context.Context) error, bool) {
 	if shutdownList, ok := oteltool.InitializeOTel(ctx, serviceName, false); ok {
-		//tracer = otel.GetTracerProvider().Tracer(serviceName + "-tracer")
-		//meter = otel.GetMeterProvider().Meter(serviceName + "-meter")
 		return opentelemetry.ServerOption(opentelemetry.Options{
 			MetricsOptions: opentelemetry.MetricsOptions{MeterProvider: otel.GetMeterProvider()}}), shutdownList, true
 	} else {
 		return nil, nil, false
 	}
-
 }
 
 func init() {
-	backend2repeat = utils.StrToInt(utils.GetEnvVar("backend2Repeat", true))
+	backend3repeat = utils.StrToInt(utils.GetEnvVar("backend3Repeat", true))
 	if bl := utils.GetEnvVar("BUSY_LOOP", false); bl != "" {
-		backend2repeat = utils.StrToInt(bl)
+		backend3repeat = utils.StrToInt(bl)
 	}
 
 	// Check for service-specific repeat
 	serviceName := os.Getenv("SERVICE_NAME")
 	if serviceName != "" {
 		if r := utils.GetEnvVar(serviceName+"Repeat", false); r != "" {
-			backend2repeat = utils.StrToInt(r)
+			backend3repeat = utils.StrToInt(r)
 		}
 	}
 }
 
-type Backend2Server struct {
-	protobuf.UnimplementedBackend2Server
+type Backend3Server struct {
+	protobuf.UnimplementedBackend3Server
 }
 
-func (s *Backend2Server) SimpleCall(ctx context.Context, req *protobuf.Arg) (*protobuf.Resp, error) {
-	busyLoop(backend2repeat) // simulate some processing delay
-	if client != nil {
-		if md, ok := metadata.FromIncomingContext(ctx); ok {
-			ctx = metadata.NewOutgoingContext(ctx, md)
-		}
-		// Convert Arg to Arg3
-		arg3 := &protobuf.Arg3{Data: req.Data}
-		resp3, err := client.SimpleCall(ctx, arg3)
-		if err != nil {
-			return nil, err
-		}
-		return &protobuf.Resp{Data: resp3.Data}, nil
-	}
-	resp := &protobuf.Resp{
-		Data: "Hello, " + req.Data,
+func (s *Backend3Server) SimpleCall(ctx context.Context, req *protobuf.Arg3) (*protobuf.Resp3, error) {
+	busyLoop(backend3repeat) // simulate some processing delay
+	resp := &protobuf.Resp3{
+		Data: "Hello from Backend3, " + req.Data,
 	}
 	return resp, nil
-}
-
-func (s *Backend2Server) SimpleCall2(ctx context.Context, req *protobuf.Arg) (*protobuf.Resp, error) {
-	busyLoop(backend2repeat) // simulate some processing delay
-	return &protobuf.Resp{
-		Data: "Hello, " + req.Data,
-	}, nil
 }
 
 func busyLoop(repeat int) {
@@ -88,7 +64,7 @@ func busyLoop(repeat int) {
 	}
 }
 
-func (s *Backend2Server) Run() error {
+func (s *Backend3Server) Run() error {
 
 	opts := test.Opts
 
@@ -109,10 +85,9 @@ func (s *Backend2Server) Run() error {
 	}
 
 	srv := grpc.NewServer(opts...)
+	protobuf.RegisterBackend3Server(srv, s)
 
-	protobuf.RegisterBackend2Server(srv, s)
-
-	port := utils.StrToInt(utils.GetEnvVar("Backend2ListenPort", true))
+	port := utils.StrToInt(utils.GetEnvVar("Backend3ListenPort", true))
 	if p := utils.GetEnvVar("PORT", false); p != "" {
 		port = utils.StrToInt(p)
 	}
@@ -126,22 +101,9 @@ func (s *Backend2Server) Run() error {
 }
 
 func main() {
-	// Check for chaining
-	nextHop := utils.GetEnvVar("NEXT_HOP", false)
-	if utils.GetEnvVar("sidecar", false) == "true" {
-		if val := utils.GetEnvVar("Backend3_BE2_Egress", false); val != "" {
-			nextHop = val
-		}
-	}
-	if nextHop != "" {
-		conn := test.GetConn(nextHop)
-		client = protobuf.NewBackend3Client(conn)
-		log.Info("Chaining enabled", "next_hop", nextHop)
-	}
-
-	s := &Backend2Server{}
-	log.Info("Starting backend2 server")
+	s := &Backend3Server{}
+	log.Info("Starting backend3 server")
 	if err := s.Run(); err != nil {
-		log.Error("main", "failed to run backend2 server", err)
+		log.Error("main", "failed to run backend3 server", err)
 	}
 }

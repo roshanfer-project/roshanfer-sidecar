@@ -11,10 +11,7 @@ routing:
     upstream:
       host: backend2-sidecar
       port: 3006
-  protobuf.Backend2/SimpleCall2:
-    upstream:
-      host: backend2-sidecar
-      port: 3006
+
 mapping:
   app:
     downstreams:
@@ -24,6 +21,7 @@ mapping:
     downstreams:
       - protobuf.Backend1/SimpleCall2
       - protobuf.Backend2/SimpleCall2
+
 ring_size: 1000
 buffer_count: 16384
 buffer_size: 80000
@@ -35,6 +33,6 @@ ingress_upstream_host: 172.17.0.1
 ingress_upstream_port: 2007
 is_ingress: False
 is_frontend: True
-ppm_limit: 6
+ppm_limit: 4
 report_latency: True
 name: app
