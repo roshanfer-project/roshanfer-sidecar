@@ -439,7 +439,6 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
           }
           if (type == ConnectionType::EGRESS) {
             shared_state.in_flight.fetch_add(1);
-            local_state.ppm_client_dn_send.at(rpc->get_service()) = true;
           } else if (type == ConnectionType::INGRESS) {
             shared_state.in_flight.fetch_sub(1);
             shared_state.in_local.fetch_sub(1);
@@ -635,15 +634,6 @@ void State::dump_entire_state() {
   LOG(INFO) << "--- In Local "
                "(shared_state.in_local) ---";
   LOG(INFO) << "  " << shared_state.in_local.load();
-  LOG(INFO) << "--- PPM Client DN Send (local_state.ppm_client_dn_send) ---";
-  for (const auto &[service, send] : local_state.ppm_client_dn_send) {
-    LOG(INFO) << "  " << service << ": " << (send ? "true" : "false");
-  }
-  LOG(INFO) << "--- New PPM Queue Reqs (local_state.new_ppm_queue_reqs) ---";
-  for (auto &service : local_state.new_ppm_queue_reqs.get_all_keys()) {
-    LOG(INFO) << "  " << service << ": "
-              << local_state.new_ppm_queue_reqs.get(service);
-  }
   LOG(INFO) << "--- Ingress Queue Sizes (ingress) ---";
   for (const auto &[route, _] : config.routing) {
     LOG(INFO) << "  " << route << ": " << ingress.size(route);
@@ -826,41 +816,10 @@ SharedState::SharedState(std::vector<std::string> /*hosted_service*/,
                          std::vector<std::string> /*downstream_services*/)
     : in_flight(0), in_local(0), failed_dn_info(FailedDNInfo()) {}
 
-static bool set_upstream_service(LocalMap<std::string> &upstream_service,
-                                 const std::string &service) {
-  bool found = false;
-  for (const auto &[us, info] : config.mapping) {
-    for (const auto &ds : info.downstreams) {
-      if (ds == service) {
-        upstream_service.set(service, us);
-        if (found) {
-          LOG(FATAL) << "Multiple upstream services found for service: "
-                     << service;
-        }
-        found = true;
-      }
-    }
-  }
-  return found;
-}
-
 LocalState::LocalState(std::vector<std::string> /*hosted_services*/
                        ,
                        std::vector<std::string> downstream_services)
-    : ppm_client_dn_send(
-          std::unordered_map<std::string, bool>(downstream_services.size())),
-      new_ppm_queue_reqs(LocalMap<uint32_t>(downstream_services)),
-      upstream_service(LocalMap<std::string>(downstream_services)), drops(0),
-      ingress_limit(LocalMap<int32_t>(downstream_services)) {
-  for (const auto &service : downstream_services) {
-    ppm_client_dn_send.emplace(service, false);
-    // TODO: If multiple hosted services map to the same downstream service,
-    // current implementation fails. In that case, e need to track individual
-    // request IDs to to identify the correct upstream service.
-    if (!set_upstream_service(upstream_service, service)) {
-      LOG(FATAL) << "Upstream service not found for service: " << service;
-    }
-  }
+    : drops(0), ingress_limit(LocalMap<int32_t>(downstream_services)) {
   for (const auto &[service, info] : config.routing) {
     ingress_limit.set(service, info.ingress_limit.value_or(0));
     LOG(INFO) << "Ingress limit for service: " << service << " is "

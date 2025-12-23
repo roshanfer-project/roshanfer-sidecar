@@ -92,15 +92,6 @@ public:
 
   /*ConnectionType::EGRESS-side metrics*/
 
-  // True for downstream services if we have received a response form them or
-  // there is a new request in the PPM queue for that service
-  std::unordered_map<std::string, bool> ppm_client_dn_send;
-  // Number of new requests in the PPM queue for each service
-  LocalMap<uint32_t> new_ppm_queue_reqs;
-  /*
-  READ-ONLY: This is a mapping from downstream services to upstream services.
-  */
-  LocalMap<std::string> upstream_service;
   // number of drops (updated if only config.is_ingress is true)
   uint32_t drops;
   /*
