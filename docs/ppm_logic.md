@@ -13,7 +13,7 @@ PPM is a stateful protocol, so both client and server rely on some state variabl
 
 ## Server-side
 1. in_flight: This is number indicating how many requests are either active in the server or on the way to the server.
-2. failed_dn_info: This is a queue of all DNs that have been rejected. It helps the server to keep track of rejected DNs in case it wants to send a credit when a slot becomes available. There are two ways a credit can become available: 1. The server sends back an INGRESS response (decreasing in_flight). 2. the server sends an EGRESS request (decreasing in_flight).
+2. failed_dn_info: This is a collection of FIFO queues, one for each service. It holds rejected DNs. When a credit becomes available, the server prioritizes granting credits to the service with the **lowest average response time** (latency) among those with pending DNs. Within a specific service, requests are handled in FIFO order.
 
 # Logic
 

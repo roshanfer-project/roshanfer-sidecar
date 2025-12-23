@@ -1,5 +1,6 @@
 #include "stats.h"
 #include "config.h"
+#include "connection_enums.h"
 #include "fast_map.hpp"
 #include "hdr/hdr_histogram.h"
 #include <chrono>
@@ -151,9 +152,11 @@ void Counter::down(int32_t val) { count -= val; }
 
 int32_t Counter::get_count() { return count; }
 
-Stats::Stats(std::vector<std::string> services)
+Stats::Stats(std::vector<std::string> ds_services,
+             std::vector<std::string> us_services)
     : mode2_credits("Mode2 Credits"), hist(nullptr),
-      avg_service_time_us(services) {}
+      ds_avg_service_time_us(ds_services), us_avg_service_time_us(us_services) {
+}
 
 void Stats::update_hist(struct hdr_histogram *new_hist) {
   this->hist = new_hist;
@@ -170,7 +173,14 @@ void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
       LOG(FATAL) << "Failed to record value: "
                  << static_cast<int64_t>(duration.count());
     }
-    avg_service_time_us.get(rpc->get_service())
+    ds_avg_service_time_us.get(rpc->get_service())
+        .update(static_cast<int32_t>(duration.count()));
+
+    VLOG(2) << "Stats: Reported latency "
+            << "| service: " << rpc->get_service()
+            << "| duration: " << duration.count();
+  } else if (rpc->get_type() == ConnectionType::INGRESS) {
+    us_avg_service_time_us.get(rpc->get_service())
         .update(static_cast<int32_t>(duration.count()));
 
     VLOG(2) << "Stats: Reported latency "

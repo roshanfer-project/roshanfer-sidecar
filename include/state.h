@@ -42,9 +42,19 @@ public:
   std::unique_ptr<HTTPConnection> &conn;
 };
 
+struct ServiceQueue {
+public:
+  ServiceQueue() : queue(), lock(), atomic_size(0) {}
+
+public:
+  std::deque<std::unique_ptr<Buffer>> queue;
+  SpinLock lock;
+  std::atomic<size_t> atomic_size;
+};
+
 class FailedDNInfo {
 public:
-  FailedDNInfo();
+  FailedDNInfo(std::vector<std::string>);
 
   // delete copy semantics
   FailedDNInfo(const FailedDNInfo &) = delete;
@@ -54,18 +64,18 @@ public:
   FailedDNInfo(FailedDNInfo &&) = delete;
   FailedDNInfo &operator=(FailedDNInfo &&) = delete;
 
-  void push_back(std::unique_ptr<Buffer>);
-  void push_front(std::unique_ptr<Buffer>);
-  std::unique_ptr<Buffer> pop();
+  void push_back(std::unique_ptr<Buffer>, std::string_view);
+  void push_front(std::unique_ptr<Buffer>, std::string_view);
+  std::pair<std::unique_ptr<Buffer>, const std::string &> pop(Stats &);
   // std::string id_list();
   size_t size();
 
 public:
-  std::deque<std::unique_ptr<Buffer>> failed_dn_info;
+  LocalMap<ServiceQueue> failed_dn_info;
 
 private:
-  SpinLock lock;
-  std::atomic<size_t> _size;
+  std::atomic<size_t> total_size;
+  std::string null_service;
 };
 
 class SharedState {

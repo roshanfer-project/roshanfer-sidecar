@@ -551,6 +551,11 @@ public:
     return empty;
   }
 
+  // Get reference to the key at a specific index.
+  const std::string &get_key_by_index(size_t idx) const noexcept {
+    return slots_[idx].key;
+  }
+
   /* // Iterator support for keys and indices
   class const_iterator {
   public:

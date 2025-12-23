@@ -17,6 +17,7 @@
 #include <arpa/inet.h>
 #include <cassert>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -97,10 +98,8 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
                   get_downstream_services(parsed_config)),
       utilization(1000, get_hosted_services(parsed_config)),
       ingress_service(ingress_service_ref),
-      stats(get_downstream_services(
-          parsed_config)) // Note that only ingress uses this list of services
-                          // (so it should be EGRESS-side)
-{
+      stats(get_downstream_services(parsed_config),
+            get_hosted_services(parsed_config)) {
 
   if (config.buffer_size > HTTP1Connection_BUF_SIZE) {
     LOG(FATAL) << "Buffer size cannot be larger than "
@@ -176,45 +175,91 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
   }
   stats.update_hist(hist);
   for (const auto &service : get_downstream_services(parsed_config)) {
-    stats.get_avg_service_time_us().get(service).set_description("RT-" +
-                                                                 service);
+    stats.get_ds_avg_service_time_us().get(service).set_description("D-RT-" +
+                                                                    service);
+  }
+  for (const auto &service : get_hosted_services(parsed_config)) {
+    stats.get_us_avg_service_time_us().get(service).set_description("U-RT-" +
+                                                                    service);
   }
   LOG(INFO) << "State initialized";
   next_hist_update = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 }
 
-FailedDNInfo::FailedDNInfo() : failed_dn_info(), lock(), _size(0) {}
-
-size_t FailedDNInfo::size() { return _size.load(); }
-
-void FailedDNInfo::push_back(std::unique_ptr<Buffer> buffer) {
-  lock.lock();
-  failed_dn_info.push_back(std::move(buffer));
-  lock.unlock();
-  _size.fetch_add(1);
+FailedDNInfo::FailedDNInfo(std::vector<std::string> us_services)
+    : failed_dn_info(us_services), total_size(0), null_service("null-service") {
 }
 
-void FailedDNInfo::push_front(std::unique_ptr<Buffer> buffer) {
-  lock.lock();
-  failed_dn_info.push_front(std::move(buffer));
-  lock.unlock();
-  _size.fetch_add(1);
+size_t FailedDNInfo::size() { return total_size.load(); }
+
+void FailedDNInfo::push_back(std::unique_ptr<Buffer> buffer,
+                             std::string_view service) {
+  failed_dn_info.get(service).lock.lock();
+  failed_dn_info.get(service).queue.push_back(std::move(buffer));
+  failed_dn_info.get(service).atomic_size.fetch_add(1);
+  failed_dn_info.get(service).lock.unlock();
+  total_size.fetch_add(1);
 }
 
-std::unique_ptr<Buffer> FailedDNInfo::pop() {
-  if (_size.load() == 0) {
-    return nullptr;
+void FailedDNInfo::push_front(std::unique_ptr<Buffer> buffer,
+                              std::string_view service) {
+  failed_dn_info.get(service).lock.lock();
+  failed_dn_info.get(service).queue.push_front(std::move(buffer));
+  failed_dn_info.get(service).atomic_size.fetch_add(1);
+  failed_dn_info.get(service).lock.unlock();
+  total_size.fetch_add(1);
+}
+
+/*
+pop the service with the smallest average service time
+*/
+std::pair<std::unique_ptr<Buffer>, const std::string &>
+FailedDNInfo::pop(Stats &stats) {
+  if (total_size.load() == 0) {
+    return {nullptr, null_service};
   }
-  lock.lock();
-  if (failed_dn_info.empty()) {
-    lock.unlock();
-    return nullptr;
+
+  size_t best_index = LocalMap<ServiceQueue>::npos;
+  float min_avg_rt = INFINITY;
+
+  failed_dn_info.for_each_occupied_index([&](size_t idx) {
+    auto &sq = failed_dn_info.by_index(idx);
+    if (sq.atomic_size.load() == 0) {
+      return;
+    }
+    const std::string &service = failed_dn_info.get_key_by_index(idx);
+    float val = stats.get_us_avg_service_time_us().get(service).get_value();
+    if (val < min_avg_rt) {
+      min_avg_rt = val;
+      best_index = idx;
+    }
+  });
+
+  if (best_index == LocalMap<ServiceQueue>::npos) {
+    return {nullptr, null_service};
   }
-  auto buffer = std::move(failed_dn_info.front());
-  failed_dn_info.pop_front();
-  lock.unlock();
-  _size.fetch_sub(1);
-  return buffer;
+
+  failed_dn_info.by_index(best_index).lock.lock();
+  if (failed_dn_info.by_index(best_index).queue.empty()) {
+    failed_dn_info.by_index(best_index).lock.unlock();
+    // This can happen due to race conditions.
+    // Ideally we should loop and retry, but for simplicity of fix we return
+    // null and let the caller retry if needed (check_credit_transmission
+    // loops). But check_credit_transmission loops on pop result != nullptr. If
+    // we return nullptr here, it might stop draining even if we have credits?
+    // check_credit_transmission: while(1) { pop; if null return; check_credit;
+    // ... } If we return null, it stops. This is fine, next event will trigger
+    // it again? Or we could loop here. Let's return null to be safe from
+    // infinite loops.
+    return {nullptr, null_service};
+  }
+  std::unique_ptr<Buffer> buffer =
+      std::move(failed_dn_info.by_index(best_index).queue.front());
+  failed_dn_info.by_index(best_index).queue.pop_front();
+  failed_dn_info.by_index(best_index).atomic_size.fetch_sub(1);
+  failed_dn_info.by_index(best_index).lock.unlock();
+  total_size.fetch_sub(1);
+  return {std::move(buffer), failed_dn_info.get_key_by_index(best_index)};
 }
 
 void State::write_http(std::shared_ptr<HTTPConnection> conn) {
@@ -675,9 +720,10 @@ void State::ingress_admit() {
   int64_t queue_size = (int64_t)ppm_queue.size(ingress_service);
   int64_t extra_slot_ingress =
       config.routing.at(ingress_service).ingress_limit.value() - queue_size;
-  int32_t queueing_delay =
-      ppm_queue.get_waiting_delay(ingress_service) +
-      (int32_t)stats.get_avg_service_time_us().get(ingress_service).get_value();
+  int32_t queueing_delay = ppm_queue.get_waiting_delay(ingress_service) +
+                           (int32_t)stats.get_ds_avg_service_time_us()
+                               .get(ingress_service)
+                               .get_value();
 
 #ifdef NANO_LOG_ENABLED
   NANO_LOG(NOTICE, "M# %s Custom QD T:T %d", config.name.c_str(),
@@ -723,7 +769,7 @@ write_failed_dn_response(const std::unique_ptr<Buffer> &req,
 
 void State::check_credit_transmission() {
   while (1) {
-    auto buffer = shared_state.failed_dn_info.pop();
+    auto [buffer, service] = shared_state.failed_dn_info.pop(stats);
     if (buffer == nullptr) {
       return;
     }
@@ -733,7 +779,7 @@ void State::check_credit_transmission() {
 
       VLOG(2) << "QM: Sent failed DN info " << "| thread id: " << thread_id;
     } else {
-      shared_state.failed_dn_info.push_front(std::move(buffer));
+      shared_state.failed_dn_info.push_front(std::move(buffer), service);
       return;
     }
   }
@@ -784,7 +830,7 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
       stats.mode2_credits.up(1);
       auto resp = buffer_manager.get_dn_buffer();
       write_failed_dn_response(req, resp);
-      shared_state.failed_dn_info.push_back(std::move(resp));
+      shared_state.failed_dn_info.push_back(std::move(resp), service);
       VLOG(2) << "QM: Saving failed DN info "
               << "| service: " << service << "| id: " << rpc_id
               << "| thread id: " << thread_id;
@@ -813,9 +859,10 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
   }
 }
 
-SharedState::SharedState(std::vector<std::string> /*hosted_service*/,
+SharedState::SharedState(std::vector<std::string> hosted_services,
                          std::vector<std::string> /*downstream_services*/)
-    : in_flight(0), in_local(0), failed_dn_info(FailedDNInfo()) {}
+    : in_flight(0), in_local(0), failed_dn_info(FailedDNInfo(hosted_services)) {
+}
 
 LocalState::LocalState(std::vector<std::string> /*hosted_services*/
                        ,

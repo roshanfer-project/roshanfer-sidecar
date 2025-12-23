@@ -94,7 +94,8 @@ private:
 
 class Stats {
 public:
-  Stats(std::vector<std::string> services);
+  Stats(std::vector<std::string> ds_services,
+        std::vector<std::string> us_services);
 
   // delete copy semantics
   Stats(const Stats &) = delete;
@@ -106,8 +107,11 @@ public:
 
   void report_latency(const std::shared_ptr<RPCMessage> &rpc);
   void update_hist(struct hdr_histogram *);
-  LocalMap<ExponentialMovingAverage> &get_avg_service_time_us() {
-    return avg_service_time_us;
+  LocalMap<ExponentialMovingAverage> &get_ds_avg_service_time_us() {
+    return ds_avg_service_time_us;
+  }
+  LocalMap<ExponentialMovingAverage> &get_us_avg_service_time_us() {
+    return us_avg_service_time_us;
   }
 
 public:
@@ -115,5 +119,6 @@ public:
 
 private:
   struct hdr_histogram *hist;
-  LocalMap<ExponentialMovingAverage> avg_service_time_us;
+  LocalMap<ExponentialMovingAverage> ds_avg_service_time_us;
+  LocalMap<ExponentialMovingAverage> us_avg_service_time_us;
 };
