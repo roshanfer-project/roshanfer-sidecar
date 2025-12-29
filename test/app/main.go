@@ -225,6 +225,9 @@ func appLogic(w http.ResponseWriter, r *http.Request) {
 func app2Logic(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	switch deployment {
+	case "test1":
+		busyLoop(app2PreRepeat + app2PostRepeat)
+		writeResponseWithoutchunkEncoding(w, makebigString(app2Size))
 	case "fanin":
 		busyLoop(app2PreRepeat)
 		bigString := makebigString(app2Size)
