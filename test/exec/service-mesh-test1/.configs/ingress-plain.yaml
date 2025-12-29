@@ -1,3 +1,6 @@
+api_list:
+  - app
+  - app2
 mapping:
   app:
   app2:
@@ -12,6 +15,8 @@ ingress_upstream_host: 172.17.0.1
 ingress_upstream_port: 2007
 is_ingress: False
 is_frontend: True
+is_plain_frontend: True
 report_latency: True
-ppm_limit: 10
+per_api_limit: 0 # not used
+ppm_limit: 0 # not used
 name: ingress

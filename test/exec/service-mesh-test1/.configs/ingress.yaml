@@ -1,3 +1,6 @@
+api_list:
+  - app
+  - app2
 routing:
   app:
     upstream:
@@ -5,27 +8,26 @@ routing:
       port: 3007
     limit: 1000
     slo: 13
-#  app2:
-#    upstream:
-#      host: app-sidecar
-#      port: 3007
-#    limit: 1000000
-#    slo: 10000000
+  app2:
+    upstream:
+      host: app-sidecar
+      port: 3007
+    limit: 1000
+    slo: 9
 mapping:
   app:
     downstreams:
       - app
     listen_port: 3000
-#  app2:
-#    downstreams:
-#      - app2
-#    min_max_concurrency: 6
-#    listen_port: 3009
+  app2:
+    downstreams:
+      - app2
+    listen_port: 3008
 ring_size: 12000
 buffer_count: 16384
 buffer_size: 10000
-num_threads: 1
-ingress_pool_connections: 4000
+num_threads: 2
+ingress_pool_connections: 100
 egress_listener_port: 3000
 ingress_listener_port: 4000
 ingress_upstream_host: 172.17.0.1
