@@ -112,6 +112,8 @@ func init() {
 	listenPort = utils.StrToInt(utils.GetEnvVar("appListenPort", true))
 	appSize = utils.StrToInt(utils.GetEnvVar("appSize", true))
 	app2Size = utils.StrToInt(utils.GetEnvVar("app2Size", true))
+	appPreRepeat = utils.StrToInt(utils.GetEnvVar("appPreRepeat", true))
+	appPostRepeat = utils.StrToInt(utils.GetEnvVar("appPostRepeat", true))
 	app2PreRepeat = utils.StrToInt(utils.GetEnvVar("app2PreRepeat", true))
 	app2PostRepeat = utils.StrToInt(utils.GetEnvVar("app2PostRepeat", true))
 	fmt.Printf("deployment: %s\n", deployment)
