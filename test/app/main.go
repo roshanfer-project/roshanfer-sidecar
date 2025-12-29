@@ -223,6 +223,8 @@ func appLogic(w http.ResponseWriter, r *http.Request) {
 		}
 		busyLoop(appPostRepeat)
 		writeResponseWithoutchunkEncoding(w, resp.Data)
+	default:
+		panic("Unknown deployment")
 	}
 }
 
@@ -245,5 +247,7 @@ func app2Logic(w http.ResponseWriter, r *http.Request) {
 		}
 		busyLoop(app2PostRepeat)
 		writeResponseWithoutchunkEncoding(w, resp.Data)
+	default:
+		panic("Unknown deployment")
 	}
 }
