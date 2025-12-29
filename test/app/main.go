@@ -88,8 +88,10 @@ func main() {
 
 func getContextWithRpcId(r *http.Request) context.Context {
 	var rpcId string
+	var api string
 	if sidecar {
 		rpcId = r.Header.Get("rpc-id")
+		api = r.Header.Get("api")
 		/* if rpcId == "" {
 			log.Error("rpc-id header is required")
 			return r.Context()
@@ -99,7 +101,7 @@ func getContextWithRpcId(r *http.Request) context.Context {
 		r.Header.Set("rpc-id", rpcId)
 		lastRpcId++
 	}
-	md := metadata.New(map[string]string{"rpc-id": rpcId})
+	md := metadata.New(map[string]string{"rpc-id": rpcId, "api": api})
 	return metadata.NewOutgoingContext(r.Context(), md)
 }
 
