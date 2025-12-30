@@ -1,6 +1,3 @@
-api_list:
-  - app
-  - app2
 mapping:
   app:
   app2:
@@ -16,6 +13,6 @@ ingress_upstream_port: 2007
 is_ingress: False
 is_frontend: True
 report_latency: True
-per_api_limit: 10
+per_endpoint_limit: 10
 ppm_limit: 20
 name: app

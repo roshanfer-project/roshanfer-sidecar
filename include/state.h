@@ -5,7 +5,7 @@
 #include "config.h"
 #include "connection.h"
 #include "connection_enums.h"
-#include "fast_map.hpp"
+#include "credit_queue.hpp"
 #include "hdr/hdr_histogram.h"
 #include "ingress.h"
 #include "ppm_queue.h"
@@ -13,13 +13,11 @@
 #include "rpc_mapper.h"
 #include "rpc_message.h"
 #include "rpc_queue.h"
-#include "spinlock.hpp"
 #include "stats.h"
 #include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <memory>
 #include <string>
 #include <sys/types.h>
@@ -42,32 +40,6 @@ public:
   std::unique_ptr<HTTPConnection> &conn;
 };
 
-class FailedDNInfo {
-public:
-  FailedDNInfo();
-
-  // delete copy semantics
-  FailedDNInfo(const FailedDNInfo &) = delete;
-  FailedDNInfo &operator=(const FailedDNInfo &) = delete;
-
-  // delete move semantics
-  FailedDNInfo(FailedDNInfo &&) = delete;
-  FailedDNInfo &operator=(FailedDNInfo &&) = delete;
-
-  void push_back(std::unique_ptr<Buffer>);
-  void push_front(std::unique_ptr<Buffer>);
-  std::unique_ptr<Buffer> pop();
-  // std::string id_list();
-  size_t size();
-
-public:
-  std::deque<std::unique_ptr<Buffer>> failed_dn_info;
-
-private:
-  SpinLock lock;
-  std::atomic<size_t> _size;
-};
-
 class SharedState {
 public:
   SharedState(std::vector<std::string>, std::vector<std::string>);
@@ -75,10 +47,9 @@ public:
 public:
   /*ConnectionType::INGRESS-side metrics*/
 
-  std::atomic<int32_t> in_flight;
   std::atomic<int32_t> in_local;
 
-  FailedDNInfo failed_dn_info;
+  CreditQueue credit_queue;
 
   /*ConnectionType::EGRESS-side metrics*/
 };
@@ -139,7 +110,7 @@ private:
   void send_dn(struct sockaddr_in, const std::string &, size_t, int32_t);
   std::tuple<const std::string &, bool, size_t, int32_t>
   valid_credit(const char *);
-  bool check_credit_available();
+  bool check_credit_available(std::string_view);
   void check_credit_transmission();
 
 private:

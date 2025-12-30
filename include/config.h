@@ -46,6 +46,7 @@ struct Config {
   bool report_latency;
   std::optional<int> ingress_pool_connections;
   std::optional<int> frontend_pool_connections;
+  std::optional<int> per_endpoint_limit;
   std::optional<int32_t> ppm_limit;
 };
 

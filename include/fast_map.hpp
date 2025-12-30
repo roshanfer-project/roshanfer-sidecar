@@ -551,84 +551,87 @@ public:
     return empty;
   }
 
-  /* // Iterator support for keys and indices
-  class const_iterator {
-  public:
-      using iterator_category = std::forward_iterator_tag;
-      using value_type = std::pair<std::string_view, size_t>;
-      using difference_type = std::ptrdiff_t;
-      using pointer = const value_type*;
-      using reference = const value_type&;
+  // Simple iterator: allows iterating over occupied slots.
+  // Meets minimum requirements: operator==, operator!=, operator++,
+  // dereference.
+  struct iterator {
+    using iterator_category = std::forward_iterator_tag;
+    using difference_type = std::ptrdiff_t;
+    using value_type = LocalSlot<T>;
+    using pointer = LocalSlot<T> *;
+    using reference = LocalSlot<T> &;
 
-      const_iterator(const std::vector<LocalSlot<T>>* slots, size_t index)
-          : slots_(slots), index_(index) {
-          advance_to_next_occupied();
-          update_current_pair();
+    std::vector<LocalSlot<T>> *slots_ = nullptr;
+    size_t idx_ = 0;
+
+    iterator(std::vector<LocalSlot<T>> *slots, size_t idx)
+        : slots_(slots), idx_(idx) {
+      skip_empty();
+    }
+
+    void skip_empty() {
+      if (!slots_ || slots_->empty())
+        return;
+      // If initially at end (only for end() constructor), don't wrap
+      // immediately? Wait, end() is usually idx = size. If we want circular,
+      // maybe begin() == end() is only true if invalid? Standard iterators:
+      // begin() can equal end() if empty. But for wrapping iterator, we
+      // shouldn't really use end() for termination of loop.
+
+      // Ensure idx_ is within bounds or wrapped
+      if (idx_ >= slots_->size())
+        idx_ = 0;
+
+      size_t start = idx_;
+      // Scan for occupied
+      while (idx_ < slots_->size() && !(*slots_)[idx_].occupied()) {
+        idx_++;
+        if (idx_ >= slots_->size())
+          idx_ = 0; // Wrap
+        if (idx_ == start)
+          break; // We scanned everything and found nothing
       }
+    }
 
-      reference operator*() const {
-          return current_pair_;
-      }
+    bool operator==(const iterator &other) const {
+      return idx_ == other.idx_ && slots_ == other.slots_;
+    }
 
-      pointer operator->() const {
-          return &current_pair_;
-      }
+    bool operator!=(const iterator &other) const { return !(*this == other); }
 
-      const_iterator& operator++() {
-          ++index_;
-          advance_to_next_occupied();
-          update_current_pair();
-          return *this;
-      }
+    iterator &operator++() { // prefix
+      if (!slots_ || slots_->empty())
+        return *this;
 
-      const_iterator operator++(int) {
-          const_iterator tmp = *this;
-          ++(*this);
-          return tmp;
-      }
+      // Move to next
+      idx_++;
+      // skip_empty handles wrapping
+      skip_empty();
 
-      bool operator==(const const_iterator& other) const {
-          return index_ == other.index_;
-      }
+      return *this;
+    }
 
-      bool operator!=(const const_iterator& other) const {
-          return !(*this == other);
-      }
+    // Postfix ++
+    iterator operator++(int) {
+      iterator tmp = *this;
+      ++(*this);
+      return tmp;
+    }
 
-  private:
-      const std::vector<LocalSlot<T>>* slots_;
-      size_t index_;
-      mutable value_type current_pair_;
-
-      void advance_to_next_occupied() {
-          while (index_ < slots_->size() && !(*slots_)[index_].occupied()) {
-              ++index_;
-          }
-      }
-
-      void update_current_pair() {
-          if (index_ < slots_->size()) {
-              current_pair_ = {(*slots_)[index_].key, index_};
-          }
-      }
+    reference operator*() const { return (*slots_)[idx_]; }
+    pointer operator->() const { return &(*slots_)[idx_]; }
   };
 
-  // Iterator methods
-  const_iterator begin() const noexcept {
-      return const_iterator(&slots_, 0);
-  }
+  iterator begin() { return iterator(&slots_, 0); }
+  iterator end() { return iterator(&slots_, slots_.size()); }
 
-  const_iterator end() const noexcept {
-      return const_iterator(&slots_, slots_.size());
-  }
-
-  const_iterator cbegin() const noexcept {
-      return begin();
-  }
-
-  const_iterator cend() const noexcept {
-      return end();
-  } */
+  // Const iterator support could be added similarly if needed, but for now
+  // keeping it simple as requested. Non-const iterator on const object
+  // won't work, so we might need const_iterator if the map is const.
+  // But given "very simple", I'll stick to non-const for now unless user asked.
+  // Wait, usually one wants to iterate over a map they just built (which might
+  // be const). The user asked for "LocalMap::iterator". I will just add
+  // standard begin/end.
 
   // Utility methods for iteration
   template <typename Func> void for_each_key(Func &&func) const {

@@ -17,6 +17,6 @@ is_ingress: False
 is_frontend: True
 is_plain_frontend: True
 report_latency: True
-per_api_limit: 0 # not used
+per_endpoint_limit: 0 # not used
 ppm_limit: 0 # not used
 name: ingress

@@ -61,12 +61,21 @@ Config load_config(const std::string &filename) {
   }
   LOG(INFO) << "config.report_latency: " << local_config.report_latency;
 
+  // Optional ppm_limit
   if (!local_config.is_ingress && !node["ppm_limit"]) {
     LOG(FATAL) << "ppm_limit is required for non-ingress";
   }
-
   if (!local_config.is_ingress) {
     local_config.ppm_limit = (int32_t)node["ppm_limit"].as<int>();
+  }
+
+  // Optional per_endpoint_limit
+  if (!local_config.is_ingress && !node["per_endpoint_limit"]) {
+    LOG(FATAL) << "per_endpoint_limit is required for non-ingress";
+  }
+  if (!local_config.is_ingress) {
+    local_config.per_endpoint_limit =
+        (int32_t)node["per_endpoint_limit"].as<int>();
   }
 
   // Optional is_frontend

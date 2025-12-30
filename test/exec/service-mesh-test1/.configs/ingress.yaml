@@ -1,6 +1,3 @@
-api_list:
-  - app
-  - app2
 routing:
   app:
     upstream:
