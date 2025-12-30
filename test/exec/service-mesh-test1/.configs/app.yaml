@@ -14,5 +14,5 @@ is_ingress: False
 is_frontend: True
 report_latency: True
 per_endpoint_limit: 10
-ppm_limit: 15
+ppm_limit: 12
 name: app
