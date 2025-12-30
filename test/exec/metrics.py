@@ -99,7 +99,7 @@ def main():
                     name = f"{metric_name}  {conn_type}  {rpc_path}"
                     if not args.no_print:
                         print(f"###########   {name}   ###########")
-                    res = percentiles(rpc_content["values"], [50, 95, 99], no_print=args.no_print)
+                    res = percentiles(rpc_content["values"], [50, 95, 99, 100], no_print=args.no_print)
                     export[service_name][metric_name][conn_type][rpc_path] = res
                     #print_info(rpc_content["values"], rpc_content["timestamps"], rate_window=args.window)
 
