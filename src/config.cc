@@ -128,17 +128,6 @@ Config load_config(const std::string &filename) {
             entry.upstream.host = upstream_node["host"].as<std::string>();
             entry.upstream.port = upstream_node["port"].as<int>();
 
-            if (local_config.name == "ingress") {
-              if (route_config["limit"]) {
-                entry.ingress_limit = route_config["limit"].as<int>();
-              } else {
-                LOG(FATAL) << "Missing limit for service " << service
-                           << " in ingress config";
-              }
-            } else if (route_config["limit"]) {
-              entry.ingress_limit = route_config["limit"].as<int>();
-            }
-
             if (route_config["slo"]) {
               entry.slo = route_config["slo"].as<int>();
             }
@@ -146,11 +135,7 @@ Config load_config(const std::string &filename) {
             local_config.routing[service] = entry;
             LOG(INFO) << "Routing entry: service=" << service
                       << " upstream=" << entry.upstream.host << ":"
-                      << entry.upstream.port << " ingress_limit="
-                      << (entry.ingress_limit.has_value()
-                              ? std::to_string(entry.ingress_limit.value())
-                              : "not set")
-                      << " slo="
+                      << entry.upstream.port << " slo="
                       << (entry.slo.has_value()
                               ? std::to_string(entry.slo.value())
                               : "not set");

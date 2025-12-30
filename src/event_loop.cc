@@ -402,16 +402,9 @@ EventLoop::EventLoop(int th_index, std::string &ingress_service_ref,
       config(parsed_config), ring(config.ring_size),
       buffer_manager(config.buffer_count, config.buffer_size, ring),
       listeners(), udp_listener(config.ingress_listener_port), rpc_mapper(),
-      rpc_queue(), ingress(config.routing, th_index, ingress_service_ref),
+      rpc_queue(), ingress(th_index, ingress_service_ref),
       state(config, ring, buffer_manager, rpc_mapper, rpc_queue, listeners,
             ingress, shared_state, ingress_service_ref, th_index) {
-  if (config.is_ingress) {
-    if (!parsed_config.routing.at(ingress_service_ref)
-             .ingress_limit.has_value()) {
-      LOG(FATAL) << "Ingress limit is not set for ingress service: "
-                 << ingress_service_ref;
-    }
-  }
 
   uint16_t egress_port;
   if (config.is_ingress) {

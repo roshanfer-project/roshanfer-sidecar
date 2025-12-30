@@ -135,6 +135,10 @@ void ExponentialMovingAverage::down() {
 
 float ExponentialMovingAverage::get_value() { return value; }
 
+float ExponentialMovingAverage::get_value_cap(float min, float max) {
+  return std::max(min, std::min(max, value));
+}
+
 uint32_t ExponentialMovingAverage::get_count() const { return count; }
 
 Counter::Counter(std::string desc) : count(0), description(desc) {}
@@ -153,7 +157,7 @@ int32_t Counter::get_count() { return count; }
 
 Stats::Stats(std::vector<std::string> services)
     : mode2_credits("Mode2 Credits"), hist(nullptr),
-      avg_service_time_us(services) {}
+      avg_service_time_us(services), tdigest(services) {}
 
 void Stats::update_hist(struct hdr_histogram *new_hist) {
   this->hist = new_hist;
@@ -172,6 +176,7 @@ void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
     }
     avg_service_time_us.get(rpc->get_service())
         .update(static_cast<int32_t>(duration.count()));
+    tdigest.get(rpc->get_service()).add(static_cast<int32_t>(duration.count()));
 
     VLOG(2) << "Stats: Reported latency "
             << "| service: " << rpc->get_service()

@@ -3,6 +3,7 @@
 #include "fast_map.hpp"
 #include "hdr/hdr_histogram.h"
 #include "rpc_message.h"
+#include "tdigest.h"
 #include <chrono>
 #include <cstdint>
 #include <string>
@@ -65,6 +66,7 @@ public:
 
   void update(int32_t);
   float get_value();
+  float get_value_cap(float, float);
   uint32_t get_count() const;
   void set_description(std::string desc) { description = desc; }
   void set_alpha(float new_alpha) { this->alpha = new_alpha; }
@@ -92,6 +94,28 @@ private:
   std::string description;
 };
 
+class TDigest {
+public:
+  TDigest() : td(td_new(50)) {}
+
+  void add(int32_t val) { td_add(td, val, 1); }
+  double get_quantile(double q) {
+    double val = td_value_at(td, q);
+    return val == NAN ? 0 : val;
+  }
+
+  // delete copy semantics
+  TDigest(const TDigest &) = delete;
+  TDigest &operator=(const TDigest &) = delete;
+
+  // delete move semantics
+  TDigest(TDigest &&) = delete;
+  TDigest &operator=(TDigest &&) = delete;
+
+private:
+  td_histogram_t *td;
+};
+
 class Stats {
 public:
   Stats(std::vector<std::string> services);
@@ -109,6 +133,9 @@ public:
   LocalMap<ExponentialMovingAverage> &get_avg_service_time_us() {
     return avg_service_time_us;
   }
+  TDigest &get_tdigest(std::string_view service) {
+    return tdigest.get(service);
+  }
 
 public:
   Counter mode2_credits;
@@ -116,4 +143,5 @@ public:
 private:
   struct hdr_histogram *hist;
   LocalMap<ExponentialMovingAverage> avg_service_time_us;
+  LocalMap<TDigest> tdigest;
 };

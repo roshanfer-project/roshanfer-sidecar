@@ -538,6 +538,10 @@ void State::ppm_client(bool dn_resp,
                       rpc);
       shared_state.credit_queue.decrement_in_flight(service);
       check_credit_transmission();
+      local_state.avg_cal_waiting_delay.update(
+          (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
+              std::chrono::steady_clock::now() - rpc->req_rcv_time)
+              .count());
 
       VLOG(1) << "RPCForward: EGRESS request. "
               << "| service: " << service << "| id: " << rpc->get_id()
@@ -597,14 +601,13 @@ void State::send_dn(struct sockaddr_in addr, const std::string &service,
 
 void State::dump_entire_state() {
   LOG(INFO) << "Dumping entire state:";
+  LOG(INFO) << "ingress_service: " << ingress_service;
   LOG(INFO) << "PPM State:";
   LOG(INFO) << "--- In Local "
                "(shared_state.in_local) ---";
   LOG(INFO) << "  " << shared_state.in_local.load();
   LOG(INFO) << "--- Ingress Queue Sizes (ingress) ---";
-  for (const auto &[route, _] : config.routing) {
-    LOG(INFO) << "  " << route << ": " << ingress.size(route);
-  }
+  LOG(INFO) << "  " << ingress.size();
   LOG(INFO) << "--- PPM Queue Sizes (ppm_queue) ---";
   for (const auto &[route, _] : config.routing) {
     LOG(INFO) << "  " << route << ": " << ppm_queue.size(route);
@@ -622,7 +625,7 @@ void State::dump_entire_state() {
 }
 
 void State::ingress_admit() {
-  if (ingress.size(ingress_service) == 0) {
+  if (ingress.size() == 0) {
     return;
   }
   // update ingress's p95 estimate
@@ -630,34 +633,38 @@ void State::ingress_admit() {
       hist->total_count >= 500) {
     // FIX: the histogram is not updated correctly
     ingress.update_stats((int32_t)hdr_value_at_percentile(hist, 50.0),
-                         (int32_t)hdr_value_at_percentile(hist, 95.0),
-                         ingress_service);
+                         (int32_t)hdr_value_at_percentile(hist, 95.0));
     hdr_reset(hist);
     next_hist_update =
         std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
   }
 
   // check for any potential admitting or dropping
-  int64_t queue_size = (int64_t)ppm_queue.size(ingress_service);
-  int64_t extra_slot_ingress =
-      config.routing.at(ingress_service).ingress_limit.value() - queue_size;
+  int32_t queue_size = (int32_t)ppm_queue.size(ingress_service);
   int32_t queueing_delay =
-      ppm_queue.get_waiting_delay(ingress_service) +
-      (int32_t)stats.get_avg_service_time_us().get(ingress_service).get_value();
+      (int32_t)local_state.avg_cal_waiting_delay.get_value() * queue_size +
+      (int32_t)stats.get_tdigest(ingress_service).get_quantile(0.95);
 
+  auto added =
+      ingress.add_to_be_admitted_or_drop(rpc_queue, rpc_mapper, queueing_delay);
+  if (added > 0) {
 #ifdef NANO_LOG_ENABLED
-  NANO_LOG(NOTICE, "M# %s Custom QD T:T %d", config.name.c_str(),
-           queueing_delay);
-  NANO_LOG(NOTICE, "M# %s Measured QS T:T %ld", config.name.c_str(),
-           queue_size);
+    NANO_LOG(NOTICE, "M# %s Measured QS-%s T:T %ld", config.name.c_str(),
+             ingress_service.c_str(), queue_size);
+    NANO_LOG(NOTICE, "M# %s Custom WT-%s T:T %d", config.name.c_str(),
+             ingress_service.c_str(),
+             (int32_t)local_state.avg_cal_waiting_delay.get_value() *
+                 queue_size);
+    NANO_LOG(NOTICE, "M# %s Custom QD-%s T:T %d", config.name.c_str(),
+             ingress_service.c_str(), queueing_delay);
+    NANO_LOG(NOTICE, "M# %s Custom TD-P95-%s T:T %f", config.name.c_str(),
+             ingress_service.c_str(),
+             stats.get_tdigest(ingress_service).get_quantile(0.95));
 #endif
-
-  ingress.add_to_be_admitted_or_drop(rpc_queue, rpc_mapper, ingress_service,
-                                     extra_slot_ingress, queueing_delay);
-  if (ingress.size(ingress_service) != 0) {
+  }
+  if (ingress.size() != 0) {
     dump_entire_state();
-    LOG(FATAL) << "Ingress queue size is not 0 for service: "
-               << ingress_service;
+    LOG(FATAL) << "Ingress queue size is not 0";
   }
 
   // forward potential dropped requests
@@ -774,11 +781,5 @@ SharedState::SharedState(std::vector<std::string> hosted_service,
 
 LocalState::LocalState(std::vector<std::string> /*hosted_services*/
                        ,
-                       std::vector<std::string> downstream_services)
-    : drops(0), ingress_limit(LocalMap<int32_t>(downstream_services)) {
-  for (const auto &[service, info] : config.routing) {
-    ingress_limit.set(service, info.ingress_limit.value_or(0));
-    LOG(INFO) << "Ingress limit for service: " << service << " is "
-              << ingress_limit.get(service);
-  }
-}
+                       std::vector<std::string> /*downstream_services*/)
+    : avg_cal_waiting_delay(), drops(0) {}

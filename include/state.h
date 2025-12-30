@@ -62,13 +62,13 @@ public:
   /*ConnectionType::INGRESS-side metrics*/
 
   /*ConnectionType::EGRESS-side metrics*/
+  /*
+  Average calculated waiting delay in the Ingress's queue
+  */
+  ExponentialMovingAverage avg_cal_waiting_delay;
 
   // number of drops (updated if only config.is_ingress is true)
   uint32_t drops;
-  /*
-  READ-ONLY: ONLY used by Ingress::Ingress to track the ingress limit.
-  */
-  LocalMap<int32_t> ingress_limit;
 };
 
 class UpstreamRouteMapper {

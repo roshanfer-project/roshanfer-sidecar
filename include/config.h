@@ -15,7 +15,6 @@ struct Upstream {
 
 struct RoutingEntry {
   Upstream upstream;
-  std::optional<int> ingress_limit;
   std::optional<int> slo;
 };
 
