@@ -42,6 +42,10 @@ var tracer trace.Tracer
 var app2PreRepeat int
 var app2PostRepeat int
 
+var app3PreRepeat int
+var app3PostRepeat int
+var app3Size int
+
 var log = utils.GetLogger("app")
 
 func tracingMiddleware(next http.Handler) http.Handler {
@@ -65,6 +69,7 @@ func main() {
 	}) */
 	mux.Handle("/app", tracingMiddleware(http.HandlerFunc(appLogic)))
 	mux.Handle("/app2", tracingMiddleware(http.HandlerFunc(app2Logic)))
+	mux.Handle("/app3", tracingMiddleware(http.HandlerFunc(app3Logic)))
 
 	// Start pprof server
 	go func() {
@@ -116,6 +121,9 @@ func init() {
 	appPostRepeat = utils.StrToInt(utils.GetEnvVar("appPostRepeat", true))
 	app2PreRepeat = utils.StrToInt(utils.GetEnvVar("app2PreRepeat", true))
 	app2PostRepeat = utils.StrToInt(utils.GetEnvVar("app2PostRepeat", true))
+	app3PreRepeat = utils.StrToInt(utils.GetEnvVar("app3PreRepeat", true))
+	app3PostRepeat = utils.StrToInt(utils.GetEnvVar("app3PostRepeat", true))
+	app3Size = utils.StrToInt(utils.GetEnvVar("app3Size", true))
 	fmt.Printf("deployment: %s\n", deployment)
 	fmt.Printf("appSize: %d\n", appSize)
 	switch deployment {
@@ -247,6 +255,16 @@ func app2Logic(w http.ResponseWriter, r *http.Request) {
 		}
 		busyLoop(app2PostRepeat)
 		writeResponseWithoutchunkEncoding(w, resp.Data)
+	default:
+		panic("Unknown deployment")
+	}
+}
+
+func app3Logic(w http.ResponseWriter, r *http.Request) {
+	switch deployment {
+	case "test1":
+		busyLoop(app3PreRepeat + app3PostRepeat)
+		writeResponseWithoutchunkEncoding(w, makebigString(app3Size))
 	default:
 		panic("Unknown deployment")
 	}

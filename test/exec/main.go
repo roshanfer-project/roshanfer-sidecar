@@ -278,7 +278,7 @@ func run_servicees(env string, testName string, serviceList [][]string, sidecar,
 				c := exec.CommandContext(ctx, "docker", "compose", "run", "-d", "-T", "-P",
 					"--name", fmt.Sprintf("%s-sidecar", name), fmt.Sprintf("%s-sidecar", name))
 				c.Dir = sidecar_dir
-				no_env_run(c, sidecar_dir, false, "docker-compose")
+				env_run(c, sidecar_dir, env, currentOverrides)
 
 				if profile && name == "search" {
 					c_prof := exec.Command("/bin/bash", get_cwd()+"/profile.sh", fmt.Sprintf("%s-sidecar", name))
