@@ -189,8 +189,11 @@ Config load_config(const std::string &filename) {
     LOG(INFO) << "Mapping section not found (optional)";
   }
 
-  if (!local_config.is_ingress)
+  if (!local_config.is_ingress) {
     LOG(INFO) << "config.ppm_limit: " << local_config.ppm_limit.value();
+    LOG(INFO) << "config.per_endpoint_limit: "
+              << local_config.per_endpoint_limit.value();
+  }
 
   if (config.is_ingress &&
       (local_config.num_threads != (int)local_config.mapping.size())) {
