@@ -16,7 +16,7 @@ class Ingress {
 public:
   Ingress(std::unordered_map<std::string, RoutingEntry, TransparentHash,
                              TransparentEqual>,
-          int);
+          int, std::string &);
   ~Ingress();
 
   void enqueue(std::shared_ptr<RPCMessage> rpc);
@@ -44,4 +44,5 @@ private:
       reinterpret_cast<const uint8_t *>("rpc-id");
   const size_t RPC_ID_HEADER_NAME_LEN = 7;
   std::array<char, 20> rpc_id_header_value;
+  std::string &ingress_service;
 };

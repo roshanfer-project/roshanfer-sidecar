@@ -36,15 +36,14 @@ make_last_admission(
 Ingress::Ingress(std::unordered_map<std::string, RoutingEntry, TransparentHash,
                                     TransparentEqual>
                      routing,
-                 int index_arg)
+                 int index_arg, std::string &ingress_service_ref)
     : p95_us(make_drop_id(routing)), p50_us(make_drop_id(routing)),
       queue(std::unordered_map<std::string,
                                std::deque<std::shared_ptr<RPCMessage>>>()),
       drop_id(make_drop_id(routing)),
       services(std::vector<std::string>(routing.size())), drop_fd(-index_arg),
-      slo_us(make_drop_id(routing)), last_rpc_id(0)
-// max_queue(0)
-{
+      slo_us(make_drop_id(routing)), last_rpc_id(0),
+      ingress_service(ingress_service_ref) {
   for (const auto &[route, info] : routing) {
     queue.emplace(route, std::deque<std::shared_ptr<RPCMessage>>());
     services.push_back(route);
@@ -60,6 +59,10 @@ Ingress::~Ingress() {}
 
 void Ingress::enqueue(std::shared_ptr<RPCMessage> rpc) {
   try {
+    if (rpc->get_service() != ingress_service) {
+      LOG(FATAL) << "Service mismatch in ingress: expected " << ingress_service
+                 << ", got " << rpc->get_service();
+    }
     VLOG(2) << "Enqueued RPC message for service: " << rpc->get_service();
     queue.at(rpc->get_service()).push_back(std::move(rpc));
   } catch (const std::out_of_range &) {
