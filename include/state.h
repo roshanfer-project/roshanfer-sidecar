@@ -6,7 +6,7 @@
 #include "connection.h"
 #include "connection_enums.h"
 #include "credit_queue.hpp"
-#include "hdr/hdr_histogram.h"
+#include "fast_map.hpp"
 #include "ingress.h"
 #include "ppm_queue.h"
 #include "ring_wrapper.h"
@@ -15,7 +15,6 @@
 #include "rpc_queue.h"
 #include "stats.h"
 #include <atomic>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -66,6 +65,8 @@ public:
   Average calculated waiting delay in the Ingress's queue
   */
   ExponentialMovingAverage avg_cal_waiting_delay;
+  LocalMap<ExponentialMovingAverage> avg_ds_concurrency;
+  TDigest td_wd;
 
   // number of drops (updated if only config.is_ingress is true)
   uint32_t drops;

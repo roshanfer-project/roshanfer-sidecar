@@ -12,8 +12,8 @@
 #include <string>
 
 Ingress::Ingress(int index_arg, std::string &ingress_service_ref)
-    : p95_us(-1), p50_us(-1), queue(std::deque<std::shared_ptr<RPCMessage>>()),
-      drop_id(0), drop_fd(-index_arg), slo_us(), last_rpc_id(0),
+    : queue(std::deque<std::shared_ptr<RPCMessage>>()), drop_id(0),
+      drop_fd(-index_arg), slo_us(), last_rpc_id(0),
       ingress_service(ingress_service_ref) {
   if (config.is_ingress) {
     if (!config.routing.at(ingress_service_ref).slo.has_value()) {
@@ -64,12 +64,12 @@ void Ingress::add_rpc_id_header(std::shared_ptr<RPCMessage> &rpc) {
 
 int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue &rpc_queue,
                                             RPCMapper &rpc_mapper,
-                                            int32_t queueing_delay) {
+                                            int32_t e2e_delay) {
 
   int new_requests = (int)queue.size();
   int new_added = 0;
 
-  while (new_requests > 0 && queueing_delay < slo_us) {
+  while (new_requests > 0 && e2e_delay < slo_us) {
     auto rpc = dequeue();
     add_rpc_id_header(rpc);
     rpc_queue.enqueue(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM,
@@ -78,7 +78,7 @@ int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue &rpc_queue,
     new_requests--;
     VLOG(2) << "INGRESS: New request to be admitted "
             << "| service: " << ingress_service << "| id: " << rpc->get_id()
-            << "| queueing delay: " << queueing_delay;
+            << "| e2e delay: " << e2e_delay;
   }
 
   // drop remaining requests
@@ -113,19 +113,11 @@ int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue &rpc_queue,
 
     VLOG(2) << "INGRESS: Dropped request "
             << "| service: " << ingress_service
-            << "| id: " << drop_rpc->get_id()
-            << "| queueing delay: " << queueing_delay;
+            << "| id: " << drop_rpc->get_id() << "| e2e delay: " << e2e_delay;
     new_requests--;
   }
 
   return new_added;
-}
-
-void Ingress::update_stats(int32_t new_p50_us, int32_t new_p95_us) {
-  p50_us = new_p50_us;
-  p95_us = new_p95_us;
-  VLOG(1) << "Ingress: Updated p50_us to " << new_p50_us << " and p95_us to "
-          << new_p95_us << " for service: " << ingress_service;
 }
 
 size_t Ingress::size() { return queue.size(); }
@@ -135,10 +127,6 @@ void Ingress::dump_state() {
   LOG(INFO) << "  " << ingress_service << ": " << queue.size();
   LOG(INFO) << "--- Drop ID (drop_id) ---";
   LOG(INFO) << "  " << ingress_service << ": " << drop_id;
-  LOG(INFO) << "--- P95 US (p95_us) ---";
-  LOG(INFO) << "  " << ingress_service << ": " << p95_us;
-  LOG(INFO) << "--- P50 US (p50_us) ---";
-  LOG(INFO) << "  " << ingress_service << ": " << p50_us;
   LOG(INFO) << "--- SLO US (slo_us) ---";
   LOG(INFO) << "  " << ingress_service << ": " << slo_us;
 }

@@ -82,7 +82,7 @@ size_t PPMQueue::size(const std::string &service) {
   }
 }
 
-int32_t PPMQueue::get_waiting_delay(const std::string &service) {
+int32_t PPMQueue::get_waiting_delay_us(const std::string &service) {
   try {
     if (ppm_queue.at(service).empty()) {
       return 0;

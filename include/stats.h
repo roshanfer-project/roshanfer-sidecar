@@ -5,6 +5,7 @@
 #include "rpc_message.h"
 #include "tdigest.h"
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -101,7 +102,7 @@ public:
   void add(int32_t val) { td_add(td, val, 1); }
   double get_quantile(double q) {
     double val = td_value_at(td, q);
-    return val == NAN ? 0 : val;
+    return std::isnan(val) ? 0 : val;
   }
 
   // delete copy semantics
@@ -130,11 +131,11 @@ public:
 
   void report_latency(const std::shared_ptr<RPCMessage> &rpc);
   void update_hist(struct hdr_histogram *);
-  LocalMap<ExponentialMovingAverage> &get_avg_service_time_us() {
-    return avg_service_time_us;
+  LocalMap<ExponentialMovingAverage> &get_ema_service_time_us() {
+    return ema_service_time_us;
   }
-  TDigest &get_tdigest(std::string_view service) {
-    return tdigest.get(service);
+  TDigest &get_tdigest_service_time_us(std::string_view service) {
+    return tdigest_service_time_us.get(service);
   }
 
 public:
@@ -142,6 +143,6 @@ public:
 
 private:
   struct hdr_histogram *hist;
-  LocalMap<ExponentialMovingAverage> avg_service_time_us;
-  LocalMap<TDigest> tdigest;
+  LocalMap<ExponentialMovingAverage> ema_service_time_us;
+  LocalMap<TDigest> tdigest_service_time_us;
 };

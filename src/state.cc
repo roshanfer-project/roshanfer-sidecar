@@ -17,6 +17,7 @@
 #include <arpa/inet.h>
 #include <cassert>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -176,7 +177,7 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
   }
   stats.update_hist(hist);
   for (const auto &service : get_downstream_services(parsed_config)) {
-    stats.get_avg_service_time_us().get(service).set_description("RT-" +
+    stats.get_ema_service_time_us().get(service).set_description("RT-" +
                                                                  service);
   }
   LOG(INFO) << "State initialized";
@@ -405,7 +406,11 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                    "or perhanps you should set is_plain_frontend to true)";
           }
           if (type == ConnectionType::EGRESS) {
-            shared_state.credit_queue.increment_in_flight(rpc->get_service());
+            if (!config.is_ingress) {
+              shared_state.credit_queue.increment_in_flight(
+                  rpc_mapper.get_ingress_rpc(rpc->get_id())->get_service());
+            }
+            local_state.avg_ds_concurrency.get(rpc->get_service()).down();
           } else if (type == ConnectionType::INGRESS) {
             shared_state.credit_queue.decrement_in_flight(rpc->get_service());
             shared_state.in_local.fetch_sub(1);
@@ -536,13 +541,17 @@ void State::ppm_client(bool dn_resp,
       forward_request(upstream_route_mapper.get_pool(service).get_connection(
                           rpc->get_us_fd()),
                       rpc);
-      shared_state.credit_queue.decrement_in_flight(service);
+      if (!config.is_ingress) {
+        shared_state.credit_queue.decrement_in_flight(
+            rpc_mapper.get_ingress_rpc(rpc->get_id())->get_service());
+      }
       check_credit_transmission();
-      local_state.avg_cal_waiting_delay.update(
-          (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
-              std::chrono::steady_clock::now() - rpc->req_rcv_time)
-              .count());
-
+      auto wd = (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - rpc->req_rcv_time)
+                    .count();
+      local_state.avg_cal_waiting_delay.update(wd);
+      local_state.td_wd.add(wd);
+      local_state.avg_ds_concurrency.get(service).up();
       VLOG(1) << "RPCForward: EGRESS request. "
               << "| service: " << service << "| id: " << rpc->get_id()
               << "| ppm_queue size: " << ppm_queue.size(service);
@@ -628,40 +637,66 @@ void State::ingress_admit() {
   if (ingress.size() == 0) {
     return;
   }
-  // update ingress's p95 estimate
   if (std::chrono::steady_clock::now() >= next_hist_update &&
       hist->total_count >= 500) {
-    // FIX: the histogram is not updated correctly
-    ingress.update_stats((int32_t)hdr_value_at_percentile(hist, 50.0),
-                         (int32_t)hdr_value_at_percentile(hist, 95.0));
+    /* #ifdef NANO_LOG_ENABLED
+        NANO_LOG(NOTICE, "M# %s HIST-P50 RT-%s T:T %ld", config.name.c_str(),
+                 ingress_service.c_str(), hdr_value_at_percentile(hist, 50));
+        NANO_LOG(NOTICE, "M# %s HIST-P95 RT-%s T:T %ld", config.name.c_str(),
+                 ingress_service.c_str(), hdr_value_at_percentile(hist, 95));
+        NANO_LOG(NOTICE, "M# %s HIST-P99 RT-%s T:T %ld", config.name.c_str(),
+                 ingress_service.c_str(), hdr_value_at_percentile(hist, 99));
+    #endif */
     hdr_reset(hist);
     next_hist_update =
         std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
   }
 
   // check for any potential admitting or dropping
-  int32_t queue_size = (int32_t)ppm_queue.size(ingress_service);
-  int32_t queueing_delay =
-      (int32_t)local_state.avg_cal_waiting_delay.get_value() * queue_size +
-      (int32_t)stats.get_tdigest(ingress_service).get_quantile(0.95);
+  int32_t queue_size = (int32_t)ppm_queue.size(ingress_service) + 1;
+  int32_t wt = (int32_t)(stats.get_ema_service_time_us()
+                             .get(ingress_service)
+                             .get_value() *
+                         (float)queue_size /
+                         local_state.avg_ds_concurrency.get(ingress_service)
+                             .get_value_cap(1, INFINITY));
+  int32_t e2e_delay =
+      wt + (int32_t)stats.get_tdigest_service_time_us(ingress_service)
+               .get_quantile(0.95);
 
   auto added =
-      ingress.add_to_be_admitted_or_drop(rpc_queue, rpc_mapper, queueing_delay);
-  if (added > 0) {
+      ingress.add_to_be_admitted_or_drop(rpc_queue, rpc_mapper, e2e_delay);
 #ifdef NANO_LOG_ENABLED
-    NANO_LOG(NOTICE, "M# %s Measured QS-%s T:T %ld", config.name.c_str(),
-             ingress_service.c_str(), queue_size);
-    NANO_LOG(NOTICE, "M# %s Custom WT-%s T:T %d", config.name.c_str(),
-             ingress_service.c_str(),
-             (int32_t)local_state.avg_cal_waiting_delay.get_value() *
-                 queue_size);
-    NANO_LOG(NOTICE, "M# %s Custom QD-%s T:T %d", config.name.c_str(),
-             ingress_service.c_str(), queueing_delay);
-    NANO_LOG(NOTICE, "M# %s Custom TD-P95-%s T:T %f", config.name.c_str(),
-             ingress_service.c_str(),
-             stats.get_tdigest(ingress_service).get_quantile(0.95));
-#endif
+  NANO_LOG(NOTICE, "M# %s Measured QS-%s T:T %d", config.name.c_str(),
+           ingress_service.c_str(), queue_size);
+  NANO_LOG(NOTICE, "M# %s Estimated WT-%s T:T %d", config.name.c_str(),
+           ingress_service.c_str(),
+           (int32_t)local_state.avg_cal_waiting_delay.get_value());
+  NANO_LOG(NOTICE, "M# %s Instant WT-%s T:T %d", config.name.c_str(),
+           ingress_service.c_str(),
+           (int32_t)ppm_queue.get_waiting_delay_us(ingress_service));
+  NANO_LOG(NOTICE, "M# %s P99 WT-%s T:T %d", config.name.c_str(),
+           ingress_service.c_str(),
+           (int32_t)local_state.td_wd.get_quantile(0.99));
+  NANO_LOG(NOTICE, "M# %s Estimated E2E-%s T:T %d", config.name.c_str(),
+           ingress_service.c_str(), e2e_delay);
+  if (added > 0) {
+    NANO_LOG(NOTICE, "M# %s Estimated A-E2E-%s T:T %d", config.name.c_str(),
+             ingress_service.c_str(), e2e_delay);
   }
+  NANO_LOG(
+      NOTICE, "M# %s Estimated RT-TD-P95-%s T:T %f", config.name.c_str(),
+      ingress_service.c_str(),
+      stats.get_tdigest_service_time_us(ingress_service).get_quantile(0.95));
+  NANO_LOG(NOTICE, "M# %s Estimated WT-R-%s T:T %d", config.name.c_str(),
+           ingress_service.c_str(),
+           (int32_t)(stats.get_ema_service_time_us()
+                         .get(ingress_service)
+                         .get_value() *
+                     (float)queue_size /
+                     local_state.avg_ds_concurrency.get(ingress_service)
+                         .get_value_cap(1, INFINITY)));
+#endif
   if (ingress.size() != 0) {
     dump_entire_state();
     LOG(FATAL) << "Ingress queue size is not 0";
@@ -779,7 +814,11 @@ SharedState::SharedState(std::vector<std::string> hosted_service,
     : credit_queue(hosted_service, config.ppm_limit.value_or(-1),
                    config.per_endpoint_limit.value_or(-1)) {}
 
-LocalState::LocalState(std::vector<std::string> /*hosted_services*/
-                       ,
-                       std::vector<std::string> /*downstream_services*/)
-    : avg_cal_waiting_delay(), drops(0) {}
+LocalState::LocalState(std::vector<std::string> /*hosted_services*/,
+                       std::vector<std::string> downstream_services)
+    : avg_cal_waiting_delay(), avg_ds_concurrency(downstream_services), td_wd(),
+      drops(0) {
+  for (auto &service : downstream_services) {
+    avg_ds_concurrency.get(service).set_description("DSC-" + service);
+  }
+}

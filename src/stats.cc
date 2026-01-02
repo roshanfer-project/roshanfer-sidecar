@@ -156,32 +156,70 @@ void Counter::down(int32_t val) { count -= val; }
 int32_t Counter::get_count() { return count; }
 
 Stats::Stats(std::vector<std::string> services)
-    : mode2_credits("Mode2 Credits"), hist(nullptr),
-      avg_service_time_us(services), tdigest(services) {}
+    : mode2_credits("Mode2 Credits"), ema_service_time_us(services),
+      tdigest_service_time_us(services) {}
 
 void Stats::update_hist(struct hdr_histogram *new_hist) {
   this->hist = new_hist;
 }
 
 void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
-  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
-      std::chrono::steady_clock::now() - rpc->req_rcv_time);
+  if (!config.is_ingress) {
+    return;
+  }
+
+  if (rpc->is_error()) {
+#ifdef NANO_LOG_ENABLED
+    if (rpc->http() == HTTP::HTTP1) {
+      auto http_rpc = std::dynamic_pointer_cast<HTTPMessage>(rpc);
+      if (!http_rpc) {
+        LOG(FATAL) << "Null pointer after dynamic_pointer_cast";
+      }
+      NANO_LOG(NOTICE, "M# %s DROP %s %s:%d 1", config.name.c_str(),
+               type_to_str(rpc->get_type()).c_str(), rpc->get_service().c_str(),
+               http_rpc->get_status());
+    } else {
+      NANO_LOG(NOTICE, "M# %s DROP %s %s:%s 1", config.name.c_str(),
+               type_to_str(rpc->get_type()).c_str(), rpc->get_service().c_str(),
+               rpc->get_method().c_str());
+    }
+#endif
+    return;
+  }
+
+  if (rpc->req_for_time.time_since_epoch() >
+      std::chrono::steady_clock::now().time_since_epoch()) {
+    LOG(FATAL) << "Service time is negative";
+  }
+  auto service_time = std::chrono::duration_cast<std::chrono::microseconds>(
+                          std::chrono::steady_clock::now() - rpc->req_for_time)
+                          .count();
+
+  if (std::chrono::steady_clock::now().time_since_epoch() <
+      rpc->req_rcv_time.time_since_epoch()) {
+    LOG(FATAL) << "E2E time is negative";
+  }
+  auto e2e = std::chrono::duration_cast<std::chrono::microseconds>(
+                 std::chrono::steady_clock::now() - rpc->req_rcv_time)
+                 .count();
 
   // update hist only if we are Ingress and also just for E2E Ingress requests
-  if (config.is_ingress) {
-    bool ret = hdr_record_value(hist, static_cast<int64_t>(duration.count()));
-    if (!ret) {
-      LOG(FATAL) << "Failed to record value: "
-                 << static_cast<int64_t>(duration.count());
-    }
-    avg_service_time_us.get(rpc->get_service())
-        .update(static_cast<int32_t>(duration.count()));
-    tdigest.get(rpc->get_service()).add(static_cast<int32_t>(duration.count()));
-
-    VLOG(2) << "Stats: Reported latency "
-            << "| service: " << rpc->get_service()
-            << "| duration: " << duration.count();
+  bool ret = hdr_record_value(hist, static_cast<int64_t>(service_time));
+  if (!ret) {
+    LOG(FATAL) << "Failed to record value: "
+               << static_cast<int64_t>(service_time)
+               << ", req_for_time: " << rpc->req_for_time.time_since_epoch()
+               << ", req_rcv_time: " << rpc->req_rcv_time.time_since_epoch()
+               << ", service: " << rpc->get_service();
   }
+  ema_service_time_us.get(rpc->get_service())
+      .update(static_cast<int32_t>(service_time));
+  tdigest_service_time_us.get(rpc->get_service())
+      .add(static_cast<int32_t>(service_time));
+
+  VLOG(2) << "Stats: Reported latency "
+          << "| service: " << rpc->get_service()
+          << "| service_time: " << service_time << "| e2e: " << e2e;
 
 #ifdef NANO_LOG_ENABLED
 
@@ -190,7 +228,7 @@ void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
     // <service>:<method> <value>
     NANO_LOG(NOTICE, "M# %s E2E %s %s:%s %lld", config.name.c_str(),
              type_to_str(rpc->get_type()).c_str(), rpc->get_service().c_str(),
-             rpc->get_method().c_str(), duration.count());
+             rpc->get_method().c_str(), e2e);
 
     NANO_LOG(NOTICE, "M# %s REQ-FOR %s %s:%s %lld", config.name.c_str(),
              type_to_str(rpc->get_type()).c_str(), rpc->get_service().c_str(),
@@ -205,22 +243,7 @@ void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
              std::chrono::duration_cast<std::chrono::microseconds>(
                  std::chrono::steady_clock::now() - rpc->res_rcv_time)
                  .count());
-  } else {
-    if (rpc->http() == HTTP::HTTP1) {
-      auto http_rpc = std::dynamic_pointer_cast<HTTPMessage>(rpc);
-      if (!http_rpc) {
-        LOG(FATAL) << "Null pointer after dynamic_pointer_cast";
-      }
-      NANO_LOG(NOTICE, "M# %s DROP %s %s:%d 1", config.name.c_str(),
-               type_to_str(rpc->get_type()).c_str(), rpc->get_service().c_str(),
-               http_rpc->get_status());
-    } else {
-      NANO_LOG(NOTICE, "M# %s DROP %s %s:%s 1", config.name.c_str(),
-               type_to_str(rpc->get_type()).c_str(), rpc->get_service().c_str(),
-               rpc->get_method().c_str());
-    }
   }
-
 #endif
 
 #ifdef NABO_LOG_TRACE_ENABLED
