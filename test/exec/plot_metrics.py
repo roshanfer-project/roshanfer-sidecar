@@ -82,15 +82,21 @@ def parse_logs(files):
             
     return metrics
 
-def calculate_quantiles(data, resolution, count_only=False):
-    if not data:
+def calculate_quantiles(data, resolution, count_only=False, global_start=None, global_end=None):
+    if not data and (global_start is None or global_end is None):
         return None, None, {}
 
-    # Sort by timestamp
-    data.sort(key=lambda x: x[0])
+    # Sort by timestamp (if data exists)
+    if data:
+        data.sort(key=lambda x: x[0])
+        first_time = data[0][0]
+        last_time = data[-1][0]
+    else:
+        first_time = global_start
+        last_time = global_end
     
-    start_time = data[0][0]
-    end_time = data[-1][0]
+    start_time = global_start if global_start is not None else first_time
+    end_time = global_end if global_end is not None else last_time
     
     # Create bins
     timestamps = []
@@ -101,6 +107,10 @@ def calculate_quantiles(data, resolution, count_only=False):
     
     data_idx = 0
     n = len(data)
+    
+    # Skip data before start_time if any
+    while data_idx < n and data[data_idx][0] < current_bin_start:
+        data_idx += 1
     
     while current_bin_start <= end_time + resolution:
         bin_end = current_bin_start + resolution
@@ -152,6 +162,23 @@ def main():
 
     print(f"Found {len(metrics_data)} metrics. Generating plots...")
     
+    # Determine global time range
+    global_start = float('inf')
+    global_end = float('-inf')
+    
+    has_data = False
+    for metric_name, data in metrics_data.items():
+        if data:
+            data_times = [x[0] for x in data]
+            global_start = min(global_start, min(data_times))
+            global_end = max(global_end, max(data_times))
+            has_data = True
+            
+    if not has_data:
+        print("No valid data found.")
+        return
+
+    print(f"Global time range: {global_start} to {global_end} (Duration: {global_end - global_start:.2f}s)")
     
     with PdfPages(args.output) as pdf:
         style = pp.PlotStyle(width_points=160, hspace=0.5, wspace=0.3)
@@ -171,7 +198,7 @@ def main():
             grid = pp.SubplotGrid(style, layout=f"{rows}x{cols}")
             
             for j, metric_name in enumerate(chunk):
-                is_queue_size = str.rfind(metric_name, "QS") >= 0 or "DROP" in metric_name or "DSC" in metric_name
+                is_count = "QS" in metric_name or "DROP" in metric_name or "DSC" in metric_name
                 is_drop = "DROP" in metric_name
                 
                 row_idx = j // cols
@@ -179,16 +206,19 @@ def main():
                 ax = grid.get_ax(row_idx, col_idx)
                 
                 data = metrics_data[metric_name]
-                timestamps, results = calculate_quantiles(data, args.resolution, count_only=is_drop)
+                # print(f"Processing metric: {metric_name}")
+                timestamps, results = calculate_quantiles(data, args.resolution, count_only=is_drop,
+                                                          global_start=global_start, global_end=global_end)
+                
                 
                 if not timestamps:
                     continue
                 
-                if not is_queue_size:
+                if not is_count:
                     # scale to ms
-                    results[50] = [x * 0.001 for x in results[50]]
-                    results[95] = [x * 0.001 for x in results[95]]
-                    results[99] = [x * 0.001 for x in results[99]]
+                    results[50] = [x * 0.001 if not np.isnan(x) else x for x in results[50]]
+                    results[95] = [x * 0.001 if not np.isnan(x) else x for x in results[95]]
+                    results[99] = [x * 0.001 if not np.isnan(x) else x for x in results[99]]
 
                 # Calculate max_val for ylim safely ignoring NaNs
                 try:
@@ -198,24 +228,36 @@ def main():
                 except ValueError:
                     max_val = 1.0
                 
+                """ if "E2E" in metric_name:
+                    max_val = 16 """
                 
-                # Plot lines
-                # p50
-                pp.plot_line(ax, timestamps, results[50], label="P50", style=style, color_idx=1)
-                # p95
-                pp.plot_line(ax, timestamps, results[95], label="P95", style=style, color_idx=4)
-                # p99
-                pp.plot_line(ax, timestamps, results[99], label="P99", style=style, color_idx=0)
+                
+                # Plot lines or scatter
+                if "EMA" in metric_name or "HIST" in metric_name:
+                    # p50
+                    pp.plot_scatter(ax, timestamps, results[50], label="P50", style=style, color_idx=1)
+                    # p95
+                    pp.plot_scatter(ax, timestamps, results[95], label="P95", style=style, color_idx=4)
+                    # p99
+                    pp.plot_scatter(ax, timestamps, results[99], label="P99", style=style, color_idx=0)
+                else:
+                    # p50
+                    pp.plot_line(ax, timestamps, results[50], label="P50", style=style, color_idx=1)
+                    # p95
+                    pp.plot_line(ax, timestamps, results[95], label="P95", style=style, color_idx=4)
+                    # p99
+                    pp.plot_line(ax, timestamps, results[99], label="P99", style=style, color_idx=0)
                 
                 # Shorten title if needed or just use metric name
                 # metric_name structure: "Metric Conn Type Path"
                 # Let's try to make it wrapped or smaller if too long, but standard title is fine for now
                 grid.configure_ax(ax, 
                                   xlabel="Time (s)" if row_idx == rows - 1 else "", 
-                                  ylabel="Count" if is_queue_size else "Lat (ms)" if col_idx == 0 else "",
+                                  ylabel="Count" if is_count else "Lat (ms)" if col_idx == 0 else "",
                                   title=metric_name,
                                   #log_y=False if str.rfind(metric_name, "QS") >= 0 else True
-                                  ylim=(0, max_val)
+                                  ylim=(0, max_val*1.2),
+                                  y_step=2 if "E2E" in metric_name else None
                                   )
 
             # Hide unused axes
