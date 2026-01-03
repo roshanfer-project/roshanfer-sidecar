@@ -137,6 +137,9 @@ public:
   TDigest &get_tdigest_service_time_us(std::string_view service) {
     return tdigest_service_time_us.get(service);
   }
+  TDigest &get_tdigest_e2e_us(std::string_view service) {
+    return tdigest_e2e_us.get(service);
+  }
 
 public:
   Counter mode2_credits;
@@ -145,4 +148,5 @@ private:
   struct hdr_histogram *hist;
   LocalMap<ExponentialMovingAverage> ema_service_time_us;
   LocalMap<TDigest> tdigest_service_time_us;
+  LocalMap<TDigest> tdigest_e2e_us;
 };

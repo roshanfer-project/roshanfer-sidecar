@@ -157,7 +157,7 @@ int32_t Counter::get_count() { return count; }
 
 Stats::Stats(std::vector<std::string> services)
     : mode2_credits("Mode2 Credits"), ema_service_time_us(services),
-      tdigest_service_time_us(services) {}
+      tdigest_service_time_us(services), tdigest_e2e_us(services) {}
 
 void Stats::update_hist(struct hdr_histogram *new_hist) {
   this->hist = new_hist;
@@ -216,6 +216,7 @@ void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
       .update(static_cast<int32_t>(service_time));
   tdigest_service_time_us.get(rpc->get_service())
       .add(static_cast<int32_t>(service_time));
+  tdigest_e2e_us.get(rpc->get_service()).add(static_cast<int32_t>(e2e));
 
   VLOG(2) << "Stats: Reported latency "
           << "| service: " << rpc->get_service()

@@ -637,6 +637,10 @@ void State::ingress_admit() {
   if (ingress.size() == 0) {
     return;
   }
+  if (ingress.size() != 1) {
+    LOG(FATAL) << "Ingress queue size is not 1 (Ingress assumes single request "
+                  "at a time)";
+  }
   if (std::chrono::steady_clock::now() >= next_hist_update &&
       hist->total_count >= 500) {
     /* #ifdef NANO_LOG_ENABLED
@@ -654,10 +658,10 @@ void State::ingress_admit() {
 
   // check for any potential admitting or dropping
   int32_t queue_size = (int32_t)ppm_queue.size(ingress_service) + 1;
-  int32_t wt = (int32_t)(stats.get_ema_service_time_us()
+  int32_t wt = (int32_t)ppm_queue.get_waiting_delay_us(ingress_service) +
+               (int32_t)(stats.get_ema_service_time_us()
                              .get(ingress_service)
-                             .get_value() *
-                         (float)queue_size /
+                             .get_value() /
                          local_state.avg_ds_concurrency.get(ingress_service)
                              .get_value_cap(1, INFINITY));
   int32_t e2e_delay =
@@ -675,15 +679,19 @@ void State::ingress_admit() {
   NANO_LOG(NOTICE, "M# %s Instant WT-%s T:T %d", config.name.c_str(),
            ingress_service.c_str(),
            (int32_t)ppm_queue.get_waiting_delay_us(ingress_service));
-  NANO_LOG(NOTICE, "M# %s P99 WT-%s T:T %d", config.name.c_str(),
+  NANO_LOG(NOTICE, "M# %s P95 WT-%s T:T %d", config.name.c_str(),
            ingress_service.c_str(),
-           (int32_t)local_state.td_wd.get_quantile(0.99));
+           (int32_t)local_state.td_wd.get_quantile(0.95));
   NANO_LOG(NOTICE, "M# %s Estimated E2E-%s T:T %d", config.name.c_str(),
            ingress_service.c_str(), e2e_delay);
   if (added > 0) {
     NANO_LOG(NOTICE, "M# %s Estimated A-E2E-%s T:T %d", config.name.c_str(),
              ingress_service.c_str(), e2e_delay);
   }
+  NANO_LOG(
+      NOTICE, "M# %s P95 TD-E2E-%s T:T %d", config.name.c_str(),
+      ingress_service.c_str(),
+      (int32_t)stats.get_tdigest_e2e_us(ingress_service).get_quantile(0.95));
   NANO_LOG(
       NOTICE, "M# %s Estimated RT-TD-P95-%s T:T %f", config.name.c_str(),
       ingress_service.c_str(),

@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <random>
 #include <string>
 
 class Ingress {
@@ -24,7 +25,12 @@ private:
   std::deque<std::shared_ptr<RPCMessage>> queue;
   int32_t drop_id;
   int drop_fd;
-  int32_t slo_us;
+  float max_th_us;
+  float min_th_us;
+  int32_t red_count;
+  std::random_device rd;
+  std::mt19937 gen;
+  std::uniform_real_distribution<> dis;
   int32_t last_rpc_id;
   const uint8_t *RPC_ID_HEADER_NAME =
       reinterpret_cast<const uint8_t *>("rpc-id");

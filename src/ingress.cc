@@ -11,16 +11,27 @@
 #include <memory>
 #include <string>
 
+#if defined(NANO_LOG_ENABLED) || defined(NABO_LOG_TRACE_ENABLED)
+#include "NanoLog.h"
+#include "NanoLogCpp17.h"
+
+using namespace NanoLog::LogLevels;
+#endif
+
 Ingress::Ingress(int index_arg, std::string &ingress_service_ref)
     : queue(std::deque<std::shared_ptr<RPCMessage>>()), drop_id(0),
-      drop_fd(-index_arg), slo_us(), last_rpc_id(0),
-      ingress_service(ingress_service_ref) {
+      drop_fd(-index_arg), max_th_us(), min_th_us(), red_count(-1), gen(rd()),
+      dis(0.0, 1.0), last_rpc_id(0), ingress_service(ingress_service_ref) {
   if (config.is_ingress) {
     if (!config.routing.at(ingress_service_ref).slo.has_value()) {
       LOG(FATAL) << "No SLO configured for ingress service: "
                  << ingress_service_ref;
     }
-    slo_us = config.routing.at(ingress_service_ref).slo.value() * 1000;
+    max_th_us =
+        (float)config.routing.at(ingress_service_ref).slo.value() * 1000;
+    min_th_us = 0.8F * max_th_us;
+    LOG(INFO) << "Ingress: " << ingress_service << " max_th_us: " << max_th_us
+              << " min_th_us: " << min_th_us;
   }
 }
 
@@ -65,24 +76,39 @@ void Ingress::add_rpc_id_header(std::shared_ptr<RPCMessage> &rpc) {
 int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue &rpc_queue,
                                             RPCMapper &rpc_mapper,
                                             int32_t e2e_delay) {
-
-  int new_requests = (int)queue.size();
-  int new_added = 0;
-
-  while (new_requests > 0 && e2e_delay < slo_us) {
-    auto rpc = dequeue();
-    add_rpc_id_header(rpc);
-    rpc_queue.enqueue(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM,
-                      rpc->get_ds_fd(), rpc->get_ds_stream_id());
-    new_added++;
-    new_requests--;
-    VLOG(2) << "INGRESS: New request to be admitted "
-            << "| service: " << ingress_service << "| id: " << rpc->get_id()
-            << "| e2e delay: " << e2e_delay;
+  bool drop = false;
+  if ((float)e2e_delay >= min_th_us && (float)e2e_delay <= max_th_us) {
+    red_count++;
+    float max_p = 1.0F;
+    float pb = max_p * ((float)e2e_delay - min_th_us) / (max_th_us - min_th_us);
+    float pa = pb / (1 - (float)red_count * pb);
+    if (pa > 1.0F) {
+      pa = 1.0F;
+    }
+    float uni_rv = (float)dis(gen);
+    // drop = uni_rv < pa;
+    drop = uni_rv < pb;
+    if (drop) {
+      red_count = 0;
+    }
+#ifdef NANO_LOG_ENABLED
+    NANO_LOG(NOTICE, "M# %s Prob Pa-%s T:T %f", config.name.c_str(),
+             ingress_service.c_str(), pa);
+    NANO_LOG(NOTICE, "M# %s Prob Pb-%s T:T %f", config.name.c_str(),
+             ingress_service.c_str(), pb);
+#endif
+  } else if ((float)e2e_delay >= max_th_us) {
+    red_count = 0;
+    drop = true;
+  } else {
+    red_count = -1;
+    drop = false;
   }
 
-  // drop remaining requests
-  while (new_requests > 0) {
+  // drop = false;
+
+  if (drop) {
+    // dropping the request
     auto drop_rpc =
         std::dynamic_pointer_cast<HTTPMessage>(std::move(queue.back()));
     if (!drop_rpc) {
@@ -114,10 +140,18 @@ int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue &rpc_queue,
     VLOG(2) << "INGRESS: Dropped request "
             << "| service: " << ingress_service
             << "| id: " << drop_rpc->get_id() << "| e2e delay: " << e2e_delay;
-    new_requests--;
+  } else {
+    // accepting the request
+    auto rpc = dequeue();
+    add_rpc_id_header(rpc);
+    rpc_queue.enqueue(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM,
+                      rpc->get_ds_fd(), rpc->get_ds_stream_id());
+    VLOG(2) << "INGRESS: New request to be admitted "
+            << "| service: " << ingress_service << "| id: " << rpc->get_id()
+            << "| e2e delay: " << e2e_delay;
   }
 
-  return new_added;
+  return drop == false;
 }
 
 size_t Ingress::size() { return queue.size(); }
@@ -127,6 +161,4 @@ void Ingress::dump_state() {
   LOG(INFO) << "  " << ingress_service << ": " << queue.size();
   LOG(INFO) << "--- Drop ID (drop_id) ---";
   LOG(INFO) << "  " << ingress_service << ": " << drop_id;
-  LOG(INFO) << "--- SLO US (slo_us) ---";
-  LOG(INFO) << "  " << ingress_service << ": " << slo_us;
 }
