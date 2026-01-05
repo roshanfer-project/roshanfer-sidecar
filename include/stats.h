@@ -97,7 +97,7 @@ private:
 
 class TDigest {
 public:
-  TDigest() : td(td_new(50)) {}
+  TDigest() : td(td_new(200)) {}
 
   void add(int32_t val) { td_add(td, val, 1); }
   double get_quantile(double q) {
