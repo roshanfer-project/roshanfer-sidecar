@@ -17,7 +17,6 @@
 #include <arpa/inet.h>
 #include <cassert>
 #include <chrono>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -658,17 +657,16 @@ void State::ingress_admit() {
 
   // check for any potential admitting or dropping
   int32_t queue_size = (int32_t)ppm_queue.size(ingress_service);
-  int32_t wt = (int32_t)(stats.get_tdigest_service_time_us(ingress_service)
-                             .get_quantile(0.97) *
+  int32_t wt = (int32_t)(stats.get_ema_service_time_us()
+                             .get(ingress_service)
+                             .get_value() *
                          (float)queue_size /
                          local_state.avg_ds_concurrency.get(ingress_service)
                              .get_value_cap(1, INFINITY));
 
-  int32_t over_reaction = ppm_queue.get_waiting_delay_us(ingress_service);
   int32_t e2e_delay =
-      over_reaction + wt +
-      (int32_t)stats.get_tdigest_service_time_us(ingress_service)
-          .get_quantile(0.97);
+      wt +
+      (int32_t)stats.get_ema_service_time_us().get(ingress_service).get_value();
 
   auto added =
       ingress.add_to_be_admitted_or_drop(rpc_queue, rpc_mapper, e2e_delay);
