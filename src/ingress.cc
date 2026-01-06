@@ -79,20 +79,14 @@ int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue &rpc_queue,
   bool drop = false;
   if ((float)e2e_delay >= min_th_us && (float)e2e_delay <= max_th_us) {
     red_count++;
-    float max_p = 0.8F;
+    float max_p = 1.0F;
     float pb = max_p * ((float)e2e_delay - min_th_us) / (max_th_us - min_th_us);
-    float pa = pb / (1 - ((float)red_count * pb));
-    if (pa > 1.0F) {
-      pa = 1.0F;
-    }
     float uni_rv = (float)dis(gen);
-    drop = uni_rv < pa;
+    drop = uni_rv < pb;
     if (drop) {
       red_count = 0;
     }
 #ifdef NANO_LOG_ENABLED
-    NANO_LOG(NOTICE, "M# %s Prob Pa-%s T:T %f", config.name.c_str(),
-             ingress_service.c_str(), pa);
     NANO_LOG(NOTICE, "M# %s Prob Pb-%s T:T %f", config.name.c_str(),
              ingress_service.c_str(), pb);
 #endif
