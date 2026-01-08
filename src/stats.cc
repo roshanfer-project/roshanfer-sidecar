@@ -1,5 +1,6 @@
 #include "stats.h"
 #include "config.h"
+#include "connection_enums.h"
 #include "fast_map.hpp"
 #include "hdr/hdr_histogram.h"
 #include <chrono>
@@ -155,16 +156,18 @@ void Counter::down(int32_t val) { count -= val; }
 
 int32_t Counter::get_count() { return count; }
 
-Stats::Stats(std::vector<std::string> services)
-    : mode2_credits("Mode2 Credits"), ema_service_time_us(services),
-      tdigest_service_time_us(services), tdigest_e2e_us(services) {}
+Stats::Stats(std::vector<std::string> ds_services,
+             std::vector<std::string> us_services)
+    : mode2_credits("Mode2 Credits"), ema_service_time_us(ds_services),
+      ema_us_service_time_us(us_services), tdigest_service_time_us(ds_services),
+      tdigest_e2e_us(ds_services) {}
 
 void Stats::update_hist(struct hdr_histogram *new_hist) {
   this->hist = new_hist;
 }
 
 void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
-  if (!config.is_ingress) {
+  if (!config.is_ingress && rpc->get_type() == ConnectionType::EGRESS) {
     return;
   }
 
@@ -194,6 +197,17 @@ void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
   auto service_time = std::chrono::duration_cast<std::chrono::microseconds>(
                           std::chrono::steady_clock::now() - rpc->req_for_time)
                           .count();
+
+  if (!config.is_ingress) {
+    ema_us_service_time_us.get(rpc->get_service())
+        .update(static_cast<int32_t>(service_time));
+#ifdef NANO_LOG_ENABLED
+    NANO_LOG(NOTICE, "M# %s SERVICE_TIME %s %s:%s %lld", config.name.c_str(),
+             type_to_str(rpc->get_type()).c_str(), rpc->get_service().c_str(),
+             rpc->get_method().c_str(), service_time);
+#endif
+    return;
+  }
 
   if (std::chrono::steady_clock::now().time_since_epoch() <
       rpc->req_rcv_time.time_since_epoch()) {

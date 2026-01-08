@@ -97,10 +97,8 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
                   get_downstream_services(parsed_config)),
       utilization(1000, get_hosted_services(parsed_config)),
       ingress_service(ingress_service_ref),
-      stats(get_downstream_services(
-          parsed_config)) // Note that only ingress uses this list of services
-                          // (so it should be EGRESS-side)
-{
+      stats(get_downstream_services(parsed_config),
+            get_hosted_services(parsed_config)) {
 
   if (config.buffer_size > HTTP1Connection_BUF_SIZE) {
     LOG(FATAL) << "Buffer size cannot be larger than "

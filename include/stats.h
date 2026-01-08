@@ -119,7 +119,7 @@ private:
 
 class Stats {
 public:
-  Stats(std::vector<std::string> services);
+  Stats(std::vector<std::string>, std::vector<std::string>);
 
   // delete copy semantics
   Stats(const Stats &) = delete;
@@ -134,6 +134,9 @@ public:
   LocalMap<ExponentialMovingAverage> &get_ema_service_time_us() {
     return ema_service_time_us;
   }
+  LocalMap<ExponentialMovingAverage> &get_ema_us_service_time_us() {
+    return ema_us_service_time_us;
+  }
   TDigest &get_tdigest_service_time_us(std::string_view service) {
     return tdigest_service_time_us.get(service);
   }
@@ -147,6 +150,7 @@ public:
 private:
   struct hdr_histogram *hist;
   LocalMap<ExponentialMovingAverage> ema_service_time_us;
+  LocalMap<ExponentialMovingAverage> ema_us_service_time_us;
   LocalMap<TDigest> tdigest_service_time_us;
   LocalMap<TDigest> tdigest_e2e_us;
 };
