@@ -1,6 +1,7 @@
 mapping:
   app:
   app2:
+  app3:
 ring_size: 10000
 buffer_count: 16384
 buffer_size: 80000
@@ -15,4 +16,5 @@ is_frontend: True
 is_plain_frontend: True
 report_latency: True
 ppm_limit: 0 # Not used
+per_endpoint_limit: 0 # Not used
 name: ingress

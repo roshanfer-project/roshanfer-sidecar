@@ -1,0 +1,16 @@
+mapping:
+  protobuf.Backend3/SimpleCall:
+ring_size: 1000
+buffer_count: 1024
+buffer_size: 80000
+num_threads: 1
+egress_listener_port: 4002
+ingress_listener_port: 3002
+ingress_upstream_host: 172.17.0.1
+ingress_upstream_port: 2002
+is_ingress: False
+is_frontend: False
+ppm_limit: 4
+per_endpoint_limit: 4
+report_latency: True
+name: backend3

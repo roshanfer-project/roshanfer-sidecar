@@ -64,9 +64,10 @@ func main() {
 		}
 	case "test3":
 		serviceList = [][]string{
-			{"backend1", "3,4", "0"},
-			{"backend2", "5,6,7,8,9", "0"},
-			{"app", "10,11,12", "0"},
+			{"backend1", "0,1", "0"},
+			{"backend2", "2,3", "0"},
+			{"backend3", "4,5", "0"},
+			{"app", "6,7,8", "0"},
 		}
 	case "b1":
 		serviceList = [][]string{

@@ -31,10 +31,11 @@ services:
       - /lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:ro
     ports:
       - "4000:4000" # egress_listener_port
-      - "3000:3000"   # hotels listen_port
-      - "3009:3009"   # reservation listen_port
+      - "3000:3000"   # app
+      - "3008:3008"   # app2
+      - "3009:3009"   # app3
     privileged: true
-    cpuset: "21,22"
+    cpuset: "23,22,21,20,19,18,9"
 
   app-sidecar:
     image: sidecar-sidecar:latest
@@ -46,14 +47,14 @@ services:
 #      - GLOG_v=1
 #      - GLOG_vmodule=state=2,ingress=2
     volumes:
-      - ./.configs/app.yaml:/config.yaml
+      - ./.configs/${APP_CONFIG:-app.yaml}:/config.yaml
       - /usr/local/lib:/usr/local/lib:ro
       - /lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:ro
     ports:
       - "4007:4007" # egress_listener_port
       - "3007:3007"   # ingress_listener_port
     privileged: true
-    cpuset: "19,20"
+    cpuset: "17,16"
 
   backend1-sidecar:
     image: sidecar-sidecar:latest
@@ -72,7 +73,7 @@ services:
       - "4005:4005" # egress_listener_port
       - "3005:3005" # ingress_listener_port
     privileged: true
-    cpuset: "17,18"
+    cpuset: "15,14"
 
   backend2-sidecar:
     image: sidecar-sidecar:latest
@@ -91,4 +92,23 @@ services:
       - "4006:4006" # egress_listener_port
       - "3006:3006" # ingress_listener_port
     privileged: true
-    cpuset: "15,16"
+    cpuset: "13,12"
+
+  backend3-sidecar:
+    image: sidecar-sidecar:latest
+    container_name: backend3-sidecar
+    restart: no
+    environment:
+      - PROC_NAME=backend3-sidecar
+      - GLOG_logtostderr=1
+#      - GLOG_v=1
+#      - GLOG_vmodule=state=2,ingress=2
+    volumes:
+      - ./.configs/backend3.yaml:/config.yaml
+      - /usr/local/lib:/usr/local/lib:ro
+      - /lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:ro
+    ports:
+      - "4002:4002" # egress_listener_port
+      - "3002:3002" # ingress_listener_port
+    privileged: true
+    cpuset: "11,10"

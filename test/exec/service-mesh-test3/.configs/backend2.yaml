@@ -5,14 +5,13 @@ ring_size: 1000
 buffer_count: 1024
 buffer_size: 80000
 num_threads: 1
-ingress_pool_connections: 100
-frontend_pool_connections: 100
 egress_listener_port: 4006
 ingress_listener_port: 3006
 ingress_upstream_host: 172.17.0.1
 ingress_upstream_port: 2006
 is_ingress: False
 is_frontend: False
-ppm_limit: 8
+per_endpoint_limit: 4
+ppm_limit: 4
 report_latency: True
 name: backend2
