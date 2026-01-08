@@ -214,7 +214,7 @@ def main():
                 if not timestamps:
                     continue
                 
-                if not is_count:
+                if not is_count and not "Prob" in metric_name:
                     # scale to ms
                     results[50] = [x * 0.001 if not np.isnan(x) else x for x in results[50]]
                     results[95] = [x * 0.001 if not np.isnan(x) else x for x in results[95]]
@@ -228,8 +228,8 @@ def main():
                 except ValueError:
                     max_val = 1.0
                 
-                """ if "E2E" in metric_name:
-                    max_val = 16 """
+                if "E2E" in metric_name:
+                    max_val = 16
                 
                 
                 # Plot lines or scatter
@@ -257,7 +257,7 @@ def main():
                                   title=metric_name,
                                   #log_y=False if str.rfind(metric_name, "QS") >= 0 else True
                                   ylim=(0, max_val*1.2),
-                                  y_step=2 if "E2E" in metric_name else None
+                                  y_step=4 if "E2E" in metric_name else None
                                   )
 
             # Hide unused axes
