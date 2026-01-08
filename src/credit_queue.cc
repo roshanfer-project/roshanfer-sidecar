@@ -1,13 +1,13 @@
 #include "credit_queue.hpp"
 #include <cstddef>
 
-CreditQueue::CreditQueue(std::vector<std::string> apis, int32_t ppm_limit,
+CreditQueue::CreditQueue(std::vector<std::string> endpoints, int32_t ppm_limit,
                          int32_t per_endpoint_limit)
-    : credit_queue(apis), it(credit_queue.begin()), lock(), _size(0),
-      in_flight(0), ppm_limit(ppm_limit), in_flight_per_endpoint(apis),
+    : credit_queue(endpoints), it(credit_queue.begin()), lock(), _size(0),
+      in_flight(0), ppm_limit(ppm_limit), in_flight_per_endpoint(endpoints),
       per_endpoint_limit(per_endpoint_limit) {
-  for (size_t i = 0; i < apis.size(); i++) {
-    in_flight_per_endpoint.set(apis.at(i), 0);
+  for (size_t i = 0; i < endpoints.size(); i++) {
+    in_flight_per_endpoint.set(endpoints.at(i), 0);
   }
   it = credit_queue.begin();
 }
