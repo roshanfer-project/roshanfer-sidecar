@@ -9,12 +9,11 @@
 PPMQueue::PPMQueue(std::unordered_map<std::string, RoutingEntry,
                                       TransparentHash, TransparentEqual>
                        routing)
-    : ppm_queue(
-          std::unordered_map<std::string,
-                             std::map<int32_t, std::shared_ptr<RPCMessage>>,
-                             TransparentHash, TransparentEqual>()) {
+    : ppm_queue(std::unordered_map<std::string,
+                                   std::map<RPCID, std::shared_ptr<RPCMessage>>,
+                                   TransparentHash, TransparentEqual>()) {
   for (const auto &[route, _] : routing) {
-    ppm_queue.emplace(route, std::map<int32_t, std::shared_ptr<RPCMessage>>());
+    ppm_queue.emplace(route, std::map<RPCID, std::shared_ptr<RPCMessage>>());
   }
 }
 
@@ -33,7 +32,7 @@ void PPMQueue::push(std::shared_ptr<RPCMessage> rpc) {
 }
 
 std::shared_ptr<RPCMessage> PPMQueue::pop(const std::string &service,
-                                          int32_t id) {
+                                          RPCID id) {
   try {
     if (ppm_queue.at(service).empty()) {
       LOG(FATAL) << "Trying to pop from an empty queue for service: "

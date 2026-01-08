@@ -31,10 +31,10 @@ private:
   std::random_device rd;
   std::mt19937 gen;
   std::uniform_real_distribution<> dis;
-  int32_t last_rpc_id;
+  RPCID last_rpc_id;
   const uint8_t *RPC_ID_HEADER_NAME =
       reinterpret_cast<const uint8_t *>("rpc-id");
   const size_t RPC_ID_HEADER_NAME_LEN = 7;
-  std::array<char, 20> rpc_id_header_value;
+  std::array<char, 32> rpc_id_header_value;
   std::string &ingress_service;
 };

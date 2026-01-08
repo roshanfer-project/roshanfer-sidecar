@@ -71,7 +71,7 @@ void gRPCMessage::add_header_field(const uint8_t *name, size_t name_len,
 
   if (request) {
     if (std::memcmp(name, "rpc-id", 6) == 0) {
-      id = (int32_t)std::stoi(
+      id = (RPCID)std::stoll(
           std::string(reinterpret_cast<const char *>(value), value_len));
       VLOG(1) << "RPC ID: " << id;
     }
@@ -240,7 +240,7 @@ void HTTPMessage::add_header_field(const uint8_t *name, size_t name_len,
 
   if (request) {
     if (std::memcmp(name, "rpc-id", 6) == 0) {
-      id = (int32_t)std::stoi(
+      id = (RPCID)std::stoll(
           std::string(reinterpret_cast<const char *>(value), value_len));
       VLOG(1) << "RPC ID: " << id;
     }

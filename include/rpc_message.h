@@ -41,6 +41,8 @@ public:
   size_t read_offset;
 };
 
+using RPCID = int64_t;
+
 class RPCMessage {
 
 public:
@@ -64,8 +66,8 @@ public:
   void set_us_stream_id(int32_t us_id) { us_stream_id = us_id; }
   int get_us_fd() const { return us_fd; }
   void set_us_fd(int fd) { us_fd = fd; }
-  int32_t get_id() const { return id; }
-  void set_id(int32_t new_id) { id = new_id; }
+  RPCID get_id() const { return id; }
+  void set_id(RPCID new_id) { id = new_id; }
   ConnectionType get_type() const { return type; }
   void set_type(ConnectionType new_type) { type = new_type; }
 
@@ -90,7 +92,7 @@ protected:
   int32_t us_stream_id;
   int us_fd;
 
-  int32_t id;
+  RPCID id;
   ConnectionType type;
 
 public:

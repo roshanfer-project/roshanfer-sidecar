@@ -16,6 +16,9 @@ RPCMapper::RPCMapper()
              std::unordered_map<
                  int,
                  std::unordered_map<int32_t, std::shared_ptr<RPCMessage>>>>()),
+      id_map(std::unordered_map<
+             ConnectionType,
+             std::unordered_map<RPCID, std::shared_ptr<RPCMessage>>>()),
       pool(RPCMessagePool(MAX_gRPC_POOL_SIZE, MAX_HTTP_POOL_SIZE)) {
   ds_map.emplace(
       ConnectionType::INGRESS,
@@ -33,6 +36,10 @@ RPCMapper::RPCMapper()
       ConnectionType::INGRESS,
       std::unordered_map<
           int, std::unordered_map<int32_t, std::shared_ptr<RPCMessage>>>());
+  id_map.emplace(ConnectionType::INGRESS,
+                 std::unordered_map<RPCID, std::shared_ptr<RPCMessage>>());
+  id_map.emplace(ConnectionType::EGRESS,
+                 std::unordered_map<RPCID, std::shared_ptr<RPCMessage>>());
 }
 
 void RPCMapper::allocate_rpc(ConnectionType type, int32_t stream_id, int fd,
@@ -62,10 +69,19 @@ void RPCMapper::route(ConnectionType type, int32_t ds_stream_id, int ds_fd,
     us_map[type].emplace(
         us_fd, std::unordered_map<int32_t, std::shared_ptr<RPCMessage>>());
   }
-  us_map.at(type).at(us_fd).emplace(us_stream_id,
-                                    ds_map.at(type).at(ds_fd).at(ds_stream_id));
+  auto rpc = ds_map.at(type).at(ds_fd).at(ds_stream_id);
+  id_map.at(type).emplace(rpc->get_id(), rpc);
+  us_map.at(type).at(us_fd).emplace(us_stream_id, std::move(rpc));
   VLOG(1) << "Mapping DS stream id: " << ds_stream_id << " and fd: " << ds_fd
           << " to US stream id: " << us_stream_id << " and fd: " << us_fd;
+}
+
+std::shared_ptr<RPCMessage> &RPCMapper::get_ingress_rpc(RPCID id) {
+  try {
+    return id_map.at(ConnectionType::INGRESS).at(id);
+  } catch (const std::out_of_range &e) {
+    LOG(FATAL) << "No INGRESS RPC found for id: " << id;
+  }
 }
 
 std::shared_ptr<RPCMessage>
@@ -103,6 +119,7 @@ void RPCMapper::remove_rpc(ConnectionType type,
                            std::shared_ptr<RPCMessage> rpc) {
   us_map.at(type).at(rpc->get_us_fd()).erase(rpc->get_us_stream_id());
   ds_map.at(type).at(rpc->get_ds_fd()).erase(rpc->get_ds_stream_id());
+  id_map.at(type).erase(rpc->get_id());
   pool.free_rpc(std::move(rpc));
 }
 

@@ -21,7 +21,8 @@ using namespace NanoLog::LogLevels;
 Ingress::Ingress(int index_arg, std::string &ingress_service_ref)
     : queue(std::deque<std::shared_ptr<RPCMessage>>()), drop_id(0),
       drop_fd(-index_arg), max_th_us(), min_th_us(), red_count(-1), gen(rd()),
-      dis(0.0, 1.0), last_rpc_id(0), ingress_service(ingress_service_ref) {
+      dis(0.0, 1.0), last_rpc_id((RPCID)index_arg << 48),
+      ingress_service(ingress_service_ref) {
   if (config.is_ingress) {
     if (!config.routing.at(ingress_service_ref).slo.has_value()) {
       LOG(FATAL) << "No SLO configured for ingress service: "
@@ -66,8 +67,8 @@ void Ingress::add_rpc_id_header(std::shared_ptr<RPCMessage> &rpc) {
   // update last_rpc_id and convert to a char array
   last_rpc_id++;
   // convert last_rpc_id to a char array
-  std::snprintf(rpc_id_header_value.data(), rpc_id_header_value.size(), "%d",
-                last_rpc_id);
+  std::snprintf(rpc_id_header_value.data(), rpc_id_header_value.size(), "%lld",
+                (long long)last_rpc_id);
   rpc->add_header_field(
       RPC_ID_HEADER_NAME, RPC_ID_HEADER_NAME_LEN,
       reinterpret_cast<const uint8_t *>(rpc_id_header_value.data()),

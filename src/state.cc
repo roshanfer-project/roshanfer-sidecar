@@ -470,7 +470,7 @@ void State::remove_connection(std::shared_ptr<HTTPConnection> /*conn*/) {
 }
 
 static std::string_view extract_service_from_ppm_req(const char *data) {
-  size_t header_size = 9;
+  size_t header_size = 13;
   if (data[1] != 0x01) {
     LOG(FATAL) << "Invalid message type";
   }
@@ -480,14 +480,20 @@ static std::string_view extract_service_from_ppm_req(const char *data) {
   return std::string_view(data + header_size, (size_t)data[0] - header_size);
 }
 
-std::tuple<const std::string &, bool, size_t, int32_t>
+std::tuple<const std::string &, bool, size_t, RPCID>
 State::valid_credit(const char *data) {
   // check the data format and extract the service name
   auto key = extract_service_from_ppm_req(data);
   // extract the ID of the request (int32_t)
-  int32_t id =
-      (int32_t)((unsigned char)data[5] << 24 | (unsigned char)data[6] << 16 |
-                (unsigned char)data[7] << 8 | (unsigned char)data[8]);
+  // extract the ID of the request (int64_t)
+  RPCID id = (int64_t)((uint64_t)(unsigned char)data[5] << 56 |
+                       (uint64_t)(unsigned char)data[6] << 48 |
+                       (uint64_t)(unsigned char)data[7] << 40 |
+                       (uint64_t)(unsigned char)data[8] << 32 |
+                       (uint64_t)(unsigned char)data[9] << 24 |
+                       (uint64_t)(unsigned char)data[10] << 16 |
+                       (uint64_t)(unsigned char)data[11] << 8 |
+                       (uint64_t)(unsigned char)data[12]);
 
   // add the difference between requested credits and available credits to the
   // denied requests
@@ -582,9 +588,9 @@ void State::ppm_client(bool dn_resp,
 }
 
 void State::send_dn(struct sockaddr_in addr, const std::string &service,
-                    size_t num_credits, int32_t id) {
+                    size_t num_credits, RPCID id) {
   // send a demand notification
-  ssize_t header_size = 9;
+  ssize_t header_size = 13;
   size_t len = (size_t)header_size + service.length();
   auto buffer = buffer_manager.get_dn_buffer();
   if (buffer->data.size() < len) {
@@ -595,11 +601,15 @@ void State::send_dn(struct sockaddr_in addr, const std::string &service,
   buffer->data.at(2) = 0x00;              // request (0x00), response (0x01)
   buffer->data.at(3) = (char)num_credits; // number of requested credits
   // position 4 is for the received number of credits
-  // position 5 is for the ID of the request (int32_t - four bytes)
-  buffer->data.at(5) = (char)((unsigned char)(id >> 24));
-  buffer->data.at(6) = (char)((unsigned char)(id >> 16));
-  buffer->data.at(7) = (char)((unsigned char)(id >> 8));
-  buffer->data.at(8) = (char)((unsigned char)(id & 0xFF));
+  // position 5 is for the ID of the request (int64_t - eight bytes)
+  buffer->data.at(5) = (char)((unsigned char)(id >> 56));
+  buffer->data.at(6) = (char)((unsigned char)(id >> 48));
+  buffer->data.at(7) = (char)((unsigned char)(id >> 40));
+  buffer->data.at(8) = (char)((unsigned char)(id >> 32));
+  buffer->data.at(9) = (char)((unsigned char)(id >> 24));
+  buffer->data.at(10) = (char)((unsigned char)(id >> 16));
+  buffer->data.at(11) = (char)((unsigned char)(id >> 8));
+  buffer->data.at(12) = (char)((unsigned char)(id & 0xFF));
   std::copy_n(service.begin(), service.length(),
               buffer->data.begin() + header_size);
   buffer->set_filled(len);
@@ -763,10 +773,14 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
     }
 
     std::string_view service = extract_service_from_ppm_req(req->data.data());
-    int32_t rpc_id = (int32_t)((unsigned char)req->data.at(5) << 24 |
-                               (unsigned char)req->data.at(6) << 16 |
-                               (unsigned char)req->data.at(7) << 8 |
-                               (unsigned char)req->data.at(8));
+    RPCID rpc_id = (int64_t)((uint64_t)(unsigned char)req->data.at(5) << 56 |
+                             (uint64_t)(unsigned char)req->data.at(6) << 48 |
+                             (uint64_t)(unsigned char)req->data.at(7) << 40 |
+                             (uint64_t)(unsigned char)req->data.at(8) << 32 |
+                             (uint64_t)(unsigned char)req->data.at(9) << 24 |
+                             (uint64_t)(unsigned char)req->data.at(10) << 16 |
+                             (uint64_t)(unsigned char)req->data.at(11) << 8 |
+                             (uint64_t)(unsigned char)req->data.at(12));
     VLOG(2) << "QM: Received DN request "
             << "| service: " << service << "| id: " << rpc_id
             << "| thread id: " << thread_id;
