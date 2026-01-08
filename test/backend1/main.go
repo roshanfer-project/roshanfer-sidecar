@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 
 	//_ "net/http/pprof"
 	"test"
@@ -22,26 +21,8 @@ import (
 const serviceName = "backend1"
 
 var log = utils.GetLogger(serviceName)
-var backend1Repeat int
 var client protobuf.Backend2Client
 var client3 protobuf.Backend3Client
-
-//var tracer trace.Tracer
-
-func init() {
-	backend1Repeat = utils.StrToInt(utils.GetEnvVar("backend1Repeat", true))
-	if bl := utils.GetEnvVar("BUSY_LOOP", false); bl != "" {
-		backend1Repeat = utils.StrToInt(bl)
-	}
-
-	// Check for service-specific repeat
-	serviceName := os.Getenv("SERVICE_NAME")
-	if serviceName != "" {
-		if r := utils.GetEnvVar(serviceName+"Repeat", false); r != "" {
-			backend1Repeat = utils.StrToInt(r)
-		}
-	}
-}
 
 func configOTL(ctx context.Context, serviceName string) (grpc.ServerOption, []func(context.Context) error, bool) {
 	if shutdownList, ok := oteltool.InitializeOTel(ctx, serviceName, false); ok {
@@ -69,8 +50,7 @@ type Backend1Server struct {
 }
 
 func (s *Backend1Server) SimpleCall(ctx context.Context, req *protobuf.Arg) (*protobuf.Resp, error) {
-	busyLoop(backend1Repeat) // simulate some processing delay
-
+	processingLogic(ctx)
 	// Propagate metadata (rpc-id)
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
@@ -96,7 +76,7 @@ func (s *Backend1Server) SimpleCall(ctx context.Context, req *protobuf.Arg) (*pr
 }
 
 func (s *Backend1Server) SimpleCall2(ctx context.Context, req *protobuf.Arg) (*protobuf.Resp, error) {
-	busyLoop(backend1Repeat) // simulate some processing delay
+	processingLogic(ctx)
 	if client != nil {
 		// assuming SimpleCall2 also chains? Or maybe just SimpleCall.
 		// User said "use the existing protobuf definition twise".
@@ -118,6 +98,23 @@ func busyLoop(repeat int) {
 		for range 10000 {
 		}
 	}
+}
+
+func processingLogic(ctx context.Context) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		panic("metadata not present")
+	}
+	api, ok := md["api"]
+	if !ok {
+		panic("api is nil")
+	}
+	if len(api) != 1 {
+		panic(fmt.Sprintf("api: %+v is invalid", api))
+	}
+
+	repeat := utils.StrToInt(utils.GetEnvVar(api[0]+serviceName+"Repeat", true))
+	busyLoop(repeat)
 }
 
 func (s *Backend1Server) Run() error {

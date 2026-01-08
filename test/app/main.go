@@ -30,6 +30,7 @@ var client protobuf.Backend1Client
 
 // var client2 protobuf.Backend1Client
 var clientBackend2 protobuf.Backend2Client
+var clientBackend3 protobuf.Backend3Client
 
 // var client2Backend2 protobuf.Backend2Client
 var appPreRepeat int
@@ -96,7 +97,7 @@ func getContextWithRpcId(r *http.Request) context.Context {
 	var api string
 	if sidecar {
 		rpcId = r.Header.Get("rpc-id")
-		api = r.Header.Get("api")
+		api = r.Pattern[1:]
 		/* if rpcId == "" {
 			log.Error("rpc-id header is required")
 			return r.Context()
@@ -105,6 +106,7 @@ func getContextWithRpcId(r *http.Request) context.Context {
 		rpcId = strconv.Itoa(lastRpcId)
 		r.Header.Set("rpc-id", rpcId)
 		lastRpcId++
+		api = r.Pattern[1:]
 	}
 	md := metadata.New(map[string]string{"rpc-id": rpcId, "api": api})
 	return metadata.NewOutgoingContext(r.Context(), md)
@@ -139,6 +141,9 @@ func init() {
 		// client2 = protobuf.NewBackend1Client(conn)
 		conn = test.GetConn(utils.GetEnvVar("Backend2AppEgress", true))
 		clientBackend2 = protobuf.NewBackend2Client(conn)
+
+		conn = test.GetConn(utils.GetEnvVar("Backend3AppEgress", true))
+		clientBackend3 = protobuf.NewBackend3Client(conn)
 
 		// conn = test.GetConn(utils.GetEnvVar("AppEgress", true))
 		// clientBackend2 = protobuf.NewBackend2Client(conn)
@@ -203,13 +208,7 @@ func appLogic(w http.ResponseWriter, r *http.Request) {
 	case "test3":
 		busyLoop(appPreRepeat)
 		bigString := makebigString(appSize)
-		_, err := client.SimpleCall(ctx, &protobuf.Arg{Data: bigString})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		busyLoop(appPostRepeat)
-		resp, err := clientBackend2.SimpleCall(ctx, &protobuf.Arg{Data: bigString})
+		resp, err := client.SimpleCall(ctx, &protobuf.Arg{Data: bigString})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -255,16 +254,37 @@ func app2Logic(w http.ResponseWriter, r *http.Request) {
 		}
 		busyLoop(app2PostRepeat)
 		writeResponseWithoutchunkEncoding(w, resp.Data)
+	case "test3":
+		busyLoop(app2PreRepeat)
+		bigString := makebigString(app2Size)
+		resp, err := clientBackend2.SimpleCall(ctx, &protobuf.Arg{Data: bigString})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		busyLoop(app2PostRepeat)
+		writeResponseWithoutchunkEncoding(w, resp.Data)
 	default:
 		panic("Unknown deployment")
 	}
 }
 
 func app3Logic(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	switch deployment {
 	case "test1":
 		busyLoop(app3PreRepeat + app3PostRepeat)
 		writeResponseWithoutchunkEncoding(w, makebigString(app3Size))
+	case "test3":
+		busyLoop(app3PreRepeat)
+		bigString := makebigString(app3Size)
+		resp, err := clientBackend3.SimpleCall(ctx, &protobuf.Arg3{Data: bigString})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		busyLoop(app3PostRepeat)
+		writeResponseWithoutchunkEncoding(w, resp.Data)
 	default:
 		panic("Unknown deployment")
 	}

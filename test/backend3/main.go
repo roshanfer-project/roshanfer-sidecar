@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"test"
 	oteltool "test/otel_tool"
 	"test/protobuf"
@@ -13,13 +12,13 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/stats/opentelemetry"
 )
 
 const serviceName = "backend3"
 
 var log = utils.GetLogger(serviceName)
-var backend3repeat int
 
 func configOTL(ctx context.Context, serviceName string) (grpc.ServerOption, []func(context.Context) error, bool) {
 	if shutdownList, ok := oteltool.InitializeOTel(ctx, serviceName, false); ok {
@@ -30,27 +29,12 @@ func configOTL(ctx context.Context, serviceName string) (grpc.ServerOption, []fu
 	}
 }
 
-func init() {
-	backend3repeat = utils.StrToInt(utils.GetEnvVar("backend3Repeat", true))
-	if bl := utils.GetEnvVar("BUSY_LOOP", false); bl != "" {
-		backend3repeat = utils.StrToInt(bl)
-	}
-
-	// Check for service-specific repeat
-	serviceName := os.Getenv("SERVICE_NAME")
-	if serviceName != "" {
-		if r := utils.GetEnvVar(serviceName+"Repeat", false); r != "" {
-			backend3repeat = utils.StrToInt(r)
-		}
-	}
-}
-
 type Backend3Server struct {
 	protobuf.UnimplementedBackend3Server
 }
 
 func (s *Backend3Server) SimpleCall(ctx context.Context, req *protobuf.Arg3) (*protobuf.Resp3, error) {
-	busyLoop(backend3repeat) // simulate some processing delay
+	processingLogic(ctx)
 	resp := &protobuf.Resp3{
 		Data: "Hello from Backend3, " + req.Data,
 	}
@@ -62,6 +46,23 @@ func busyLoop(repeat int) {
 		for range 10000 {
 		}
 	}
+}
+
+func processingLogic(ctx context.Context) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		panic("metadata not present")
+	}
+	api, ok := md["api"]
+	if !ok {
+		panic("api is nil")
+	}
+	if len(api) != 1 {
+		panic(fmt.Sprintf("api: %+v is invalid", api))
+	}
+
+	repeat := utils.StrToInt(utils.GetEnvVar(api[0]+serviceName+"Repeat", true))
+	busyLoop(repeat)
 }
 
 func (s *Backend3Server) Run() error {
