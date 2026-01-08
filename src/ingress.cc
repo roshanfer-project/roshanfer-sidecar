@@ -29,7 +29,7 @@ Ingress::Ingress(int index_arg, std::string &ingress_service_ref)
                  << ingress_service_ref;
     }
     max_th_us =
-        (float)config.routing.at(ingress_service_ref).slo.value() * 1000 * 0.8F;
+        (float)config.routing.at(ingress_service_ref).slo.value() * 1000 * 1.0F;
     min_th_us =
         (float)config.routing.at(ingress_service_ref).slo.value() * 1000 * 0.3F;
     LOG(INFO) << "Ingress: " << ingress_service << " max_th_us: " << max_th_us
