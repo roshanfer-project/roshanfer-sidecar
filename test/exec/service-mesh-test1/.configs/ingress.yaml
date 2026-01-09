@@ -3,17 +3,17 @@ routing:
     upstream:
       host: app-sidecar
       port: 3007
-    slo: 12
+    slo: 9
   app2:
     upstream:
       host: app-sidecar
       port: 3007
-    slo: 7
+    slo: 18
   app3:
     upstream:
       host: app-sidecar
       port: 3007
-    slo: 16
+    slo: 35
 mapping:
   app:
     downstreams:
@@ -31,7 +31,7 @@ ring_size: 12000
 buffer_count: 16384
 buffer_size: 10000
 num_threads: 3
-ingress_pool_connections: 100
+ingress_pool_connections: 20
 egress_listener_port: 3000
 ingress_listener_port: 4000
 ingress_upstream_host: 172.17.0.1
