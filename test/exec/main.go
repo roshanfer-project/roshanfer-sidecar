@@ -293,12 +293,12 @@ func run_servicees(env string, testName string, serviceList [][]string, sidecar,
 				c.Dir = sidecar_dir
 				no_env_run(c, sidecar_dir, false, "envoy-compose")
 			} else if plain {
-				if name == "ingress" {
+				/* if name == "ingress" {
 					c := exec.CommandContext(ctx, "docker", "compose", "run", "-d", "-T", "-P",
 						"--name", "ingress-plain", "ingress-plain")
 					c.Dir = sidecar_dir
 					no_env_run(c, sidecar_dir, false, "docker-compose")
-				}
+				} */
 			}
 		}
 
