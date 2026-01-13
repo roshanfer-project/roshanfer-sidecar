@@ -228,8 +228,8 @@ def main():
                 except ValueError:
                     max_val = 1.0
                 
-                if "E2E" in metric_name:
-                    max_val = 16
+                """ if "E2E" in metric_name:
+                    max_val = 20 """
                 
                 
                 # Plot lines or scatter
