@@ -132,12 +132,20 @@ Config load_config(const std::string &filename) {
               entry.slo = route_config["slo"].as<int>();
             }
 
+            if (route_config["priority"]) {
+              entry.priority = route_config["priority"].as<int>();
+            }
+
             local_config.routing[service] = entry;
             LOG(INFO) << "Routing entry: service=" << service
                       << " upstream=" << entry.upstream.host << ":"
                       << entry.upstream.port << " slo="
                       << (entry.slo.has_value()
                               ? std::to_string(entry.slo.value())
+                              : "not set")
+                      << " priority="
+                      << (entry.priority.has_value()
+                              ? std::to_string(entry.priority.value())
                               : "not set");
           } else {
             LOG(FATAL) << "Skipping routing entry: Missing host or port in "

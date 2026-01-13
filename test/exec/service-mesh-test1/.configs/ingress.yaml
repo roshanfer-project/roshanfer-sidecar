@@ -3,17 +3,20 @@ routing:
     upstream:
       host: app-sidecar
       port: 3007
-    slo: 9
+    slo: 15
+    priority: 0
   app2:
     upstream:
       host: app-sidecar
       port: 3007
-    slo: 18
+    slo: 22
+    priority: 1
   app3:
     upstream:
       host: app-sidecar
       port: 3007
-    slo: 35
+    slo: 36
+    priority: 2
 mapping:
   app:
     downstreams:

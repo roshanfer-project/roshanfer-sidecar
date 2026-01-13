@@ -16,6 +16,7 @@ struct Upstream {
 struct RoutingEntry {
   Upstream upstream;
   std::optional<int> slo;
+  std::optional<int32_t> priority;
 };
 
 struct MappingInfo {

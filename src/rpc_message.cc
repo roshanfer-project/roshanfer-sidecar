@@ -75,6 +75,11 @@ void gRPCMessage::add_header_field(const uint8_t *name, size_t name_len,
           std::string(reinterpret_cast<const char *>(value), value_len));
       VLOG(1) << "RPC ID: " << id;
     }
+    if (std::memcmp(name, "priority", 9) == 0) {
+      priority = (Priority)std::stoll(
+          std::string(reinterpret_cast<const char *>(value), value_len));
+      VLOG(1) << "Priority: " << priority;
+    }
   }
 
   if (tailer) {
@@ -243,6 +248,11 @@ void HTTPMessage::add_header_field(const uint8_t *name, size_t name_len,
       id = (RPCID)std::stoll(
           std::string(reinterpret_cast<const char *>(value), value_len));
       VLOG(1) << "RPC ID: " << id;
+    }
+    if (std::memcmp(name, "priority", 9) == 0) {
+      priority = (Priority)std::stoll(
+          std::string(reinterpret_cast<const char *>(value), value_len));
+      VLOG(1) << "Priority: " << priority;
     }
   }
 

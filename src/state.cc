@@ -318,6 +318,13 @@ bool State::forward_request(std::shared_ptr<HTTPConnection> conn,
       LOG(FATAL) << "Request has no ID (probably service does not provide IDs "
                     "or perhanps you should set is_plain_frontend to true)";
     }
+    if (rpc->get_priority() == -1 && !config.is_plain_frontend) {
+      rpc->dump_req_headers();
+      LOG(FATAL)
+          << "Request has no priority (probably service does not provide "
+             "priorities or perhanps you should set is_plain_frontend "
+             "to true)";
+    }
 
     // update the mapping
     rpc_mapper.route(conn->type, rpc->get_ds_stream_id(), rpc->get_ds_fd(),
@@ -468,7 +475,7 @@ void State::remove_connection(std::shared_ptr<HTTPConnection> /*conn*/) {
 }
 
 static std::string_view extract_service_from_ppm_req(const char *data) {
-  size_t header_size = 13;
+  size_t header_size = 14;
   if (data[1] != 0x01) {
     LOG(FATAL) << "Invalid message type";
   }
@@ -482,7 +489,6 @@ std::tuple<const std::string &, bool, size_t, RPCID>
 State::valid_credit(const char *data) {
   // check the data format and extract the service name
   auto key = extract_service_from_ppm_req(data);
-  // extract the ID of the request (int32_t)
   // extract the ID of the request (int64_t)
   RPCID id = (int64_t)((uint64_t)(unsigned char)data[5] << 56 |
                        (uint64_t)(unsigned char)data[6] << 48 |
@@ -572,7 +578,7 @@ void State::ppm_client(bool dn_resp,
           rpc_mapper.get_ds_rpc(ConnectionType::EGRESS, ds_stream_id, ds_fd);
       ppm_queue.push(rpc);
       send_dn(upstream_route_mapper.get_pool(rpc->get_service()).get_addr(),
-              rpc->get_service(), 1, rpc->get_id());
+              rpc->get_service(), 1, rpc->get_id(), rpc->get_priority());
       /* forward_request(upstream_route_mapper.get_pool(rpc->get_service())
                           .get_connection(rpc->get_us_fd()),
                       rpc);
@@ -586,9 +592,9 @@ void State::ppm_client(bool dn_resp,
 }
 
 void State::send_dn(struct sockaddr_in addr, const std::string &service,
-                    size_t num_credits, RPCID id) {
+                    size_t num_credits, RPCID id, Priority priority) {
   // send a demand notification
-  ssize_t header_size = 13;
+  ssize_t header_size = 14;
   size_t len = (size_t)header_size + service.length();
   auto buffer = buffer_manager.get_dn_buffer();
   if (buffer->data.size() < len) {
@@ -608,6 +614,7 @@ void State::send_dn(struct sockaddr_in addr, const std::string &service,
   buffer->data.at(10) = (char)((unsigned char)(id >> 16));
   buffer->data.at(11) = (char)((unsigned char)(id >> 8));
   buffer->data.at(12) = (char)((unsigned char)(id & 0xFF));
+  buffer->data.at(13) = (char)priority;
   std::copy_n(service.begin(), service.length(),
               buffer->data.begin() + header_size);
   buffer->set_filled(len);
@@ -687,19 +694,15 @@ void State::ingress_admit() {
   NANO_LOG(NOTICE, "M# %s Instant WT-%s T:T %d", config.name.c_str(),
            ingress_service.c_str(),
            (int32_t)ppm_queue.get_waiting_delay_us(ingress_service));
-  NANO_LOG(NOTICE, "M# %s Magic WT-%s T:T %d", config.name.c_str(),
-           ingress_service.c_str(),
-           (int32_t)local_state.avg_cal_waiting_delay.get_value() * queue_size);
   NANO_LOG(NOTICE, "M# %s Estimated E2E-%s T:T %d", config.name.c_str(),
            ingress_service.c_str(), e2e_delay);
   if (added > 0) {
     NANO_LOG(NOTICE, "M# %s Estimated A-E2E-%s T:T %d", config.name.c_str(),
              ingress_service.c_str(), e2e_delay);
   }
-  NANO_LOG(
-      NOTICE, "M# %s Estimated RT-TD-P95-%s T:T %f", config.name.c_str(),
-      ingress_service.c_str(),
-      stats.get_tdigest_service_time_us(ingress_service).get_quantile(0.95));
+  NANO_LOG(NOTICE, "M# %s Estimated RT-%s T:T %f", config.name.c_str(),
+           ingress_service.c_str(),
+           stats.get_ema_service_time_us().get(ingress_service).get_value());
   NANO_LOG(NOTICE, "M# %s Estimated WT-R-%s T:T %d", config.name.c_str(),
            ingress_service.c_str(),
            (int32_t)(stats.get_tdigest_service_time_us(ingress_service)
@@ -779,11 +782,19 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
                              (uint64_t)(unsigned char)req->data.at(10) << 16 |
                              (uint64_t)(unsigned char)req->data.at(11) << 8 |
                              (uint64_t)(unsigned char)req->data.at(12));
+    Priority priority = (Priority)req->data.at(13);
     VLOG(2) << "QM: Received DN request "
             << "| service: " << service << "| id: " << rpc_id
-            << "| thread id: " << thread_id;
+            << "| priority: " << priority << "| thread id: " << thread_id;
 
-    bool credits_available = check_credit_available(service);
+    auto resp = buffer_manager.get_dn_buffer();
+    write_failed_dn_response(req, resp);
+    shared_state.credit_queue.push(std::move(resp), service, priority);
+
+    // check credit transmission
+    check_credit_transmission();
+
+    /* bool credits_available = check_credit_available(service);
     uint8_t result = 0;
     if (credits_available) {
       result = 1;
@@ -795,10 +806,10 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
       stats.mode2_credits.up(1);
       auto resp = buffer_manager.get_dn_buffer();
       write_failed_dn_response(req, resp);
-      shared_state.credit_queue.push(std::move(resp), service);
+      shared_state.credit_queue.push(std::move(resp), service, priority);
       VLOG(2) << "QM: Saving failed DN info "
               << "| service: " << service << "| id: " << rpc_id
-              << "| thread id: " << thread_id;
+              << "| priority: " << priority << "| thread id: " << thread_id;
     } else {
 
       // check failed DN info
@@ -817,7 +828,7 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
                 << "| in_local: " << shared_state.in_local.load()
                 << "| thread id: " << thread_id;
       }
-    }
+    } */
 
   } else {
     LOG(FATAL) << "Unknown message type";

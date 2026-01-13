@@ -108,7 +108,8 @@ public:
 
 private:
   // PPM-related functions
-  void send_dn(struct sockaddr_in, const std::string &, size_t, RPCID);
+  void send_dn(struct sockaddr_in, const std::string &, size_t, RPCID,
+               Priority);
   std::tuple<const std::string &, bool, size_t, RPCID>
   valid_credit(const char *);
   bool check_credit_available(std::string_view);

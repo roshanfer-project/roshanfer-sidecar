@@ -28,6 +28,16 @@ Ingress::Ingress(int index_arg, std::string &ingress_service_ref)
       LOG(FATAL) << "No SLO configured for ingress service: "
                  << ingress_service_ref;
     }
+    if (!config.routing.at(ingress_service_ref).priority.has_value()) {
+      LOG(FATAL) << "No priority configured for ingress service: "
+                 << ingress_service_ref;
+    } else {
+      priority = config.routing.at(ingress_service_ref).priority.value();
+      if (priority < 0 || priority > 3) {
+        LOG(FATAL) << "Invalid priority configured for ingress service: "
+                   << ingress_service_ref;
+      }
+    }
     max_th_us =
         (float)config.routing.at(ingress_service_ref).slo.value() * 1000 * 1.0F;
     min_th_us =
@@ -73,6 +83,16 @@ void Ingress::add_rpc_id_header(std::shared_ptr<RPCMessage> &rpc) {
       RPC_ID_HEADER_NAME, RPC_ID_HEADER_NAME_LEN,
       reinterpret_cast<const uint8_t *>(rpc_id_header_value.data()),
       rpc_id_header_value.size(), true, false);
+}
+
+void Ingress::add_priority_header(std::shared_ptr<RPCMessage> &rpc) {
+  priority_header_value.fill(0);
+  std::snprintf(priority_header_value.data(), priority_header_value.size(),
+                "%d", priority);
+  rpc->add_header_field(
+      PRIORITY_HEADER_NAME, PRIORITY_HEADER_NAME_LEN,
+      reinterpret_cast<const uint8_t *>(priority_header_value.data()),
+      priority_header_value.size(), true, false);
 }
 
 int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue &rpc_queue,
@@ -137,6 +157,7 @@ int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue &rpc_queue,
     // accepting the request
     auto rpc = dequeue();
     add_rpc_id_header(rpc);
+    add_priority_header(rpc);
     rpc_queue.enqueue(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM,
                       rpc->get_ds_fd(), rpc->get_ds_stream_id());
     VLOG(2) << "INGRESS: New request to be admitted "

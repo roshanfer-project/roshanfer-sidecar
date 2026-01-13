@@ -42,6 +42,7 @@ public:
 };
 
 using RPCID = int64_t;
+using Priority = int32_t;
 
 class RPCMessage {
 
@@ -70,6 +71,8 @@ public:
   void set_id(RPCID new_id) { id = new_id; }
   ConnectionType get_type() const { return type; }
   void set_type(ConnectionType new_type) { type = new_type; }
+  Priority get_priority() const { return priority; }
+  void set_priority(Priority new_priority) { priority = new_priority; }
 
   virtual void add_header_field(const uint8_t *, size_t, const uint8_t *,
                                 size_t, bool, bool) = 0;
@@ -93,6 +96,7 @@ protected:
   int us_fd;
 
   RPCID id;
+  Priority priority;
   ConnectionType type;
 
 public:
