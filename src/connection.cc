@@ -569,6 +569,11 @@ HTTPConnection::HTTPConnection(std::string conn_host, uint16_t conn_port,
   if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) == -1) {
     LOG(FATAL) << "Failed to set TCP_NODELAY: " << strerror(errno);
   }
+
+  int syncnt = 2;
+  if (setsockopt(fd, IPPROTO_TCP, TCP_SYNCNT, &syncnt, sizeof(syncnt)) == -1) {
+    LOG(FATAL) << "Failed to set TCP_SYNCNT: " << strerror(errno);
+  }
 }
 
 std::string HTTPConnection::type_to_str() {
