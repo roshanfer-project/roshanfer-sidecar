@@ -1,7 +1,7 @@
 FROM ubuntu:noble AS main
 
 
-RUN apt-get update && apt-get install -y gdb valgrind wget libc++-dev libc++abi-dev
+RUN apt-get update && apt-get install -y gdb valgrind wget libc++-dev libc++abi-dev liburing2 liburing-dev
 
 COPY build/sidecar /
 
