@@ -8,6 +8,7 @@
 #include <cstring>
 #include <glog/logging.h>
 #include <queue>
+#include <string>
 #include <sys/types.h>
 #include <vector>
 
@@ -28,8 +29,15 @@ HeaderField::HeaderField()
 
 void HeaderField::set(const uint8_t *field_name, size_t field_name_len,
                       const uint8_t *field_value, size_t field_value_len) {
-  if (field_name_len > name.size() || field_value_len > value.size()) {
-    LOG(FATAL) << "HeaderField name or value too long";
+  if (field_name_len > name.size()) {
+    LOG(FATAL) << "HeaderField name is too long"
+               << ", len: " << field_name_len
+               << ", name: " << std::string(field_name, field_name);
+  }
+  if (field_value_len > value.size()) {
+    LOG(FATAL) << "HeaderField value is too long"
+               << ", len: " << field_value_len
+               << ", value: " << std::string(field_value, field_value);
   }
   std::copy_n(field_name, field_name_len, this->name.begin());
   this->name.at(field_name_len) = '\0';
@@ -221,7 +229,8 @@ void HTTPMessage::set_service(const char *s, size_t s_len) {
       static_cast<const char *>(std::memchr(p, '/', (size_t)(end - p)));
   if (!slash || slash + 1 >= end) {
     service.clear();
-    LOG(FATAL) << "Invalid service format";
+    LOG(FATAL) << "Invalid service format"
+               << ", string: " << std::string(s, s_len) << ", len: " << s_len;
   }
 
   // (3) service starts just after that '/'
