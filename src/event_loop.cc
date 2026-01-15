@@ -161,11 +161,21 @@ void EventLoop::run() {
         }
         buffer->set_filled((size_t)cqe->res);
 
-        // feed data to nghttp2
         if (!orig_conn) {
           LOG(FATAL) << "orig_conn is null";
         }
-        orig_conn->http_read(buffer, ingress);
+        try {
+          orig_conn->http_read(buffer, ingress);
+        } catch (const HTTPParseException &e) {
+          LOG(WARNING) << "HTTP Parse exception: " << e.what();
+          orig_conn->set_status(ConnectionStatus::TEARDOWN);
+          if (buffer) {
+            buffer_manager.free_buffer(std::move(buffer));
+          }
+          ring.prepare_cancel(std::move(orig_conn),
+                              buffer_manager.get_user_data());
+          break;
+        }
         assert(orig_conn != nullptr && "orig_conn should not be null here");
 
         // send out http2-related data

@@ -681,8 +681,15 @@ void HTTP1Connection::http_read(const std::unique_ptr<Buffer> &buffer,
       VLOG(1) << "Not enough data to parse HTTP/1.1 request on fd: " << fd;
       return;
     } else if (hdr_size == -1) {
-      LOG(FATAL) << "Failed to parse HTTP/1.1 request on fd: " << fd
-                 << ", buf: " << std::string(buf->data(), buf_len);
+      std::string msg =
+          "Failed to parse HTTP/1.1 request on fd: " + std::to_string(fd) +
+          ", buf: " + std::string(buf->data(), buf_len);
+      if (config.is_ingress) {
+        LOG(WARNING) << msg;
+        throw HTTPParseException(msg);
+      } else {
+        LOG(FATAL) << msg;
+      }
     }
 
     // we have a complete headers

@@ -24,6 +24,11 @@ public:
   NoConnectionException(std::string msg) : std::runtime_error(msg) {}
 };
 
+class HTTPParseException : public std::runtime_error {
+public:
+  HTTPParseException(std::string msg) : std::runtime_error(msg) {}
+};
+
 class BufferFullException : public std::runtime_error {
 public:
   BufferFullException(const uint8_t *outbuf_ptr, ssize_t written)
