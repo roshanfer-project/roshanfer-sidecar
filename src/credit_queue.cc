@@ -5,11 +5,8 @@
 #include <cstdint>
 #include <utility>
 
-InnerCreditQueue::InnerCreditQueue(std::vector<std::string> endpoints,
-                                   int32_t ppm_limit,
-                                   int32_t per_endpoint_limit)
-    : ppm_limit(ppm_limit), per_endpoint_limit(per_endpoint_limit),
-      queue(endpoints), it(queue.begin()), _size(0) {}
+InnerCreditQueue::InnerCreditQueue(std::vector<std::string> endpoints)
+    : queue(endpoints), it(queue.begin()), _size(0) {}
 
 void InnerCreditQueue::push(std::unique_ptr<Buffer> buffer,
                             std::string_view endpoint) {
@@ -17,9 +14,9 @@ void InnerCreditQueue::push(std::unique_ptr<Buffer> buffer,
   _size++;
 }
 
-std::unique_ptr<Buffer>
-InnerCreditQueue::pop(int32_t &in_flight,
-                      LocalMap<int32_t> &in_flight_per_endpoint) {
+std::unique_ptr<Buffer> InnerCreditQueue::pop(
+    int32_t &in_flight, LocalMap<int32_t> &in_flight_per_endpoint,
+    int32_t &ppm_limit, LocalMap<int32_t> &per_endpoint_limit) {
   if (_size == 0) {
     return nullptr;
   }
@@ -27,7 +24,7 @@ InnerCreditQueue::pop(int32_t &in_flight,
   auto &init_endpoint = it->key;
   while (1) {
     if (it->value.size() > 0 &&
-        in_flight_per_endpoint.get(it->key) < per_endpoint_limit &&
+        in_flight_per_endpoint.get(it->key) < per_endpoint_limit.get(it->key) &&
         in_flight < ppm_limit) {
       in_flight_per_endpoint.get(it->key)++;
       in_flight++;
@@ -47,18 +44,16 @@ InnerCreditQueue::pop(int32_t &in_flight,
   return nullptr;
 }
 
-CreditQueue::CreditQueue(std::vector<std::string> endpoints, int32_t ppm_limit,
-                         int32_t per_endpoint_limit)
-    : credit_queue{{{endpoints, ppm_limit, per_endpoint_limit},
-                    {endpoints, ppm_limit, per_endpoint_limit},
-                    {endpoints, ppm_limit, per_endpoint_limit}}},
+CreditQueue::CreditQueue(std::vector<std::string> endpoints, int32_t cpu_count)
+    : credit_queue{{{endpoints}, {endpoints}, {endpoints}}},
       weights({16, 4, 1}), it(0), remaining_rounds(weights.at(it)), lock(),
-      _size(0), in_flight(0), ppm_limit(ppm_limit),
-      in_flight_per_endpoint(endpoints),
-      per_endpoint_limit(per_endpoint_limit) {
+      _size(0), in_flight(0), ppm_limit(0), in_flight_per_endpoint(endpoints),
+      per_endpoint_limit(endpoints) {
   for (size_t i = 0; i < endpoints.size(); i++) {
     in_flight_per_endpoint.set(endpoints.at(i), 0);
+    per_endpoint_limit.set(endpoints.at(i), cpu_count * 2);
   }
+  ppm_limit = cpu_count * 2;
 }
 
 size_t CreditQueue::size() { return _size.load(); }
@@ -69,6 +64,18 @@ void CreditQueue::push(std::unique_ptr<Buffer> buffer,
   credit_queue.at((size_t)priority).push(std::move(buffer), endpoint);
   lock.unlock();
   _size.fetch_add(1);
+}
+
+void CreditQueue::update_endpoint_limit(int32_t limit, std::string_view api) {
+  lock.lock();
+  per_endpoint_limit.set(api, limit);
+  lock.unlock();
+}
+
+void CreditQueue::update_ppm_limit(int32_t limit) {
+  lock.lock();
+  ppm_limit = limit;
+  lock.unlock();
 }
 
 std::unique_ptr<Buffer> CreditQueue::pop() {
@@ -86,8 +93,8 @@ std::unique_ptr<Buffer> CreditQueue::pop() {
 
   size_t init_index = it;
   while (1) {
-    if (auto buffer =
-            credit_queue.at(it).pop(in_flight, in_flight_per_endpoint);
+    if (auto buffer = credit_queue.at(it).pop(in_flight, in_flight_per_endpoint,
+                                              ppm_limit, per_endpoint_limit);
         buffer != nullptr) {
       remaining_rounds--;
       if (remaining_rounds == 0) {
@@ -110,19 +117,6 @@ std::unique_ptr<Buffer> CreditQueue::pop() {
 
   lock.unlock();
   return nullptr;
-}
-
-bool CreditQueue::check_credit_available(std::string_view api) {
-  lock.lock();
-  if (in_flight_per_endpoint.get(api) < per_endpoint_limit &&
-      in_flight < ppm_limit) {
-    in_flight_per_endpoint.get(api)++;
-    in_flight++;
-    lock.unlock();
-    return true;
-  }
-  lock.unlock();
-  return false;
 }
 
 void CreditQueue::increment_in_flight(std::string_view api) {

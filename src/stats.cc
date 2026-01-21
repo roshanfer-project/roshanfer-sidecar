@@ -118,6 +118,7 @@ void ExponentialMovingAverage::update(int32_t new_value) {
   VLOG(2) << "ExponentialMovingAverage update: " << new_value
           << " count: " << count << " value: " << value;
   if (count % 1000 == 0) {
+    VLOG(1) << "EMA: " << description << " value: " << value;
 #ifdef NANO_LOG_ENABLED
     NANO_LOG(NOTICE, "M# %s EMA %s T:T %f", config.name.c_str(),
              description.c_str(), value);
@@ -159,8 +160,12 @@ int32_t Counter::get_count() { return count; }
 Stats::Stats(std::vector<std::string> ds_services,
              std::vector<std::string> us_services)
     : mode2_credits("Mode2 Credits"), ema_service_time_us(ds_services),
-      ema_us_service_time_us(us_services), tdigest_service_time_us(ds_services),
-      tdigest_e2e_us(ds_services) {}
+      ema_us_service_time_us(us_services), ema_sidecar_rtt_us(us_services),
+      tdigest_service_time_us(ds_services), tdigest_e2e_us(ds_services) {
+  for (const auto &service : us_services) {
+    ema_sidecar_rtt_us.get(service).set_alpha(0.01F);
+  }
+}
 
 void Stats::update_hist(struct hdr_histogram *new_hist) {
   this->hist = new_hist;

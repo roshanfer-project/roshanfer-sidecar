@@ -17,6 +17,7 @@
 #include <arpa/inet.h>
 #include <cassert>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -179,6 +180,12 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
   }
   LOG(INFO) << "State initialized";
   next_hist_update = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+
+  LOG(INFO) << "ppm_limit: " << shared_state.credit_queue.get_ppm_limit();
+  for (const auto &service : get_hosted_services(parsed_config)) {
+    LOG(INFO) << "per_endpoint_limit for " << service << ": "
+              << shared_state.credit_queue.get_per_endpoint_limit(service);
+  }
 }
 
 void State::write_http(std::shared_ptr<HTTPConnection> conn) {
@@ -475,7 +482,7 @@ void State::remove_connection(std::shared_ptr<HTTPConnection> /*conn*/) {
 }
 
 static std::string_view extract_service_from_ppm_req(const char *data) {
-  size_t header_size = 14;
+  size_t header_size = 26;
   if (data[1] != 0x01) {
     LOG(FATAL) << "Invalid message type";
   }
@@ -531,6 +538,27 @@ void State::ppm_client(bool dn_resp,
     // we have received a demand notification response
     auto [service, ok, num_credits, id] =
         valid_credit(dn_resp_buffer->data.data());
+
+    // extract the timestamp
+    int64_t timestamp =
+        (int64_t)((uint64_t)(unsigned char)dn_resp_buffer->data.at(14) << 56 |
+                  (uint64_t)(unsigned char)dn_resp_buffer->data.at(15) << 48 |
+                  (uint64_t)(unsigned char)dn_resp_buffer->data.at(16) << 40 |
+                  (uint64_t)(unsigned char)dn_resp_buffer->data.at(17) << 32 |
+                  (uint64_t)(unsigned char)dn_resp_buffer->data.at(18) << 24 |
+                  (uint64_t)(unsigned char)dn_resp_buffer->data.at(19) << 16 |
+                  (uint64_t)(unsigned char)dn_resp_buffer->data.at(20) << 8 |
+                  (uint64_t)(unsigned char)dn_resp_buffer->data.at(21));
+    int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                         std::chrono::steady_clock::now().time_since_epoch())
+                         .count();
+    int32_t rtt = (int32_t)(now_us - timestamp);
+    if (rtt > 0) {
+      local_state.last_rtt_us.set(service, rtt);
+    } else {
+      LOG(FATAL) << "Invalid RTT: " << rtt;
+    }
+
     if (!ok) {
       return;
     }
@@ -594,7 +622,7 @@ void State::ppm_client(bool dn_resp,
 void State::send_dn(struct sockaddr_in addr, const std::string &service,
                     size_t num_credits, RPCID id, Priority priority) {
   // send a demand notification
-  ssize_t header_size = 14;
+  ssize_t header_size = 26;
   size_t len = (size_t)header_size + service.length();
   auto buffer = buffer_manager.get_dn_buffer();
   if (buffer->data.size() < len) {
@@ -615,6 +643,24 @@ void State::send_dn(struct sockaddr_in addr, const std::string &service,
   buffer->data.at(11) = (char)((unsigned char)(id >> 8));
   buffer->data.at(12) = (char)((unsigned char)(id & 0xFF));
   buffer->data.at(13) = (char)priority;
+  int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                       std::chrono::steady_clock::now().time_since_epoch())
+                       .count();
+  buffer->data.at(14) = (char)((unsigned char)(now_us >> 56));
+  buffer->data.at(15) = (char)((unsigned char)(now_us >> 48));
+  buffer->data.at(16) = (char)((unsigned char)(now_us >> 40));
+  buffer->data.at(17) = (char)((unsigned char)(now_us >> 32));
+  buffer->data.at(18) = (char)((unsigned char)(now_us >> 24));
+  buffer->data.at(19) = (char)((unsigned char)(now_us >> 16));
+  buffer->data.at(20) = (char)((unsigned char)(now_us >> 8));
+  buffer->data.at(21) = (char)((unsigned char)(now_us & 0xFF));
+
+  int32_t last_rtt = local_state.last_rtt_us.get(service);
+  buffer->data.at(22) = (char)((unsigned char)(last_rtt >> 24));
+  buffer->data.at(23) = (char)((unsigned char)(last_rtt >> 16));
+  buffer->data.at(24) = (char)((unsigned char)(last_rtt >> 8));
+  buffer->data.at(25) = (char)((unsigned char)(last_rtt & 0xFF));
+
   std::copy_n(service.begin(), service.length(),
               buffer->data.begin() + header_size);
   buffer->set_filled(len);
@@ -754,8 +800,43 @@ void State::check_credit_transmission() {
   VLOG(2) << "QM: Sent credit " << "| thread id: " << thread_id;
 }
 
-bool State::check_credit_available(std::string_view api) {
-  return shared_state.credit_queue.check_credit_available(api);
+void State::update_limits(int32_t rtt, std::string_view service) {
+  VLOG(2) << "QM: RTT " << rtt << " for service " << service;
+  auto &rtt_stats = stats.get_ema_sidecar_rtt_us().get(service);
+  rtt_stats.update(rtt);
+  if (rtt_stats.get_count() % 500 == 0) {
+    VLOG(1) << "QM: RTT " << rtt_stats.get_value() << " for service "
+            << service;
+    VLOG(1) << "QM: Service time "
+            << stats.get_ema_us_service_time_us().get(service).get_value()
+            << " for service " << service;
+    int32_t new_limit =
+        (std::max(
+             (int32_t)std::ceil(
+                 rtt_stats.get_value() /
+                 stats.get_ema_us_service_time_us().get(service).get_value()),
+             1) +
+         1) *
+        config.cpu_count.value();
+    shared_state.credit_queue.update_endpoint_limit(new_limit, service);
+    VLOG(1) << "QM: New limit for service " << service << " is " << new_limit;
+
+    // update ppm_limit
+    auto sum_limits = 0;
+    auto max_limit = 0;
+    for (auto &[us_service, _] : config.mapping) {
+      sum_limits +=
+          shared_state.credit_queue.get_per_endpoint_limit(us_service);
+      max_limit = std::max(
+          max_limit,
+          shared_state.credit_queue.get_per_endpoint_limit(us_service));
+    }
+    shared_state.credit_queue.update_ppm_limit(
+        max_limit + (int32_t)((float)(sum_limits - max_limit) *
+                              config.over_commitment.value()));
+    VLOG(1) << "QM: New ppm limit is "
+            << shared_state.credit_queue.get_ppm_limit();
+  }
 }
 
 void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
@@ -783,6 +864,17 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
                              (uint64_t)(unsigned char)req->data.at(11) << 8 |
                              (uint64_t)(unsigned char)req->data.at(12));
     Priority priority = (Priority)req->data.at(13);
+
+    int32_t rtt = (int32_t)((uint32_t)(unsigned char)req->data.at(22) << 24 |
+                            (uint32_t)(unsigned char)req->data.at(23) << 16 |
+                            (uint32_t)(unsigned char)req->data.at(24) << 8 |
+                            (uint32_t)(unsigned char)req->data.at(25));
+    if (rtt >= 0) {
+      update_limits(rtt, service);
+    } else {
+      LOG(FATAL) << "Invalid RTT: " << rtt;
+    }
+
     VLOG(2) << "QM: Received DN request "
             << "| service: " << service << "| id: " << rpc_id
             << "| priority: " << priority << "| thread id: " << thread_id;
@@ -794,42 +886,6 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
     // check credit transmission
     check_credit_transmission();
 
-    /* bool credits_available = check_credit_available(service);
-    uint8_t result = 0;
-    if (credits_available) {
-      result = 1;
-    }
-
-    if (result == 0) {
-      // save address and number of rejected requests for future credit
-      // transmissions
-      stats.mode2_credits.up(1);
-      auto resp = buffer_manager.get_dn_buffer();
-      write_failed_dn_response(req, resp);
-      shared_state.credit_queue.push(std::move(resp), service, priority);
-      VLOG(2) << "QM: Saving failed DN info "
-              << "| service: " << service << "| id: " << rpc_id
-              << "| priority: " << priority << "| thread id: " << thread_id;
-    } else {
-
-      // check failed DN info
-      check_credit_transmission();
-
-      // write the response
-      auto resp = buffer_manager.get_dn_buffer();
-      write_dn_response(result, req, resp);
-      ring.prepare_reply_sendmsg(sockfd, req, std::move(resp),
-                                 buffer_manager.get_user_data());
-      if (VLOG_IS_ON(1)) {
-        VLOG(1) << "QM: Wrote DN response "
-                << "| id: " << rpc_id << "| service: " << service
-                << "| result: " << (int)result
-                << "| requested: " << (int)requested_credits
-                << "| in_local: " << shared_state.in_local.load()
-                << "| thread id: " << thread_id;
-      }
-    } */
-
   } else {
     LOG(FATAL) << "Unknown message type";
   }
@@ -837,13 +893,12 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
 
 SharedState::SharedState(std::vector<std::string> hosted_service,
                          std::vector<std::string> /*downstream_services*/)
-    : credit_queue(hosted_service, config.ppm_limit.value_or(-1),
-                   config.per_endpoint_limit.value_or(-1)) {}
+    : credit_queue(hosted_service, config.cpu_count.value_or(-1)) {}
 
 LocalState::LocalState(std::vector<std::string> /*hosted_services*/,
                        std::vector<std::string> downstream_services)
     : avg_cal_waiting_delay(), avg_ds_concurrency(downstream_services), td_wd(),
-      drops(0) {
+      drops(0), last_rtt_us(downstream_services) {
   for (auto &service : downstream_services) {
     avg_ds_concurrency.get(service).set_description("DSC-" + service);
   }

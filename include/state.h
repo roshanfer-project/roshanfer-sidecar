@@ -70,6 +70,10 @@ public:
 
   // number of drops (updated if only config.is_ingress is true)
   uint32_t drops;
+
+  // TODO: in the future if we have multiple connections for the same service,
+  // we should do this RTT measurement per connection.
+  LocalMap<int32_t> last_rtt_us;
 };
 
 class UpstreamRouteMapper {
@@ -114,6 +118,7 @@ private:
   valid_credit(const char *);
   bool check_credit_available(std::string_view);
   void check_credit_transmission();
+  void update_limits(int32_t, std::string_view);
 
 private:
   Config config;
