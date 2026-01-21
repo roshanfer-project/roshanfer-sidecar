@@ -48,7 +48,7 @@ CreditQueue::CreditQueue(std::vector<std::string> endpoints, int32_t cpu_count)
     : credit_queue{{{endpoints}, {endpoints}, {endpoints}}},
       weights({16, 4, 1}), it(0), remaining_rounds(weights.at(it)), lock(),
       _size(0), in_flight(0), ppm_limit(0), in_flight_per_endpoint(endpoints),
-      per_endpoint_limit(endpoints), update_count(0), update_count_global(0) {
+      per_endpoint_limit(endpoints) {
   for (size_t i = 0; i < endpoints.size(); i++) {
     in_flight_per_endpoint.set(endpoints.at(i), 0);
     per_endpoint_limit.set(endpoints.at(i), cpu_count * 2);
@@ -70,21 +70,15 @@ void CreditQueue::update_endpoint_limit(int32_t limit, std::string_view api) {
   lock.lock();
   per_endpoint_limit.set(api, limit);
   lock.unlock();
-  update_count++;
-  if (update_count % 1000 == 0) {
-    VLOG(1) << "CreditQueue: new endpoint limit. endpoint: " << api
-            << ", limit: " << limit;
-  }
+  VLOG(1) << "CreditQueue: new endpoint limit. endpoint: " << api
+          << ", limit: " << limit;
 }
 
 void CreditQueue::update_ppm_limit(int32_t limit) {
   lock.lock();
   ppm_limit = limit;
   lock.unlock();
-  update_count_global++;
-  if (update_count_global % 500 == 0) {
-    VLOG(1) << "CreditQueue: new global limit: " << limit;
-  }
+  VLOG(1) << "CreditQueue: new global limit: " << limit;
 }
 
 std::unique_ptr<Buffer> CreditQueue::pop() {
