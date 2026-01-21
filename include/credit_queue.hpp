@@ -81,4 +81,7 @@ private:
   // per-endpoint limit counters
   LocalMap<int32_t> in_flight_per_endpoint;
   LocalMap<int32_t> per_endpoint_limit;
+
+  int32_t update_count;
+  int32_t update_count_global;
 };

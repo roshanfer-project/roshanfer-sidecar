@@ -164,6 +164,7 @@ Stats::Stats(std::vector<std::string> ds_services,
       tdigest_service_time_us(ds_services), tdigest_e2e_us(ds_services) {
   for (const auto &service : us_services) {
     ema_sidecar_rtt_us.get(service).set_alpha(0.01F);
+    ema_sidecar_rtt_us.get(service).set_description("RTT-" + service);
   }
 }
 

@@ -818,6 +818,9 @@ void State::update_limits(int32_t rtt, std::string_view service) {
              1) +
          1) *
         config.cpu_count.value();
+    // apply over commitment
+    new_limit = (int32_t)std::ceil((float)new_limit *
+                                   (1.0F + config.over_commitment.value()));
     shared_state.credit_queue.update_endpoint_limit(new_limit, service);
     VLOG(1) << "QM: New limit for service " << service << " is " << new_limit;
 
@@ -870,7 +873,7 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
                             (uint32_t)(unsigned char)req->data.at(24) << 8 |
                             (uint32_t)(unsigned char)req->data.at(25));
     if (rtt >= 0) {
-      update_limits((int32_t)((float)rtt * 1.5), service);
+      update_limits((int32_t)((float)rtt * 2), service);
     } else {
       LOG(FATAL) << "Invalid RTT: " << rtt;
     }
