@@ -870,7 +870,7 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
                             (uint32_t)(unsigned char)req->data.at(24) << 8 |
                             (uint32_t)(unsigned char)req->data.at(25));
     if (rtt >= 0) {
-      update_limits(rtt, service);
+      update_limits((int32_t)((float)rtt * 1.5), service);
     } else {
       LOG(FATAL) << "Invalid RTT: " << rtt;
     }
