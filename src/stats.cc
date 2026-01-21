@@ -165,6 +165,7 @@ Stats::Stats(std::vector<std::string> ds_services,
   for (const auto &service : us_services) {
     ema_sidecar_rtt_us.get(service).set_alpha(0.01F);
     ema_sidecar_rtt_us.get(service).set_description("RTT-" + service);
+    ema_us_service_time_us.get(service).set_description("US-RT-" + service);
   }
 }
 
