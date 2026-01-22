@@ -32,12 +32,16 @@ void HeaderField::set(const uint8_t *field_name, size_t field_name_len,
   if (field_name_len > name.size()) {
     LOG(FATAL) << "HeaderField name is too long"
                << ", len: " << field_name_len
-               << ", name: " << std::string(field_name, field_name);
+               << ", name: " << std::string(field_name, field_name)
+               << ", value: " << std::string(field_value, field_value)
+               << ", value_len: " << field_value_len;
   }
   if (field_value_len > value.size()) {
     LOG(FATAL) << "HeaderField value is too long"
                << ", len: " << field_value_len
-               << ", value: " << std::string(field_value, field_value);
+               << ", value: " << std::string(field_value, field_value)
+               << ", name: " << std::string(field_name, field_name)
+               << ", name_len: " << field_name_len;
   }
   std::copy_n(field_name, field_name_len, this->name.begin());
   this->name.at(field_name_len) = '\0';
