@@ -83,6 +83,13 @@ Config load_config(const std::string &filename) {
     }
   }
 
+  if (node["extra_limit"]) {
+    local_config.extra_limit = node["extra_limit"].as<int>();
+  } else {
+    local_config.extra_limit = 0;
+  }
+  LOG(INFO) << "config.extra_limit: " << local_config.extra_limit;
+
   // Optional is_frontend
   if (node["is_frontend"]) {
     local_config.is_frontend = node["is_frontend"].as<bool>();

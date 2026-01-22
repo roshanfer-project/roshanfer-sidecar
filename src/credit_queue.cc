@@ -1,4 +1,5 @@
 #include "credit_queue.hpp"
+#include "config.h"
 #include "fast_map.hpp"
 #include "rpc_message.h"
 #include <cstddef>
@@ -51,9 +52,9 @@ CreditQueue::CreditQueue(std::vector<std::string> endpoints, int32_t cpu_count)
       per_endpoint_limit(endpoints) {
   for (size_t i = 0; i < endpoints.size(); i++) {
     in_flight_per_endpoint.set(endpoints.at(i), 0);
-    per_endpoint_limit.set(endpoints.at(i), cpu_count * 2);
+    per_endpoint_limit.set(endpoints.at(i), cpu_count * 2 + config.extra_limit);
   }
-  ppm_limit = cpu_count * 2;
+  ppm_limit = cpu_count * 2 + config.extra_limit;
 }
 
 size_t CreditQueue::size() { return _size.load(); }

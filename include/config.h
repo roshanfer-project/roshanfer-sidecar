@@ -48,6 +48,7 @@ struct Config {
   std::optional<int> frontend_pool_connections;
   std::optional<int> cpu_count;
   std::optional<float> over_commitment;
+  int extra_limit;
 };
 
 Config load_config(const std::string &filename);

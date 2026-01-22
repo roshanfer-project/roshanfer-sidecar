@@ -821,6 +821,7 @@ void State::update_limits(int32_t rtt, std::string_view service) {
     // apply over commitment
     new_limit = (int32_t)std::ceil((float)new_limit *
                                    (1.0F + config.over_commitment.value()));
+    new_limit += config.extra_limit;
     shared_state.credit_queue.update_endpoint_limit(new_limit, service);
     VLOG(1) << "QM: New limit for service " << service << " is " << new_limit;
 
@@ -828,11 +829,9 @@ void State::update_limits(int32_t rtt, std::string_view service) {
     auto sum_limits = 0;
     auto max_limit = 0;
     for (auto &[us_service, _] : config.mapping) {
-      sum_limits +=
-          shared_state.credit_queue.get_per_endpoint_limit(us_service);
-      max_limit = std::max(
-          max_limit,
-          shared_state.credit_queue.get_per_endpoint_limit(us_service));
+      auto limit = shared_state.credit_queue.get_per_endpoint_limit(us_service);
+      sum_limits += limit;
+      max_limit = limit > max_limit ? limit : max_limit;
     }
     shared_state.credit_queue.update_ppm_limit(
         max_limit + (int32_t)((float)(sum_limits - max_limit) *
