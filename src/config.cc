@@ -222,6 +222,12 @@ Config load_config(const std::string &filename) {
                << local_config.mapping.size() << ")";
   }
 
+  if (local_config.num_threads > 1 && !local_config.is_ingress) {
+    LOG(FATAL) << "Cannot set number of threads for non-ingress sidecars "
+                  "higher than 1 because of RPC ID map that is local to "
+                  "threads (fix that before removing this conditions)";
+  }
+
   // Log parsed mapping configuration
   for (const auto &pair : local_config.mapping) {
     LOG(INFO) << "Mapping: upstream=" << pair.first;
