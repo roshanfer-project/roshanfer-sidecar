@@ -134,8 +134,8 @@ public:
   LocalMap<ExponentialMovingAverage> &get_ema_service_time_us() {
     return ema_service_time_us;
   }
-  LocalMap<ExponentialMovingAverage> &get_ema_us_service_time_us() {
-    return ema_us_service_time_us;
+  LocalMap<MovingAverage> &get_ma_us_service_time_us() {
+    return ma_us_service_time_us;
   }
   TDigest &get_tdigest_service_time_us(std::string_view service) {
     return tdigest_service_time_us.get(service);
@@ -143,9 +143,7 @@ public:
   TDigest &get_tdigest_e2e_us(std::string_view service) {
     return tdigest_e2e_us.get(service);
   }
-  LocalMap<ExponentialMovingAverage> &get_ema_sidecar_rtt_us() {
-    return ema_sidecar_rtt_us;
-  }
+  LocalMap<MovingAverage> &get_ma_sidecar_rtt_us() { return ma_sidecar_rtt_us; }
 
 public:
   Counter mode2_credits;
@@ -153,8 +151,8 @@ public:
 private:
   struct hdr_histogram *hist;
   LocalMap<ExponentialMovingAverage> ema_service_time_us;
-  LocalMap<ExponentialMovingAverage> ema_us_service_time_us;
-  LocalMap<ExponentialMovingAverage> ema_sidecar_rtt_us;
+  LocalMap<MovingAverage> ma_us_service_time_us;
+  LocalMap<MovingAverage> ma_sidecar_rtt_us;
   LocalMap<TDigest> tdigest_service_time_us;
   LocalMap<TDigest> tdigest_e2e_us;
 };

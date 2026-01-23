@@ -802,19 +802,19 @@ void State::check_credit_transmission() {
 
 void State::update_limits(int32_t rtt, std::string_view service) {
   VLOG(2) << "QM: RTT " << rtt << " for service " << service;
-  auto &rtt_stats = stats.get_ema_sidecar_rtt_us().get(service);
+  auto &rtt_stats = stats.get_ma_sidecar_rtt_us().get(service);
   rtt_stats.update(rtt);
   if (rtt_stats.get_count() % 500 == 0) {
     VLOG(1) << "QM: RTT " << rtt_stats.get_value() << " for service "
             << service;
     VLOG(1) << "QM: Service time "
-            << stats.get_ema_us_service_time_us().get(service).get_value()
+            << stats.get_ma_us_service_time_us().get(service).get_value()
             << " for service " << service;
     int32_t new_limit =
         (std::max(
              (int32_t)std::ceil(
                  rtt_stats.get_value() /
-                 stats.get_ema_us_service_time_us().get(service).get_value()),
+                 stats.get_ma_us_service_time_us().get(service).get_value()),
              1) +
          1) *
         config.cpu_count.value();

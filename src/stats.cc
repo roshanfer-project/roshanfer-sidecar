@@ -160,12 +160,11 @@ int32_t Counter::get_count() { return count; }
 Stats::Stats(std::vector<std::string> ds_services,
              std::vector<std::string> us_services)
     : mode2_credits("Mode2 Credits"), ema_service_time_us(ds_services),
-      ema_us_service_time_us(us_services), ema_sidecar_rtt_us(us_services),
+      ma_us_service_time_us(us_services), ma_sidecar_rtt_us(us_services),
       tdigest_service_time_us(ds_services), tdigest_e2e_us(ds_services) {
   for (const auto &service : us_services) {
-    ema_sidecar_rtt_us.get(service).set_alpha(0.01F);
-    ema_sidecar_rtt_us.get(service).set_description("RTT-" + service);
-    ema_us_service_time_us.get(service).set_description("US-RT-" + service);
+    ma_sidecar_rtt_us.get(service).set_description("RTT-" + service);
+    ma_us_service_time_us.get(service).set_description("US-RT-" + service);
   }
 }
 
@@ -206,7 +205,7 @@ void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
                           .count();
 
   if (!config.is_ingress) {
-    ema_us_service_time_us.get(rpc->get_service())
+    ma_us_service_time_us.get(rpc->get_service())
         .update(static_cast<int32_t>(service_time));
 #ifdef NANO_LOG_ENABLED
     NANO_LOG(NOTICE, "M# %s SERVICE_TIME %s %s:%s %lld", config.name.c_str(),
