@@ -527,9 +527,30 @@ HTTPConnection::HTTPConnection(std::string conn_host, uint16_t conn_port,
   // zero out the addr
   std::memset(&addr, 0, sizeof(sockaddr_in));
 
-  fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
-  if (fd < 0) {
-    LOG(FATAL) << "Failed to create socket";
+  int retries = 0;
+  while (true) {
+    fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+    if (fd < 0) {
+      LOG(FATAL) << "Failed to create socket";
+    }
+
+    int error = 0;
+    socklen_t len = sizeof(error);
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
+      LOG(FATAL) << "getsockopt failed: " << strerror(errno);
+    }
+
+    if (error == EINPROGRESS || error == EALREADY) {
+      VLOG(1) << "Socket creation returned a dirty socket "
+                 "(EINPROGRESS/EALREADY), retrying...";
+      close(fd);
+      retries++;
+      if (retries > 2) {
+        LOG(FATAL) << "Failed to create a clean socket after 2 retries";
+      }
+      continue;
+    }
+    break;
   }
 
   VLOG(1) << "Created fd: " << fd << " for host: " << host << " port: " << port;
