@@ -804,7 +804,7 @@ void State::update_limits(int32_t rtt, std::string_view service) {
   VLOG(2) << "QM: RTT " << rtt << " for service " << service;
   auto &rtt_stats = stats.get_ma_sidecar_rtt_us().get(service);
   rtt_stats.update(rtt);
-  if (rtt_stats.get_count() % 500 == 0) {
+  if (rtt_stats.get_count() % 2000 == 0) {
     VLOG(1) << "QM: RTT " << rtt_stats.get_value() << " for service "
             << service;
     VLOG(1) << "QM: Service time "
