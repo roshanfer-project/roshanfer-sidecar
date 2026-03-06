@@ -245,6 +245,11 @@ void EventLoop::run() {
         VLOG(1) << "Wrote " << cqe->res
                 << " bytes to fd: " << ud->conn->get_fd();
 
+        if (cqe->res < 0) {
+          LOG(FATAL) << "Failed to write to fd: " << ud->conn->get_fd()
+                     << ", error: " << strerror(-cqe->res);
+        }
+
         // free buffer
         buffer_manager.free_buffer(ud->get_buffer());
 
