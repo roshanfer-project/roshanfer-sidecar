@@ -236,8 +236,8 @@ void RingWrapper::prepare_write(std::shared_ptr<HTTPConnection> conn,
   struct io_uring_sqe *sqe = get_sqe();
   int fd = conn->get_fd();
 
-  io_uring_prep_write(sqe, fd, buffer->data.data(),
-                      (uint32_t)buffer->get_filled(), 0);
+  io_uring_prep_send(sqe, fd, buffer->data.data(),
+                     (uint32_t)buffer->get_filled(), 0);
 
   ::prepare_write(ud, std::move(buffer), std::move(conn));
   set_user_data(sqe, ud);
