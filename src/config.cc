@@ -62,10 +62,7 @@ Config load_config(const std::string &filename) {
   LOG(INFO) << "config.report_latency: " << local_config.report_latency;
 
   // Optional over_commitment
-  if (!local_config.is_ingress && !node["over_commitment"]) {
-    LOG(FATAL) << "over_commitment is required for non-ingress";
-  }
-  if (!local_config.is_ingress) {
+  if (!local_config.is_ingress && node["over_commitment"]) {
     local_config.over_commitment = node["over_commitment"].as<float>();
     if (local_config.over_commitment > 1 || local_config.over_commitment < 0) {
       LOG(FATAL) << "over_commitment must be between 0 and 1";
@@ -211,11 +208,11 @@ Config load_config(const std::string &filename) {
 
   if (!local_config.is_ingress) {
     LOG(INFO) << "config.over_commitment: "
-              << local_config.over_commitment.value();
+              << local_config.over_commitment.value_or(-1);
     LOG(INFO) << "config.cpu_count: " << local_config.cpu_count.value();
   }
 
-  if (config.is_ingress &&
+  if (local_config.is_ingress &&
       (local_config.num_threads != (int)local_config.mapping.size())) {
     LOG(FATAL) << "Number of threads (" << local_config.num_threads
                << ") does not match the number of hosted services ("
@@ -225,7 +222,8 @@ Config load_config(const std::string &filename) {
   if (local_config.num_threads > 1 && !local_config.is_ingress) {
     LOG(FATAL) << "Cannot set number of threads for non-ingress sidecars "
                   "higher than 1 because of RPC ID map that is local to "
-                  "threads (fix that before removing this conditions)";
+                  "threads (fix that before removing this conditions). Another "
+                  "issue is documented in state.cc (related to ppm_queue)";
   }
 
   // Log parsed mapping configuration

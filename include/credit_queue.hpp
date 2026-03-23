@@ -2,13 +2,16 @@
 
 #include "buffer.h"
 #include "fast_map.hpp"
+#include "ppm_queue.h"
 #include "rpc_message.h"
 #include "spinlock.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <string>
 #include <string_view>
+#include <vector>
 
 const size_t PriorityCount = 3;
 
@@ -29,8 +32,7 @@ public:
   InnerCreditQueue &operator=(InnerCreditQueue &&) = delete;
 
   void push(std::unique_ptr<Buffer>, std::string_view);
-  std::unique_ptr<Buffer> pop(int32_t &, LocalMap<int32_t> &, int32_t &,
-                              LocalMap<int32_t> &);
+  std::unique_ptr<Buffer> pop(int32_t &, int32_t &, PPMQueue &);
   size_t size();
 
 private:
@@ -52,23 +54,19 @@ public:
   CreditQueue &operator=(CreditQueue &&) = delete;
 
   void push(std::unique_ptr<Buffer>, std::string_view, Priority);
-  std::unique_ptr<Buffer> pop();
+  std::unique_ptr<Buffer> pop(PPMQueue &);
   size_t size();
 
-  // bool check_credit_available(std::string_view);
-  void increment_in_flight(std::string_view);
-  void decrement_in_flight(std::string_view);
+  void increment_in_flight();
+  void decrement_in_flight();
   void update_endpoint_limit(int32_t, std::string_view);
-  void update_ppm_limit(int32_t);
 
   int32_t get_ppm_limit() { return ppm_limit; }
-  int32_t get_per_endpoint_limit(std::string_view service) {
-    return per_endpoint_limit.get(service);
-  }
 
 private:
   std::array<InnerCreditQueue, PriorityCount> credit_queue;
   std::array<size_t, PriorityCount> weights;
+  std::vector<std::string> endpoints;
   size_t it;
   size_t remaining_rounds;
   SpinLock lock;
@@ -78,7 +76,6 @@ private:
   int32_t in_flight;
   int32_t ppm_limit;
 
-  // per-endpoint limit counters
-  LocalMap<int32_t> in_flight_per_endpoint;
+  // per-endpoint limit counters (used for finding maximum)
   LocalMap<int32_t> per_endpoint_limit;
 };

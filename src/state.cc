@@ -182,10 +182,6 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
   next_hist_update = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 
   LOG(INFO) << "ppm_limit: " << shared_state.credit_queue.get_ppm_limit();
-  for (const auto &service : get_hosted_services(parsed_config)) {
-    LOG(INFO) << "per_endpoint_limit for " << service << ": "
-              << shared_state.credit_queue.get_per_endpoint_limit(service);
-  }
 }
 
 void State::write_http(std::shared_ptr<HTTPConnection> conn) {
@@ -417,13 +413,14 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
                    "or perhanps you should set is_plain_frontend to true)";
           }
           if (type == ConnectionType::EGRESS) {
+            // EGRESS-UPSTREAM (sub-response)
             if (!config.is_ingress) {
-              shared_state.credit_queue.increment_in_flight(
-                  rpc_mapper.get_ingress_rpc(rpc->get_id())->get_service());
+              shared_state.credit_queue.increment_in_flight();
             }
             local_state.avg_ds_concurrency.get(rpc->get_service()).down();
           } else if (type == ConnectionType::INGRESS) {
-            shared_state.credit_queue.decrement_in_flight(rpc->get_service());
+            // INGRESS-UPSTREAM (full-response)
+            shared_state.credit_queue.decrement_in_flight();
             shared_state.in_local.fetch_sub(1);
             utilization.update((uint32_t)shared_state.in_local.load(),
                                rpc->get_service());
@@ -578,10 +575,6 @@ void State::ppm_client(bool dn_resp,
       forward_request(upstream_route_mapper.get_pool(service).get_connection(
                           rpc->get_us_fd()),
                       rpc);
-      if (!config.is_ingress) {
-        shared_state.credit_queue.decrement_in_flight(
-            rpc_mapper.get_ingress_rpc(rpc->get_id())->get_service());
-      }
       check_credit_transmission();
       auto wd = (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::steady_clock::now() - rpc->req_rcv_time)
@@ -607,6 +600,9 @@ void State::ppm_client(bool dn_resp,
       ppm_queue.push(rpc);
       send_dn(upstream_route_mapper.get_pool(rpc->get_service()).get_addr(),
               rpc->get_service(), 1, rpc->get_id(), rpc->get_priority());
+      if (!config.is_ingress) {
+        shared_state.credit_queue.decrement_in_flight();
+      }
       /* forward_request(upstream_route_mapper.get_pool(rpc->get_service())
                           .get_connection(rpc->get_us_fd()),
                       rpc);
@@ -790,7 +786,12 @@ write_failed_dn_response(const std::unique_ptr<Buffer> &req,
 }
 
 void State::check_credit_transmission() {
-  auto buffer = shared_state.credit_queue.pop();
+  if (config.num_threads > 1 && !config.is_ingress) {
+    LOG(FATAL) << "ppm_queue is a per thread structure, but credit_queue is a "
+                  "shared one. You need to keep track of sum of all ppm_queue "
+                  "sizes to have more than thread.";
+  }
+  auto buffer = shared_state.credit_queue.pop(ppm_queue);
   if (buffer == nullptr) {
     return;
   }
@@ -818,23 +819,14 @@ void State::update_limits(int32_t rtt, std::string_view service) {
              1) +
          1) *
         config.cpu_count.value();
+    // apply over commitment
+    if (config.over_commitment.has_value()) {
+      new_limit =
+          (int32_t)((config.over_commitment.value() + 1.0F) * (float)new_limit);
+    }
     new_limit += config.extra_limit;
     shared_state.credit_queue.update_endpoint_limit(new_limit, service);
     VLOG(1) << "QM: New limit for service " << service << " is " << new_limit;
-
-    // update ppm_limit
-    auto sum_limits = 0;
-    auto max_limit = 0;
-    for (auto &[us_service, _] : config.mapping) {
-      auto limit = shared_state.credit_queue.get_per_endpoint_limit(us_service);
-      sum_limits += limit;
-      max_limit = limit > max_limit ? limit : max_limit;
-    }
-    shared_state.credit_queue.update_ppm_limit(
-        max_limit + (int32_t)((float)(sum_limits - max_limit) *
-                              config.over_commitment.value()));
-    VLOG(1) << "QM: New ppm limit is "
-            << shared_state.credit_queue.get_ppm_limit();
   }
 }
 

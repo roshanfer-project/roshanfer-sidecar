@@ -116,7 +116,6 @@ private:
                Priority);
   std::tuple<const std::string &, bool, size_t, RPCID>
   valid_credit(const char *);
-  bool check_credit_available(std::string_view);
   void check_credit_transmission();
   void update_limits(int32_t, std::string_view);
 
