@@ -16,12 +16,14 @@ void InnerCreditQueue::push(std::unique_ptr<Buffer> buffer,
   _size++;
 }
 
-static int sum_ds_waiting(PPMQueue &ppm_queue, std::string &us) {
-  auto sum = 0;
+static bool ds_waiting_check(PPMQueue &ppm_queue, std::string &us,
+                             size_t limit) {
   for (auto &ds : config.mapping.at(us).downstreams) {
-    sum += ppm_queue.size(ds);
+    if (ppm_queue.size(ds) > limit) {
+      return false;
+    }
   }
-  return sum;
+  return true;
 }
 
 std::unique_ptr<Buffer> InnerCreditQueue::pop(int32_t &in_flight,
@@ -34,7 +36,7 @@ std::unique_ptr<Buffer> InnerCreditQueue::pop(int32_t &in_flight,
   auto &init_endpoint = it->key;
   while (1) {
     if (it->value.size() > 0 && in_flight < ppm_limit &&
-        sum_ds_waiting(ppm_queue, it->key) == 0) {
+        ds_waiting_check(ppm_queue, it->key, 1)) {
       in_flight++;
       auto buffer = std::move(it->value.front());
       it->value.pop_front();
