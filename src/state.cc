@@ -421,10 +421,11 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
           } else if (type == ConnectionType::INGRESS) {
             // INGRESS-UPSTREAM (full-response)
             shared_state.credit_queue.decrement_in_flight();
+            check_credit_transmission();
+
             shared_state.in_local.fetch_sub(1);
             utilization.update((uint32_t)shared_state.in_local.load(),
                                rpc->get_service());
-            check_credit_transmission();
           }
 
           if (VLOG_IS_ON(1)) {
@@ -575,7 +576,6 @@ void State::ppm_client(bool dn_resp,
       forward_request(upstream_route_mapper.get_pool(service).get_connection(
                           rpc->get_us_fd()),
                       rpc);
-      check_credit_transmission();
       auto wd = (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::steady_clock::now() - rpc->req_rcv_time)
                     .count();
@@ -602,6 +602,7 @@ void State::ppm_client(bool dn_resp,
               rpc->get_service(), 1, rpc->get_id(), rpc->get_priority());
       if (!config.is_ingress) {
         shared_state.credit_queue.decrement_in_flight();
+        check_credit_transmission();
       }
       /* forward_request(upstream_route_mapper.get_pool(rpc->get_service())
                           .get_connection(rpc->get_us_fd()),
