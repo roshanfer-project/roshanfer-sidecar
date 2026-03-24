@@ -34,7 +34,7 @@ std::unique_ptr<Buffer> InnerCreditQueue::pop(int32_t &in_flight,
   auto &init_endpoint = it->key;
   while (1) {
     if (it->value.size() > 0 && in_flight < ppm_limit &&
-        sum_ds_waiting(ppm_queue, it->key) <= 1) {
+        sum_ds_waiting(ppm_queue, it->key) <= 5) {
       in_flight++;
       auto buffer = std::move(it->value.front());
       it->value.pop_front();
