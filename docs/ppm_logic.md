@@ -43,7 +43,7 @@ PPM is a stateful protocol, so both client and server rely on some state variabl
 
 ## Client-side
 
-### Every READ event
+### Every request
 
 1. At some point `State::ppm_client` is called (See `rpc_flow.md` for details).
 2. New RPCs are added to PPMQueue.
@@ -54,6 +54,14 @@ PPM is a stateful protocol, so both client and server rely on some state variabl
 1. At some point `State::ppm_client` is called (See `rpc_flow.md` for details).
 2. Dequeue an RPC from PPMQueue and send it.
 3. Decrement in_flight and in_flight_per_endpoint by 1.
+
+> Note that if we have parallel fan-out (determined by `pfanout` in mapping configs), we do step 3 only when we receive credit for the **last** branch of fan-out
+
+### On responses
+
+Clients receive responses on their EGRESS-side. Therefore, they increment in_flight and in_flight_per_endpoint by 1.
+
+> Note that if we have parallel fan-out, we only do this first the first branch.
 
 ## Server-side
 

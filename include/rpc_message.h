@@ -103,6 +103,10 @@ public:
   std::chrono::time_point<std::chrono::steady_clock> req_rcv_time;
   std::chrono::time_point<std::chrono::steady_clock> req_for_time;
   std::chrono::time_point<std::chrono::steady_clock> res_rcv_time;
+
+  // parallel fan-out counters
+  uint8_t pfanout_req;
+  uint8_t pfanout_res;
 };
 
 class gRPCMessage : public RPCMessage {

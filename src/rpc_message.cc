@@ -176,6 +176,8 @@ void gRPCMessage::clear() {
   req_rcv_time = std::chrono::time_point<std::chrono::steady_clock>();
   res_rcv_time = std::chrono::time_point<std::chrono::steady_clock>();
   id = -1;
+  pfanout_req = 0;
+  pfanout_res = 0;
 }
 
 gRPCMessage::~gRPCMessage() {
@@ -330,6 +332,8 @@ void HTTPMessage::clear() {
   req_rcv_time = std::chrono::time_point<std::chrono::steady_clock>();
   res_rcv_time = std::chrono::time_point<std::chrono::steady_clock>();
   id = -1;
+  pfanout_req = 0;
+  pfanout_res = 0;
 }
 
 HTTPMessage::~HTTPMessage() {

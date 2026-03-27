@@ -189,6 +189,9 @@ Config load_config(const std::string &filename) {
             for (const auto &downstream : mapping_node.second["downstreams"]) {
               mapping_info.downstreams.push_back(downstream.as<std::string>());
             }
+            if (mapping_info.downstreams.size() > 255) {
+              LOG(FATAL) << "For parallel fan-out we use uint8 for counting";
+            }
           } else {
             LOG(FATAL) << "Downstreams for upstream '" << upstream
                        << "' is not a sequence in " << config_path;
@@ -198,6 +201,10 @@ Config load_config(const std::string &filename) {
         if (mapping_node.second["listen_port"]) {
           mapping_info.listen_port =
               mapping_node.second["listen_port"].as<uint16_t>();
+        }
+
+        if (mapping_node.second["pfanout"]) {
+          mapping_info.pfanout = mapping_node.second["pfanout"].as<bool>();
         }
 
         local_config.mapping[upstream] = mapping_info;

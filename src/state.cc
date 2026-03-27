@@ -418,8 +418,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
           }
           if (type == ConnectionType::EGRESS) {
             if (!config.is_ingress) {
-              shared_state.credit_queue.increment_in_flight(
-                  rpc_mapper.get_ingress_rpc(rpc->get_id())->get_service());
+              fanout_res_credit_management(rpc->get_id());
             }
             local_state.avg_ds_concurrency.get(rpc->get_service()).down();
           } else if (type == ConnectionType::INGRESS) {
@@ -582,10 +581,7 @@ void State::ppm_client(bool dn_resp,
                           rpc->get_us_fd()),
                       rpc);
       if (!config.is_ingress) {
-        // credit management and transmission
-        shared_state.credit_queue.decrement_in_flight(
-            rpc_mapper.get_ingress_rpc(rpc->get_id())->get_service());
-        check_credit_transmission();
+        fanout_req_credit_management(rpc->get_id());
       }
       auto wd = (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::steady_clock::now() - rpc->req_rcv_time)
@@ -621,6 +617,42 @@ void State::ppm_client(bool dn_resp,
               << "| queue size: " << ppm_queue.size(rpc->get_service());
     }
   }
+}
+
+void State::fanout_req_credit_management(RPCID id) {
+  // credit management and transmission
+  auto &ingress_rpc = rpc_mapper.get_ingress_rpc(id);
+  bool pfanout =
+      config.mapping.at(ingress_rpc->get_service()).pfanout.value_or(false);
+  if (pfanout) {
+    ingress_rpc->pfanout_req++;
+
+    // if we are not the last branch, do nothing
+    if (ingress_rpc->pfanout_req !=
+        config.mapping.at(ingress_rpc->get_service()).downstreams.size()) {
+      return;
+    }
+  }
+
+  // for non pfanout or last branch in pfanout, decrement active requests
+  shared_state.credit_queue.decrement_in_flight(ingress_rpc->get_service());
+  check_credit_transmission();
+}
+
+void State::fanout_res_credit_management(RPCID id) {
+  auto &ingress_rpc = rpc_mapper.get_ingress_rpc(id);
+
+  if (config.mapping.at(ingress_rpc->get_service()).pfanout.value_or(false)) {
+    ingress_rpc->pfanout_res++;
+
+    // if we are not the first branch, do nothing
+    if (ingress_rpc->pfanout_res > 1) {
+      return;
+    }
+  }
+
+  // for non pfanout or first branch, increment active reuqests
+  shared_state.credit_queue.increment_in_flight(ingress_rpc->get_service());
 }
 
 void State::send_dn(struct sockaddr_in addr, const std::string &service,
