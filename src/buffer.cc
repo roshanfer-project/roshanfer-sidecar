@@ -8,7 +8,8 @@
 
 Buffer::Buffer(size_t length, size_t id)
     : data(std::vector<char>(length)), is_free(true), is_provided(false),
-      size(length - 1), filled(0), index(id), msg({}), addr({}), iov({}) {}
+      enter_queue_ts(0), size(length - 1), filled(0), index(id), msg({}),
+      addr({}), iov({}) {}
 
 Buffer::~Buffer() {
   LOG(FATAL) << "Buffer deconstructor (should not be called)";
@@ -20,6 +21,7 @@ void Buffer::clear() {
   std::memset(&iov, 0, sizeof(struct iovec));
   filled = 0;
   is_free = true;
+  enter_queue_ts = 0;
 }
 
 void Buffer::set_filled(size_t f) {

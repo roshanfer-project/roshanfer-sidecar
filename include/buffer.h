@@ -2,6 +2,7 @@
 
 // #include "listener.h"
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <netinet/in.h>
 #include <vector>
@@ -37,6 +38,7 @@ public:
   std::vector<char> data;
   bool is_free;
   bool is_provided;
+  int64_t enter_queue_ts;
 
 private:
   size_t size;
