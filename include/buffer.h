@@ -3,7 +3,6 @@
 // #include "listener.h"
 #include <cstddef>
 #include <cstdint>
-#include <memory>
 #include <netinet/in.h>
 #include <vector>
 
@@ -27,9 +26,7 @@ public:
   void set_filled(size_t f);
 
   struct msghdr *get_msg() { return &msg; }
-  void prepare_reply_sendmsg(const std::unique_ptr<Buffer> &old_buffer);
-  void prepare_reply_sendmsg(struct sockaddr_in);
-  void prepare_req_sendmsg(struct sockaddr_in);
+  void prepare_sendmsg(struct sockaddr_in);
   void clear();
   struct sockaddr_in get_addr() { return addr; }
   void set_addr(struct sockaddr_in a) { addr = a; }

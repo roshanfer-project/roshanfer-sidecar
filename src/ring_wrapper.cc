@@ -271,32 +271,8 @@ void RingWrapper::prepare_rcvmsg(int fd, UserData *ud, UDPType udp_type) {
   VLOG(1) << "Prepared rcvmsg, fd: " << fd;
 }
 
-/*
-    This a "reply" send message because it uses the server address structure
-    from the received message (old_buffer). In the case of a "request" send
-   message, the server address structure has to created manually.
-*/
-void RingWrapper::prepare_reply_sendmsg(
-    int fd, const std::unique_ptr<Buffer> &old_buffer,
-    std::unique_ptr<Buffer> new_buffer, UserData *ud) {
-  struct io_uring_sqe *sqe = get_sqe();
-
-  new_buffer->prepare_reply_sendmsg(old_buffer);
-
-  io_uring_prep_sendmsg(sqe, fd, new_buffer->get_msg(), 0);
-
-  // io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-
-  ud->set_buffer(std::move(new_buffer));
-  ud->op = Operation::SENDMSG;
-  set_user_data(sqe, ud);
-
-  VLOG(1) << "Prepared sendmsg (reply), fd: " << fd;
-}
-
-void RingWrapper::prepare_reply_sendmsg(int fd,
-                                        std::unique_ptr<Buffer> new_buffer,
-                                        UserData *ud) {
+void RingWrapper::prepare_sendmsg(int fd, std::unique_ptr<Buffer> new_buffer,
+                                  UserData *ud) {
   struct io_uring_sqe *sqe = get_sqe();
 
   io_uring_prep_sendmsg(sqe, fd, new_buffer->get_msg(), 0);
@@ -308,12 +284,12 @@ void RingWrapper::prepare_reply_sendmsg(int fd,
   VLOG(1) << "Prepared sendmsg (reply), fd: " << fd;
 }
 
-void RingWrapper::prepare_req_sendmsg(int fd, std::unique_ptr<Buffer> buffer,
-                                      UserData *ud,
-                                      struct sockaddr_in servaddr) {
+void RingWrapper::prepare_sendmsg_with_serveraddr(
+    int fd, std::unique_ptr<Buffer> buffer, UserData *ud,
+    struct sockaddr_in servaddr) {
   struct io_uring_sqe *sqe = get_sqe();
 
-  buffer->prepare_req_sendmsg(servaddr);
+  buffer->prepare_sendmsg(servaddr);
 
   io_uring_prep_sendmsg(sqe, fd, buffer->get_msg(), 0);
 

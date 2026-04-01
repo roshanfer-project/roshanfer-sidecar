@@ -706,8 +706,8 @@ void State::send_dn(struct sockaddr_in addr, const std::string &service,
   std::copy_n(service.begin(), service.length(),
               buffer->data.begin() + header_size);
   buffer->set_filled(len);
-  ring.prepare_req_sendmsg(sockfd, std::move(buffer),
-                           buffer_manager.get_user_data(), addr);
+  ring.prepare_sendmsg_with_serveraddr(sockfd, std::move(buffer),
+                                       buffer_manager.get_user_data(), addr);
 }
 
 void State::dump_entire_state() {
@@ -828,7 +828,7 @@ inline static void
 write_failed_dn_response(const std::unique_ptr<Buffer> &req,
                          const std::unique_ptr<Buffer> &resp) {
   write_dn_response(1, req, resp);
-  resp->prepare_reply_sendmsg(req->get_addr());
+  resp->prepare_sendmsg(req->get_addr());
 }
 
 void State::check_credit_transmission() {
@@ -847,8 +847,8 @@ void State::check_credit_transmission() {
   buffer->data.at(24) = (char)((unsigned char)(queuing_time >> 8));
   buffer->data.at(25) = (char)((unsigned char)(queuing_time & 0xFF));
 
-  ring.prepare_reply_sendmsg(sockfd, std::move(buffer),
-                             buffer_manager.get_user_data());
+  ring.prepare_sendmsg(sockfd, std::move(buffer),
+                       buffer_manager.get_user_data());
 
   VLOG(2) << "QM: Sent credit " << "| thread id: " << thread_id;
 }
