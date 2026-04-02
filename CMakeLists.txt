@@ -12,11 +12,8 @@ set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -fno-omit-frame-pointer")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g -gdwarf-3 -fno-omit-frame-pointer")
 # options: "-fsanitize=address": to see memory leaks, stack corruption, etc.
 
-# set NANO_LOG_ENABLED to ON to enable NanoLog
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DNANO_LOG_ENABLED")
-
-# set NABO_LOG_TRACE_ENABLED to ON to enable NanoLog trace logging
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DNABO_LOG_TRACE_ENABLED")
+option(SIDECAR_ENABLE_NANOLOG "Compile sidecar with NANO_LOG_ENABLED (metric export via NanoLog)" OFF)
+# NABO_LOG_TRACE_ENABLED: optional trace; keep off unless needed
 
 # enable hardening
 add_compile_definitions(_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE)
@@ -69,6 +66,9 @@ include_directories(SYSTEM external/NanoLog/runtime)
 file(GLOB_RECURSE SOURCES src/*.cc src/*.c)
 
 add_executable(sidecar ${SOURCES})
+if(SIDECAR_ENABLE_NANOLOG)
+  target_compile_definitions(sidecar PRIVATE NANO_LOG_ENABLED)
+endif()
 # link glog
 target_link_libraries (sidecar glog::glog)
 # link liburing

@@ -16,7 +16,15 @@ if [ ! -d "./build" ]; then
     echo "Created build directory"
 fi
 cd ./build
-cmake ..   -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_AR=/usr/bin/llvm-ar-18 -DCMAKE_RANLIB=/usr/bin/llvm-ranlib-18
+EXTRA_CMAKE=()
+if [ "${SIDECAR_ENABLE_NANOLOG:-}" = "1" ]; then
+  EXTRA_CMAKE+=(-DSIDECAR_ENABLE_NANOLOG=ON)
+  echo "SIDECAR_ENABLE_NANOLOG=1 -> NanoLog metrics enabled in binary"
+else
+  EXTRA_CMAKE+=(-DSIDECAR_ENABLE_NANOLOG=OFF)
+fi
+cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+  -DCMAKE_AR=/usr/bin/llvm-ar-18 -DCMAKE_RANLIB=/usr/bin/llvm-ranlib-18 "${EXTRA_CMAKE[@]}"
 cmake --build .
 
 # Check if build was successful
