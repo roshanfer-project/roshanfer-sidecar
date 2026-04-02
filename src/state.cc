@@ -171,19 +171,18 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
     LOG(FATAL) << "Failed to create socket";
   }
   int reuse = 1;
-  if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse)) <
-      0) {
+  if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse)) < 0) {
     LOG(FATAL) << "Failed to set SO_REUSEPORT on PPM socket: "
                << strerror(errno);
   }
-  struct sockaddr_in ppm_addr {};
+  struct sockaddr_in ppm_addr{};
   ppm_addr.sin_family = AF_INET;
   ppm_addr.sin_port = htons(config.ingress_listener_port);
   ppm_addr.sin_addr.s_addr = htonl(INADDR_ANY);
   if (bind(sockfd, reinterpret_cast<struct sockaddr *>(&ppm_addr),
            sizeof(ppm_addr)) < 0) {
     LOG(FATAL) << "Failed to bind PPM UDP socket to port "
-                 << config.ingress_listener_port << ": " << strerror(errno);
+               << config.ingress_listener_port << ": " << strerror(errno);
   }
 
   if (int ret = hdr_init(1, 5000000, 3, &hist); ret < 0) {
