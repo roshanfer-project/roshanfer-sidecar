@@ -863,8 +863,8 @@ void State::ingress_admit() {
                              .get_value_cap(1, INFINITY));
 
   int32_t e2e_delay =
-      wt +
-      (int32_t)stats.get_ema_service_time_us().get(ingress_service).get_value();
+      wt + (int32_t)stats.get_tdigest_service_time_us(ingress_service)
+               .get_quantile(0.95);
 
   auto added =
       ingress.add_to_be_admitted_or_drop(rpc_queue, rpc_mapper, e2e_delay);
@@ -886,6 +886,14 @@ void State::ingress_admit() {
   NANO_LOG(NOTICE, "M# %s Estimated RT-%s T:T %f", config.name.c_str(),
            ingress_service.c_str(),
            stats.get_ema_service_time_us().get(ingress_service).get_value());
+  NANO_LOG(
+      NOTICE, "M# %s Estimated RT-P95-%s T:T %f", config.name.c_str(),
+      ingress_service.c_str(),
+      stats.get_tdigest_service_time_us(ingress_service).get_quantile(0.95));
+  NANO_LOG(
+      NOTICE, "M# %s Estimated RT-P99-%s T:T %f", config.name.c_str(),
+      ingress_service.c_str(),
+      stats.get_tdigest_service_time_us(ingress_service).get_quantile(0.99));
   NANO_LOG(NOTICE, "M# %s Estimated WT-R-%s T:T %d", config.name.c_str(),
            ingress_service.c_str(),
            (int32_t)(stats.get_tdigest_service_time_us(ingress_service)
