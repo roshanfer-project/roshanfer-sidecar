@@ -23,6 +23,7 @@ struct MappingInfo {
   std::vector<std::string> downstreams;
   std::optional<uint16_t> listen_port;
   std::optional<bool> pfanout;
+  std::optional<bool> dfanout;
 };
 
 struct Config {

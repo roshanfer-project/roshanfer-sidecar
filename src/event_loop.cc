@@ -3,7 +3,6 @@
 #include "listener.h"
 #include "ring_helper.hpp"
 #include "state.h"
-#include "udp_listener.h"
 #include <buffer_manager.h>
 #include <cassert>
 #include <connection.h>
@@ -33,13 +32,7 @@ void EventLoop::run() {
     ring.prepare_accept(listener, buffer_manager.get_user_data());
   }
 
-  // Add recvmsg submission
-  ring.prepare_rcvmsg(udp_listener.get_fd(), buffer_manager.get_user_data(),
-                      UDPType::REQUEST);
-
-  // Add recvmsg submission for responses
-  ring.prepare_rcvmsg(state.get_sockfd(), buffer_manager.get_user_data(),
-                      UDPType::RESPONSE);
+  ring.prepare_rcvmsg(state.get_sockfd(), buffer_manager.get_user_data());
 
   // main event loop
   while (true) {
@@ -314,60 +307,24 @@ void EventLoop::run() {
           LOG(FATAL) << "Read " << cqe->res
                      << " bytes but no DN buffer provided (flag missing)";
         }
-        auto udp_type = ud->udp_type;
-
         if (cqe->res <= 0) {
           LOG(FATAL) << "Failed to receive UDP message, error: "
                      << strerror(-cqe->res);
         }
 
-        // Handle multishot header
         RingWrapper::handle_multishot_recv(old_buffer, cqe->res);
 
-        // TODO: check if the received message is a request for QM,
-        // or is a response for DN (In the second case, there is no need
-        // for replying back).
-
-        switch (udp_type) {
-        case UDPType::REQUEST: {
-          VLOG(1) << "Request for Queue Multiplxer";
-
-          // get the new buffer from QM
-          try {
-            state.queue_multiplexer(old_buffer);
-          } catch (const std::exception &e) {
-            LOG(FATAL) << "Error in queue multiplexer: " << e.what();
-          }
-
-          // free the old buffer
-          buffer_manager.free_dn_buffer(std::move(old_buffer));
-
-          break;
+        VLOG(1) << "PPM UDP recv, dispatch by header";
+        try {
+          state.dispatch_ppm_recv(old_buffer);
+        } catch (const std::out_of_range &e) {
+          LOG(FATAL) << "Out of range error: " << e.what();
+        } catch (const std::exception &e) {
+          LOG(FATAL) << "Error in PPM dispatch: " << e.what();
         }
 
-        case UDPType::RESPONSE: {
-          VLOG(1) << "Response for DN";
+        buffer_manager.free_dn_buffer(std::move(old_buffer));
 
-          // We have a response for DN (potentially a request unblock)
-          try {
-            state.ppm_client(true, old_buffer);
-          } catch (const std::out_of_range &e) {
-            LOG(FATAL) << "Out of range error: " << e.what();
-          } catch (const std::exception &e) {
-            LOG(FATAL) << "Error in PPM client: " << e.what();
-          }
-
-          // free the buffer
-          buffer_manager.free_dn_buffer(std::move(old_buffer));
-
-          break;
-        }
-
-        case UDPType::CLEAR: {
-          LOG(FATAL) << "Received a CLEAR UDPType, this should not happen";
-          break;
-        }
-        }
         break;
       }
 
@@ -416,7 +373,7 @@ EventLoop::EventLoop(int th_index, std::string &ingress_service_ref,
     : index(th_index), ingress_service(ingress_service_ref),
       config(parsed_config), ring(config.ring_size),
       buffer_manager(config.buffer_count, config.buffer_size, ring),
-      listeners(), udp_listener(config.ingress_listener_port), rpc_mapper(),
+      listeners(), rpc_mapper(),
       rpc_queue(), ingress(th_index, ingress_service_ref),
       state(config, ring, buffer_manager, rpc_mapper, rpc_queue, listeners,
             ingress, shared_state, ingress_service_ref, th_index) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "buffer.h"
 #include "connection_enums.h"
 #include "fast_map.hpp"
 #include <array>
@@ -7,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <queue>
 #include <string>
 #include <sys/types.h>
@@ -107,6 +109,10 @@ public:
   // parallel fan-out counters
   uint8_t pfanout_req;
   uint8_t pfanout_res;
+
+  // dynamic fan-out credit return queue
+  std::queue<std::unique_ptr<Buffer>> credit_return_queue;
+  std::string *dfanout_service;
 };
 
 class gRPCMessage : public RPCMessage {

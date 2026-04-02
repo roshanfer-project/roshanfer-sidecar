@@ -40,7 +40,7 @@ public:
                      UserData *);
   void prepare_cancel(std::shared_ptr<HTTPConnection>, UserData *);
 
-  void prepare_rcvmsg(int, UserData *, UDPType);
+  void prepare_rcvmsg(int, UserData *);
   void prepare_sendmsg(int, std::unique_ptr<Buffer>, UserData *);
   void prepare_sendmsg_with_serveraddr(int, std::unique_ptr<Buffer>, UserData *,
                                        struct sockaddr_in);

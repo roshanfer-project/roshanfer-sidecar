@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <errno.h>
 #include <exception>
 #include <memory>
 #include <netdb.h>
@@ -164,10 +165,25 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
     ring.prepare_connect(std::move(conn), buffer_manager.get_user_data());
   }
 
-  // socket for UDP (Used for PPM)
+  // PPM UDP: one bound socket for send + recv (SO_REUSEPORT for multi-thread)
   sockfd = socket(AF_INET, SOCK_DGRAM, 0);
   if (sockfd < 0) {
     LOG(FATAL) << "Failed to create socket";
+  }
+  int reuse = 1;
+  if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse)) <
+      0) {
+    LOG(FATAL) << "Failed to set SO_REUSEPORT on PPM socket: "
+               << strerror(errno);
+  }
+  struct sockaddr_in ppm_addr {};
+  ppm_addr.sin_family = AF_INET;
+  ppm_addr.sin_port = htons(config.ingress_listener_port);
+  ppm_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  if (bind(sockfd, reinterpret_cast<struct sockaddr *>(&ppm_addr),
+           sizeof(ppm_addr)) < 0) {
+    LOG(FATAL) << "Failed to bind PPM UDP socket to port "
+                 << config.ingress_listener_port << ": " << strerror(errno);
   }
 
   if (int ret = hdr_init(1, 5000000, 3, &hist); ret < 0) {
@@ -485,8 +501,8 @@ void State::remove_connection(std::shared_ptr<HTTPConnection> /*conn*/) {
 
 static std::string_view extract_service_from_ppm_req(const char *data) {
   size_t header_size = 26;
-  if (data[1] != 0x01) {
-    LOG(FATAL) << "Invalid message type";
+  if (data[1] != 0x01 && data[1] != 0x02) {
+    LOG(FATAL) << "Invalid message type: " << (int)data[1];
   }
   if ((size_t)data[0] < header_size) {
     LOG(FATAL) << "Invalid message length: " << (int)data[0];
@@ -571,33 +587,12 @@ void State::ppm_client(bool dn_resp,
       return;
     }
 
-    if (num_credits > ppm_queue.size(service)) {
-      dump_entire_state();
-      LOG(FATAL)
-          << "Received more credits than available in the queue for service: "
-          << service << "| num_credits: " << num_credits << "| id: " << id
-          << "| queue size: " << ppm_queue.size(service);
-    }
-
     for (size_t i = 0; i < num_credits; i++) {
-      auto rpc = ppm_queue.pop(service, id);
-      route_request(ConnectionType::EGRESS, rpc->get_ds_stream_id(),
-                    rpc->get_ds_fd());
-      forward_request(upstream_route_mapper.get_pool(service).get_connection(
-                          rpc->get_us_fd()),
-                      rpc);
       if (!config.is_ingress) {
-        fanout_req_credit_management(rpc->get_id());
+        fanout_req_management(id, service, dn_resp_buffer);
+      } else {
+        send_sub_request(id, service);
       }
-      auto wd = (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::steady_clock::now() - rpc->req_rcv_time)
-                    .count();
-      local_state.avg_cal_waiting_delay.update(wd);
-      local_state.td_wd.add(wd);
-      local_state.avg_ds_concurrency.get(service).up();
-      VLOG(1) << "RPCForward: EGRESS request. "
-              << "| service: " << service << "| id: " << rpc->get_id()
-              << "| ppm_queue size: " << ppm_queue.size(service);
     }
   } else {
     // we need to send a demand notification
@@ -611,33 +606,75 @@ void State::ppm_client(bool dn_resp,
       auto rpc =
           rpc_mapper.get_ds_rpc(ConnectionType::EGRESS, ds_stream_id, ds_fd);
       ppm_queue.push(rpc);
-      send_dn(upstream_route_mapper.get_pool(rpc->get_service()).get_addr(),
-              rpc->get_service(), 1, rpc->get_id(), rpc->get_priority());
-      /* forward_request(upstream_route_mapper.get_pool(rpc->get_service())
-                          .get_connection(rpc->get_us_fd()),
-                      rpc);
-      check_credit_transmission(); */
-      VLOG(1) << "PPMClient: DN for new request "
-              << "| service: " << rpc->get_service()
-              << "| id: " << rpc->get_id() << "| credits: " << 1
-              << "| queue size: " << ppm_queue.size(rpc->get_service());
+
+      // send out DNs
+      if (config.is_ingress) {
+        send_dn(upstream_route_mapper.get_pool(rpc->get_service()).get_addr(),
+                rpc->get_service(), 1, rpc->get_id(), rpc->get_priority());
+      } else {
+        auto &ingress_rpc = rpc_mapper.get_ingress_rpc(rpc->get_id());
+        auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
+
+        // for dynamic fan-out, send DN to all downstreams
+        if (mapping_entry.dfanout.value_or(false)) {
+          ingress_rpc->dfanout_service = &rpc->get_service();
+          for (auto &ds_service : mapping_entry.downstreams) {
+            send_dn(upstream_route_mapper.get_pool(ds_service).get_addr(),
+                    ds_service, 1, rpc->get_id(), rpc->get_priority());
+          }
+        } else {
+          send_dn(upstream_route_mapper.get_pool(rpc->get_service()).get_addr(),
+                  rpc->get_service(), 1, rpc->get_id(), rpc->get_priority());
+        }
+      }
     }
   }
 }
 
-void State::fanout_req_credit_management(RPCID id) {
+/*
+  This method is resonsible for credit management (sub request out event) and
+  RPC transmission (for non-ingress) when downstream pattern is fanout
+*/
+void State::fanout_req_management(RPCID id, const std::string &service,
+                                  const std::unique_ptr<Buffer> &dn_reply) {
   // credit management and transmission
   auto &ingress_rpc = rpc_mapper.get_ingress_rpc(id);
-  bool pfanout =
-      config.mapping.at(ingress_rpc->get_service()).pfanout.value_or(false);
-  if (pfanout) {
+  auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
+  if (mapping_entry.pfanout.value_or(false)) {
     ingress_rpc->pfanout_req++;
+    send_sub_request(id, service);
 
     // if we are not the last branch, do nothing
-    if (ingress_rpc->pfanout_req !=
-        config.mapping.at(ingress_rpc->get_service()).downstreams.size()) {
+    if (ingress_rpc->pfanout_req != mapping_entry.downstreams.size()) {
       return;
     }
+  } else if (mapping_entry.dfanout.value_or(false)) {
+    ingress_rpc->pfanout_req++;
+    // fill dfanout queue
+    if (*ingress_rpc->dfanout_service != service) {
+      auto credit_return = prepare_credit_return(dn_reply);
+      ingress_rpc->credit_return_queue.push(std::move(credit_return));
+      VLOG(2) << "PPMClient: Add credit for service: " << service
+              << " id: " << id << " to Credit Return Queue";
+    }
+
+    if (ingress_rpc->pfanout_req != mapping_entry.downstreams.size()) {
+      return;
+    } else {
+      send_sub_request(id, *ingress_rpc->dfanout_service);
+
+      // send out queued credit returns
+      while (ingress_rpc->credit_return_queue.size() > 0) {
+        auto ret = std::move(ingress_rpc->credit_return_queue.front());
+        ingress_rpc->credit_return_queue.pop();
+        ring.prepare_sendmsg(sockfd, std::move(ret),
+                             buffer_manager.get_user_data());
+      }
+      VLOG(2) << "PPMClient: Flush Credit Return Queue for id: " << id;
+    }
+  } else {
+    // sequential fanout
+    send_sub_request(id, service);
   }
 
   // for non pfanout or last branch in pfanout, decrement active requests
@@ -645,6 +682,61 @@ void State::fanout_req_credit_management(RPCID id) {
   check_credit_transmission();
 }
 
+std::unique_ptr<Buffer>
+State::prepare_credit_return(const std::unique_ptr<Buffer> &dn_reply) {
+  auto credit_ret = buffer_manager.get_dn_buffer();
+
+  // copy the content
+  if (credit_ret->get_size() - credit_ret->get_filled() <
+      dn_reply->get_filled()) {
+    LOG(FATAL) << "buffer overflow";
+  }
+  std::copy_n(dn_reply->data.begin(), dn_reply->get_filled(),
+              credit_ret->data.begin());
+  credit_ret->set_filled(dn_reply->get_filled());
+
+  // set the command code
+  credit_ret->data.at(1) = 0x02; // credit return (0x02)
+
+  // set the detination
+  credit_ret->prepare_sendmsg(dn_reply->get_addr());
+
+  return credit_ret;
+}
+
+std::shared_ptr<RPCMessage> inline State::send_sub_request(
+    RPCID id, const std::string &service) {
+  if (ppm_queue.size(service) == 0) {
+    dump_entire_state();
+    LOG(FATAL)
+        << "Received more credits than available in the queue for service: "
+        << service << "| id: " << id
+        << "| queue size: " << ppm_queue.size(service);
+  }
+  auto rpc = ppm_queue.pop(service, id);
+  route_request(ConnectionType::EGRESS, rpc->get_ds_stream_id(),
+                rpc->get_ds_fd());
+  forward_request(
+      upstream_route_mapper.get_pool(service).get_connection(rpc->get_us_fd()),
+      rpc);
+
+  auto wd = (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - rpc->req_rcv_time)
+                .count();
+  local_state.avg_cal_waiting_delay.update(wd);
+  local_state.td_wd.add(wd);
+  local_state.avg_ds_concurrency.get(service).up();
+
+  VLOG(1) << "RPCForward: EGRESS request. "
+          << "| service: " << service << "| id: " << rpc->get_id()
+          << "| ppm_queue size: " << ppm_queue.size(service);
+  return rpc;
+}
+
+/*
+  This method is responsible for creditt management (sub response in event) when
+  downstream pattern in fanout
+*/
 void State::fanout_res_credit_management(RPCID id) {
   auto &ingress_rpc = rpc_mapper.get_ingress_rpc(id);
 
@@ -708,6 +800,10 @@ void State::send_dn(struct sockaddr_in addr, const std::string &service,
   buffer->set_filled(len);
   ring.prepare_sendmsg_with_serveraddr(sockfd, std::move(buffer),
                                        buffer_manager.get_user_data(), addr);
+
+  VLOG(1) << "PPMClient: DN for new request "
+          << "| service: " << service << "| id: " << id << "| credits: " << 1
+          << "| queue size: " << ppm_queue.size(service);
 }
 
 void State::dump_entire_state() {
@@ -891,6 +987,35 @@ void State::update_limits(int32_t rtt, std::string_view service) {
   }
 }
 
+void State::dispatch_ppm_recv(const std::unique_ptr<Buffer> &buf) {
+  const size_t n = buf->get_filled();
+  if (n < 3) {
+    LOG(FATAL) << "PPM UDP payload too short: " << n;
+  }
+  const auto &d = buf->data;
+  static constexpr size_t k_ppm_header = 26;
+  size_t declared = (size_t)(unsigned char)d[0];
+  if (declared < k_ppm_header || declared > n) {
+    LOG(FATAL) << "Invalid PPM length byte: " << declared << " filled: " << n;
+  }
+  uint8_t b1 = (unsigned char)d[1];
+  uint8_t b2 = (unsigned char)d[2];
+  if (b1 == 0x02) {
+    queue_multiplexer(buf);
+    return;
+  }
+  if (b1 == 0x01 && b2 == 0x00) {
+    queue_multiplexer(buf);
+    return;
+  }
+  if (b1 == 0x01 && b2 == 0x01) {
+    ppm_client(true, buf);
+    return;
+  }
+  LOG(FATAL) << "Unknown PPM UDP message: type " << (int)b1 << " flags "
+             << (int)b2;
+}
+
 void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
   // read the request
   if (req->data.at(1) == 0x01) {
@@ -942,6 +1067,13 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
     // check credit transmission
     check_credit_transmission();
 
+  } else if (req->data.at(1) == 0x02) {
+    // credit return
+    auto service = extract_service_from_ppm_req(req->data.data());
+    VLOG(2) << "QM: Received Credit Return "
+            << "| service: " << service;
+    shared_state.credit_queue.decrement_in_flight(service);
+    check_credit_transmission();
   } else {
     LOG(FATAL) << "Unknown message type";
   }

@@ -189,6 +189,9 @@ Config load_config(const std::string &filename) {
             for (const auto &downstream : mapping_node.second["downstreams"]) {
               mapping_info.downstreams.push_back(downstream.as<std::string>());
             }
+            if (mapping_info.downstreams.size() > 10) {
+              LOG(FATAL) << "Maximum downstream queue for dfanout is 10";
+            }
             if (mapping_info.downstreams.size() > 255) {
               LOG(FATAL) << "For parallel fan-out we use uint8 for counting";
             }
@@ -205,6 +208,21 @@ Config load_config(const std::string &filename) {
 
         if (mapping_node.second["pfanout"]) {
           mapping_info.pfanout = mapping_node.second["pfanout"].as<bool>();
+        }
+
+        if (mapping_node.second["dfanout"]) {
+          mapping_info.dfanout = mapping_node.second["dfanout"].as<bool>();
+        }
+
+        if (local_config.is_ingress) {
+          if (mapping_info.downstreams.size() != 1) {
+            LOG(FATAL) << "1:1 mapping violation for Ingress service: "
+                       << upstream;
+          }
+          if (mapping_info.dfanout || mapping_info.pfanout) {
+            LOG(FATAL) << "pfanout or dfanout is true for Ingress service: "
+                       << upstream;
+          }
         }
 
         local_config.mapping[upstream] = mapping_info;

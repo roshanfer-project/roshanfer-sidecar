@@ -258,14 +258,13 @@ void RingWrapper::prepare_cancel(std::shared_ptr<HTTPConnection> conn,
   VLOG(1) << "Prepared cancel, fd: " << fd;
 }
 
-void RingWrapper::prepare_rcvmsg(int fd, UserData *ud, UDPType udp_type) {
+void RingWrapper::prepare_rcvmsg(int fd, UserData *ud) {
   struct io_uring_sqe *sqe = get_sqe();
   io_uring_prep_recvmsg_multishot(sqe, fd, &ud->msg, 0);
   sqe->buf_group = 1; // UDP buffer group
   io_uring_sqe_set_flags(sqe, IOSQE_BUFFER_SELECT);
 
   ud->op = Operation::RCVMSG;
-  ud->udp_type = udp_type;
   set_user_data(sqe, ud);
 
   VLOG(1) << "Prepared rcvmsg, fd: " << fd;

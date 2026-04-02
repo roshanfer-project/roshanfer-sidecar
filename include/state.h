@@ -96,6 +96,7 @@ public:
   void remove_connection(std::shared_ptr<HTTPConnection>);
 
   // PPM-related functions
+  void dispatch_ppm_recv(const std::unique_ptr<Buffer> &);
   void queue_multiplexer(const std::unique_ptr<Buffer> &);
   void ppm_client(bool, const std::unique_ptr<Buffer> &);
   void ingress_admit();
@@ -114,12 +115,16 @@ private:
   // PPM-related functions
   void send_dn(struct sockaddr_in, const std::string &, size_t, RPCID,
                Priority);
+  std::unique_ptr<Buffer>
+  prepare_credit_return(const std::unique_ptr<Buffer> &);
   std::tuple<const std::string &, bool, size_t, RPCID>
   valid_credit(const char *);
   bool check_credit_available(std::string_view);
   void check_credit_transmission();
   void update_limits(int32_t, std::string_view);
-  void fanout_req_credit_management(RPCID);
+  void fanout_req_management(RPCID, const std::string &,
+                             const std::unique_ptr<Buffer> &);
+  std::shared_ptr<RPCMessage> send_sub_request(RPCID, const std::string &);
   void fanout_res_credit_management(RPCID);
 
 private:
