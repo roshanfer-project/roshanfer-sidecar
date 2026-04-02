@@ -1,6 +1,8 @@
 #include "state.h"
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <csignal>
 #include <event_loop.h>
 #include <config.h>
 #include <iostream>
@@ -10,6 +12,21 @@
 #include <string>
 #include <vector>
 #include <pthread.h>
+
+#ifdef NANO_LOG_ENABLED
+#include "NanoLog.h"
+#include "NanoLogCpp17.h"
+using namespace NanoLog::LogLevels;
+
+static void nanolog_atexit_sync() {
+    NanoLog::sync();
+}
+
+static void nanolog_on_sigterm(int /*sig*/) {
+    NanoLog::sync();
+    _exit(128 + 15);
+}
+#endif
 
 void MyPrefixFormatter(std::ostream& s, const google::LogMessage& m, void* /*data*/) {
     s << google::GetLogSeverityName(m.severity())[0]
@@ -34,6 +51,14 @@ int main(int argc, char* argv[]) {
     google::InitGoogleLogging(argv[0]);
     google::InstallPrefixFormatter(&MyPrefixFormatter);
     google::InstallFailureSignalHandler();
+
+#ifdef NANO_LOG_ENABLED
+    NanoLog::setLogFile("/compressedLog");
+    NanoLog::preallocate();
+    NanoLog::setLogLevel(NOTICE);
+    std::signal(SIGTERM, nanolog_on_sigterm);
+    std::atexit(nanolog_atexit_sync);
+#endif
 
     Config parsed_config = load_config(argv[1]);
 
@@ -61,6 +86,9 @@ int main(int argc, char* argv[]) {
     std::vector<std::thread> threads;
     for (uint8_t i = 0; i < parsed_config.num_threads; i++) {
         threads.emplace_back([&shared_state, parsed_config, i, &downstream_services]() {
+#ifdef NANO_LOG_ENABLED
+            NanoLog::preallocate();
+#endif
             // Set thread name for identification in htop
             std::string thread_name = parsed_config.name + "-s-" + std::to_string(i);
             int ret = pthread_setname_np(pthread_self(), thread_name.c_str());
