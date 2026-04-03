@@ -823,6 +823,35 @@ void State::check_credit_transmission() {
   VLOG(2) << "QM: Sent credit " << "| thread id: " << thread_id;
 }
 
+float State::cal_local_service_time(std::string_view us_service) {
+  auto it = config.mapping.find(us_service);
+  if (it == config.mapping.end()) {
+    LOG(FATAL) << "service " << us_service << " should be in mapping.";
+  }
+
+  auto us_rt = stats.ma_us_service_time_us.get(us_service).get_value();
+
+  if (it->second.pfanout.value_or(false)) {
+    // find maximum service time
+    auto max = 0.0F;
+    for (auto &ds_service : it->second.downstreams) {
+      auto value = stats.ema_ds_service_time_us.get(ds_service).get_value();
+      if (value > max) {
+        max = value;
+      }
+    }
+
+    return us_rt - max;
+  } else {
+    auto sum = 0.0F;
+    for (auto &ds_service : it->second.downstreams) {
+      sum += stats.ema_ds_service_time_us.get(ds_service).get_value();
+    }
+
+    return us_rt - sum;
+  }
+}
+
 void State::update_limits(int32_t rtt, std::string_view service) {
   VLOG(2) << "QM: RTT " << rtt << " for service " << service;
   auto &rtt_stats = stats.ma_us_sidecar_rtt_us.get(service);
@@ -830,15 +859,12 @@ void State::update_limits(int32_t rtt, std::string_view service) {
   if (rtt_stats.get_count() % 2000 == 0) {
     VLOG(1) << "QM: RTT " << rtt_stats.get_value() << " for service "
             << service;
-    VLOG(1) << "QM: Service time "
-            << stats.get_ma_us_service_time_us().get(service).get_value()
-            << " for service " << service;
+    auto local_rt = cal_local_service_time(service);
+    // auto local_rt = stats.ma_us_service_time_us.get(service).get_value();
+    VLOG(1) << "QM: Local Service time " << local_rt << " for service "
+            << service;
     int32_t new_limit =
-        (std::max(
-             (int32_t)std::ceil(
-                 rtt_stats.get_value() /
-                 stats.get_ma_us_service_time_us().get(service).get_value()),
-             1) +
+        (std::max((int32_t)std::ceil(rtt_stats.get_value() / local_rt), 1) +
          1) *
         config.cpu_count.value();
     new_limit += config.extra_limit;

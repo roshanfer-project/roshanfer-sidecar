@@ -119,6 +119,7 @@ private:
   bool check_credit_available(std::string_view);
   void check_credit_transmission();
   void update_limits(int32_t, std::string_view);
+  float cal_local_service_time(std::string_view);
   void fanout_req_credit_management(RPCID);
   void fanout_res_credit_management(RPCID);
 
