@@ -393,9 +393,7 @@ ssize_t data_read_callback_response(nghttp2_session *session, int32_t stream_id,
       delete[] nva_trailers;
 
       // report latency
-      if (config.report_latency) {
-        callback_data->stats->report_latency(rpc);
-      }
+      callback_data->stats->report_latency(rpc);
 
       // remove the RPC message from memory
       callback_data->mapper->remove_rpc(callback_data->type, std::move(rpc));
@@ -1103,9 +1101,7 @@ int HTTP1Connection::http_write(const std::unique_ptr<Buffer> &buffer) {
     }
     idle = true;
 
-    if (config.report_latency) {
-      stats->report_latency(rpc);
-    }
+    stats->report_latency(rpc);
 
     mapper->remove_rpc(type, std::move(rpc));
 
