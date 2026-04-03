@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <sys/types.h>
 #include <unordered_map>
 #include <vector>
@@ -55,7 +56,7 @@ public:
 
 class LocalState {
 public:
-  LocalState(std::vector<std::string>, std::vector<std::string>);
+  LocalState(std::vector<std::string>, std::vector<std::string>, std::string &);
 
 public:
   /*ConnectionType::INGRESS-side metrics*/
@@ -64,9 +65,9 @@ public:
   /*
   Average calculated waiting delay in the Ingress's queue
   */
-  ExponentialMovingAverage avg_cal_waiting_delay;
-  LocalMap<ExponentialMovingAverage> avg_ds_concurrency;
-  TDigest td_wd;
+  ExponentialMovingAverage ema_credit_delay_us;
+  LocalMap<ExponentialMovingAverage> ema_ds_concurrency;
+  TDigest td_credit_delay_us;
 
   // number of drops (updated if only config.is_ingress is true)
   uint32_t drops;
@@ -99,7 +100,6 @@ public:
   void queue_multiplexer(const std::unique_ptr<Buffer> &);
   void ppm_client(bool, const std::unique_ptr<Buffer> &);
   void ingress_admit();
-  struct hdr_histogram *get_histogram() { return hist; }
 
   /*Write request/response from connection's internal state to buffers.
   For HTTP/2 it also writes setting/ping/etc frames.*/
@@ -134,8 +134,6 @@ private:
   std::unordered_map<ConnectionType, std::shared_ptr<Listener>> &listeners;
   PPMQueue ppm_queue;
   Ingress &ingress;
-  struct hdr_histogram *hist;
-  std::chrono::steady_clock::time_point next_hist_update;
   int thread_id;
 
 public:
