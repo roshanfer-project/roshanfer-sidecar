@@ -814,14 +814,13 @@ void State::update_limits(int32_t rtt, std::string_view service) {
     VLOG(1) << "QM: RTT " << rtt_stats.get_value() << " for service "
             << service;
     VLOG(1) << "QM: Service time "
-            << stats.get_ma_us_service_time_us().get(service).get_value()
+            << stats.ma_us_service_time_us.get(service).get_value()
             << " for service " << service;
     int32_t new_limit =
-        (std::max(
-             (int32_t)std::ceil(
-                 rtt_stats.get_value() /
-                 stats.get_ma_us_service_time_us().get(service).get_value()),
-             1) +
+        (std::max((int32_t)std::ceil(
+                      rtt_stats.get_value() /
+                      stats.ma_us_service_time_us.get(service).get_value()),
+                  1) +
          1) *
         config.cpu_count.value();
     new_limit += config.extra_limit;
@@ -847,9 +846,6 @@ void State::update_limits(int32_t rtt, std::string_view service) {
     NANO_LOG(NOTICE, "M# %s LIMIT LOCAL-%.*s T:T %d", config.name.c_str(),
              static_cast<int>(service.size()), service.data(),
              shared_state.credit_queue.get_per_endpoint_limit(service));
-    NANO_LOG(NOTICE, "M# %s Measured Local-RT-%.*s T:T %d", config.name.c_str(),
-             static_cast<int>(service.size()), service.data(),
-             (int32_t)local_rt);
 #endif
   }
 }
