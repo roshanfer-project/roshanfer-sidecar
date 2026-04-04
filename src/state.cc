@@ -539,16 +539,10 @@ void State::ppm_client(bool dn_resp,
                   (uint64_t)(unsigned char)dn_resp_buffer->data.at(19) << 16 |
                   (uint64_t)(unsigned char)dn_resp_buffer->data.at(20) << 8 |
                   (uint64_t)(unsigned char)dn_resp_buffer->data.at(21));
-    int32_t queueing_time =
-        (int32_t)((uint32_t)(unsigned char)dn_resp_buffer->data.at(22) << 24 |
-                  (uint32_t)(unsigned char)dn_resp_buffer->data.at(23) << 16 |
-                  (uint32_t)(unsigned char)dn_resp_buffer->data.at(24) << 8 |
-                  (uint32_t)(unsigned char)dn_resp_buffer->data.at(25));
     int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
                          std::chrono::steady_clock::now().time_since_epoch())
                          .count();
-    int32_t total = (int32_t)(now_us - timestamp);
-    int32_t rtt = total - queueing_time;
+    int32_t rtt = (int32_t)(now_us - timestamp);
     if (rtt > 0) {
       local_state.last_rtt_us.set(service, rtt);
     } else {
@@ -806,17 +800,6 @@ void State::check_credit_transmission() {
   if (buffer == nullptr) {
     return;
   }
-
-  // calculate the queuing time in credit_queue and set it to response
-  int64_t now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
-                       std::chrono::steady_clock::now().time_since_epoch())
-                       .count();
-  int32_t queuing_time = (int32_t)(now_ts - buffer->enter_queue_ts);
-  buffer->data.at(22) = (char)((unsigned char)(queuing_time >> 24));
-  buffer->data.at(23) = (char)((unsigned char)(queuing_time >> 16));
-  buffer->data.at(24) = (char)((unsigned char)(queuing_time >> 8));
-  buffer->data.at(25) = (char)((unsigned char)(queuing_time & 0xFF));
-
   ring.prepare_reply_sendmsg(sockfd, std::move(buffer),
                              buffer_manager.get_user_data());
 
@@ -913,10 +896,6 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
 
     auto resp = buffer_manager.get_dn_buffer();
     write_failed_dn_response(req, resp);
-    resp->enter_queue_ts =
-        std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now().time_since_epoch())
-            .count();
     shared_state.credit_queue.push(std::move(resp), service, priority);
 
     // check credit transmission
