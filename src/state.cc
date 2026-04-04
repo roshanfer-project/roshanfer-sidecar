@@ -865,10 +865,15 @@ void State::update_limits(int32_t rtt, std::string_view service) {
     // auto local_rt = stats.ma_us_service_time_us.get(service).get_value();
     VLOG(1) << "QM: Local Service time " << local_rt << " for service "
             << service;
+    auto it = config.mapping.find(service);
+    if (it == config.mapping.end()) {
+      LOG(FATAL) << "service " << service << " not found in config.mapping";
+    }
     int32_t new_limit =
         (std::max((int32_t)std::ceil(rtt_stats.get_value() / local_rt), 1) +
          1) *
         config.cpu_count.value();
+    new_limit += it->second.downstreams.size();
     new_limit += config.extra_limit;
     shared_state.credit_queue.update_endpoint_limit(new_limit, service);
     VLOG(1) << "QM: New limit for service " << service << " is " << new_limit;
