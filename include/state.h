@@ -65,7 +65,7 @@ public:
   /*
   Average calculated waiting delay in the Ingress's queue
   */
-  LocalMap<ExponentialMovingAverage> ema_credit_delay_us;
+  LocalMap<MovingAverage> ma_credit_delay_us;
   LocalMap<ExponentialMovingAverage> ema_ds_concurrency;
   TDigest td_credit_delay_us;
 

@@ -164,7 +164,8 @@ int32_t Counter::get_count() { return count; }
 Stats::Stats(std::vector<std::string> ds_services,
              std::vector<std::string> us_services)
     : mode2_credits("Mode2 Credits"), ema_ds_service_time_us(ds_services),
-      ma_us_service_time_us(us_services), ma_us_sidecar_rtt_us(us_services),
+      ma_ds_service_time_us(ds_services), ma_us_service_time_us(us_services),
+      ma_us_sidecar_rtt_us(us_services),
       tdigest_ds_service_time_us(ds_services) {
   for (const auto &service : us_services) {
     ma_us_sidecar_rtt_us.get(service).set_description("RTT-" + service);
@@ -172,6 +173,7 @@ Stats::Stats(std::vector<std::string> ds_services,
   }
   for (const auto &service : ds_services) {
     ema_ds_service_time_us.get(service).set_description("DS-RT-" + service);
+    ma_ds_service_time_us.get(service).set_description("DS-RT-" + service);
   }
 }
 
@@ -210,6 +212,8 @@ void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
             std::chrono::steady_clock::now() - rpc->req_for_time)
             .count();
     ema_ds_service_time_us.get(rpc->get_service())
+        .update(static_cast<int32_t>(ds_service_time));
+    ma_ds_service_time_us.get(rpc->get_service())
         .update(static_cast<int32_t>(ds_service_time));
     tdigest_ds_service_time_us.get(rpc->get_service())
         .add(static_cast<int32_t>(ds_service_time));

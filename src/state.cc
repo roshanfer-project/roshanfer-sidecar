@@ -580,7 +580,7 @@ void State::ppm_client(bool dn_resp,
       auto wd = (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::steady_clock::now() - rpc->req_rcv_time)
                     .count();
-      local_state.ema_credit_delay_us.get(service).update(wd);
+      local_state.ma_credit_delay_us.get(service).update(wd);
       local_state.td_credit_delay_us.add(wd);
       local_state.ema_ds_concurrency.get(service).up();
       VLOG(1) << "RPCForward: EGRESS request. "
@@ -835,8 +835,8 @@ float State::cal_local_service_time(std::string_view us_service) {
     // find maximum service time
     auto max = 0.0F;
     for (auto &ds_service : it->second.downstreams) {
-      auto value = stats.ema_ds_service_time_us.get(ds_service).get_value() +
-                   local_state.ema_credit_delay_us.get(ds_service).get_value();
+      auto value = stats.ma_ds_service_time_us.get(ds_service).get_value() +
+                   local_state.ma_credit_delay_us.get(ds_service).get_value();
       if (value > max) {
         max = value;
       }
@@ -846,8 +846,8 @@ float State::cal_local_service_time(std::string_view us_service) {
   } else {
     auto sum = 0.0F;
     for (auto &ds_service : it->second.downstreams) {
-      sum += stats.ema_ds_service_time_us.get(ds_service).get_value() +
-             local_state.ema_credit_delay_us.get(ds_service).get_value();
+      sum += stats.ma_ds_service_time_us.get(ds_service).get_value() +
+             local_state.ma_credit_delay_us.get(ds_service).get_value();
     }
 
     return us_rt - sum;
@@ -962,11 +962,11 @@ SharedState::SharedState(std::vector<std::string> hosted_service,
 LocalState::LocalState(std::vector<std::string> /*hosted_services*/,
                        std::vector<std::string> downstream_services,
                        std::string &ingress_service)
-    : ema_credit_delay_us(downstream_services),
+    : ma_credit_delay_us(downstream_services),
       ema_ds_concurrency(downstream_services), td_credit_delay_us(), drops(0),
       last_rtt_us(downstream_services) {
   for (auto &service : downstream_services) {
     ema_ds_concurrency.get(service).set_description("DSC-" + service);
-    ema_credit_delay_us.get(service).set_description("Credit-Delay-" + service);
+    ma_credit_delay_us.get(service).set_description("Credit-Delay-" + service);
   }
 }
