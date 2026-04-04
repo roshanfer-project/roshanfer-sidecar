@@ -94,7 +94,7 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
       ingress(ingress_ref), thread_id(thread_id_arg),
       shared_state(shared_state_ref),
       local_state(get_hosted_services(parsed_config),
-                  get_downstream_services(parsed_config), ingress_service_ref),
+                  get_downstream_services(parsed_config)),
       utilization(1000, get_hosted_services(parsed_config)),
       ingress_service(ingress_service_ref),
       stats(get_downstream_services(parsed_config),
@@ -907,14 +907,12 @@ SharedState::SharedState(std::vector<std::string> hosted_service,
     : credit_queue(hosted_service, config.cpu_count.value_or(-1)) {}
 
 LocalState::LocalState(std::vector<std::string> /*hosted_services*/,
-                       std::vector<std::string> downstream_services,
-                       std::string &ingress_service)
+                       std::vector<std::string> downstream_services)
     : ema_credit_delay_us(downstream_services),
       ema_ds_concurrency(downstream_services), td_credit_delay_us(), drops(0),
       last_rtt_us(downstream_services) {
   for (auto &service : downstream_services) {
     ema_ds_concurrency.get(service).set_description("DSC-" + service);
-    ema_credit_delay_us.get(service).set_description("Credit-Delay-" +
-                                                     ingress_service);
+    ema_credit_delay_us.get(service).set_description("Credit-Delay-" + service);
   }
 }

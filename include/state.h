@@ -56,7 +56,7 @@ public:
 
 class LocalState {
 public:
-  LocalState(std::vector<std::string>, std::vector<std::string>, std::string &);
+  LocalState(std::vector<std::string>, std::vector<std::string>);
 
 public:
   /*ConnectionType::INGRESS-side metrics*/
