@@ -574,7 +574,7 @@ void State::ppm_client(bool dn_resp,
       auto wd = (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::steady_clock::now() - rpc->req_rcv_time)
                     .count();
-      local_state.ema_credit_delay_us.update(wd);
+      local_state.ema_credit_delay_us.get(service).update(wd);
       local_state.td_credit_delay_us.add(wd);
       local_state.ema_ds_concurrency.get(service).up();
       VLOG(1) << "RPCForward: EGRESS request. "
@@ -913,10 +913,12 @@ SharedState::SharedState(std::vector<std::string> hosted_service,
 LocalState::LocalState(std::vector<std::string> /*hosted_services*/,
                        std::vector<std::string> downstream_services,
                        std::string &ingress_service)
-    : ema_credit_delay_us(), ema_ds_concurrency(downstream_services),
-      td_credit_delay_us(), drops(0), last_rtt_us(downstream_services) {
+    : ema_credit_delay_us(downstream_services),
+      ema_ds_concurrency(downstream_services), td_credit_delay_us(), drops(0),
+      last_rtt_us(downstream_services) {
   for (auto &service : downstream_services) {
     ema_ds_concurrency.get(service).set_description("DSC-" + service);
-    ema_credit_delay_us.set_description("Credit-Delay-" + ingress_service);
+    ema_credit_delay_us.get(service).set_description("Credit-Delay-" +
+                                                     ingress_service);
   }
 }
