@@ -823,6 +823,9 @@ void State::update_limits(int32_t rtt, std::string_view service) {
                   1) +
          1) *
         config.cpu_count.value();
+    // apply over commitment
+    new_limit = (int32_t)std::ceil((float)new_limit *
+                                   (1.0F + config.over_commitment.value()));
     new_limit += config.extra_limit;
     shared_state.credit_queue.update_endpoint_limit(new_limit, service);
     VLOG(1) << "QM: New limit for service " << service << " is " << new_limit;
