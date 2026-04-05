@@ -44,6 +44,8 @@ class SharedState {
 public:
   SharedState(std::vector<std::string>, std::vector<std::string>);
 
+  void record_thread_bootstrap_complete();
+
 public:
   /*ConnectionType::INGRESS-side metrics*/
 
@@ -52,6 +54,8 @@ public:
   CreditQueue credit_queue;
 
   /*ConnectionType::EGRESS-side metrics*/
+
+  std::atomic<int> threads_bootstrap_done;
 };
 
 class LocalState {
@@ -109,6 +113,7 @@ public:
   std::shared_ptr<HTTPConnection> route_request(ConnectionType, int32_t, int);
   void dump_entire_state();
   int get_sockfd() { return sockfd; }
+  void on_upstream_connect_bootstrap_complete();
 
 private:
   // PPM-related functions
@@ -143,4 +148,5 @@ public:
   Utilization utilization;
   std::string &ingress_service;
   Stats stats;
+  int bootstrap_connects_remaining_;
 };

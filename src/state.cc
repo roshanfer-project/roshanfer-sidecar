@@ -11,6 +11,7 @@
 #include "rpc_mapper.h"
 #include "rpc_message.h"
 #include "rpc_queue.h"
+#include "sidecar_ready.h"
 #include "stats.h"
 #include <algorithm>
 #include <arpa/inet.h>
@@ -98,7 +99,8 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
       utilization(1000, get_hosted_services(parsed_config)),
       ingress_service(ingress_service_ref),
       stats(get_downstream_services(parsed_config),
-            get_hosted_services(parsed_config)) {
+            get_hosted_services(parsed_config)),
+      bootstrap_connects_remaining_(0) {
 
   if (config.buffer_size > HTTP1Connection_BUF_SIZE) {
     LOG(FATAL) << "Buffer size cannot be larger than "
@@ -111,6 +113,7 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
     int n_conn =
         config.is_ingress ? config.ingress_pool_connections.value() : 1;
     auto http_type = config.is_ingress ? HTTP::HTTP1 : HTTP::HTTP2;
+    bootstrap_connects_remaining_ += n_conn;
     for (int i = 0; i < n_conn; i++) {
       auto conn =
           pool.add_connection(info.upstream.host, info.upstream.port,
@@ -152,6 +155,7 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
   }
 
   VLOG(2) << "Creating " << n_conn << " connections for ingress requests";
+  bootstrap_connects_remaining_ += n_conn;
   for (int i = 0; i < n_conn; i++) {
     auto conn = ingress_pool.add_connection(
         config.ingress_upstream_host, config.ingress_upstream_port, &rpc_mapper,
@@ -173,6 +177,20 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
   for (const auto &service : get_hosted_services(parsed_config)) {
     LOG(INFO) << "per_endpoint_limit for " << service << ": "
               << shared_state.credit_queue.get_per_endpoint_limit(service);
+  }
+
+  if (bootstrap_connects_remaining_ == 0) {
+    shared_state.record_thread_bootstrap_complete();
+  }
+}
+
+void State::on_upstream_connect_bootstrap_complete() {
+  if (bootstrap_connects_remaining_ <= 0) {
+    LOG(FATAL) << "bootstrap connect completion underflow";
+  }
+  bootstrap_connects_remaining_--;
+  if (bootstrap_connects_remaining_ == 0) {
+    shared_state.record_thread_bootstrap_complete();
   }
 }
 
@@ -962,7 +980,15 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
 
 SharedState::SharedState(std::vector<std::string> hosted_service,
                          std::vector<std::string> /*downstream_services*/)
-    : credit_queue(hosted_service, config.cpu_count.value_or(-1)) {}
+    : in_local(0), credit_queue(hosted_service, config.cpu_count.value_or(-1)),
+      threads_bootstrap_done(0) {}
+
+void SharedState::record_thread_bootstrap_complete() {
+  int prev = threads_bootstrap_done.fetch_add(1, std::memory_order_acq_rel);
+  if (prev + 1 == config.num_threads) {
+    write_sidecar_ready_file();
+  }
+}
 
 LocalState::LocalState(std::vector<std::string> /*hosted_services*/,
                        std::vector<std::string> downstream_services,

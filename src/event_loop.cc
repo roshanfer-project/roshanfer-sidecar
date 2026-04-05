@@ -235,6 +235,8 @@ void EventLoop::run() {
         ring.prepare_read(buffer_manager.get_user_data(),
                           listeners.at(orig_conn->type), orig_conn);
 
+        state.on_upstream_connect_bootstrap_complete();
+
         // free the user data
         buffer_manager.free_user_data(ud);
         break;
