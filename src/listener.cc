@@ -37,8 +37,14 @@ Listener::Listener(uint16_t lis_port, ConnectionType lis_type)
   }
 
   // Listen on the socket
-  // NOTE: if backlog of connections (here is 100) is small, you will see
-  // Invalid Argument errors in cqe of io_uring_prep_accept
+  /*
+  NOTEs:
+  - If backlog of connections (here is 100) is small, you will seeInvalid
+  Argument errors in cqe of io_uring_prep_accept
+  - Small backlog size can also cause "Connection timed out" in Ingress when the
+  connection pool size is larger than it. In this case, Frontend's sidecar drops
+  CONNECT requests from Ingress.
+  */
   if (listen(fd, 300) < 0) {
     LOG(FATAL) << "Failed to listen on socket: " << port;
   }
