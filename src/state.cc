@@ -858,17 +858,18 @@ void State::ingress_admit() {
   if (added > 0) {
     NANO_LOG(NOTICE, "M# %s Estimated A-E2E-%s T:T %d", config.name.c_str(),
              ingress_service.c_str(), e2e_delay);
+    NANO_LOG(NOTICE, "M# %s Estimated A-WT-%s T:T %d", config.name.c_str(),
+             ingress_service.c_str(), wt);
+    NANO_LOG(NOTICE, "M# %s Estimated A-ST-%s T:T %d", config.name.c_str(),
+             ingress_service.c_str(), (int32_t)service_time);
   }
   NANO_LOG(NOTICE, "M# %s Estimated RT-%s T:T %f", config.name.c_str(),
            ingress_service.c_str(),
            stats.ema_ds_service_time_us.get(ingress_service).get_value());
-  NANO_LOG(NOTICE, "M# %s Estimated WT-R-%s T:T %d", config.name.c_str(),
-           ingress_service.c_str(),
-           (int32_t)(stats.td_ds_service_time_us.get(ingress_service)
-                         .get_quantile(0.95) *
-                     (float)queue_size /
-                     local_state.ema_ds_concurrency.get(ingress_service)
-                         .get_value_cap(1, INFINITY)));
+  NANO_LOG(NOTICE, "M# %s Estimated WT-%s T:T %d", config.name.c_str(),
+           ingress_service.c_str(), wt);
+  NANO_LOG(NOTICE, "M# %s Estimated ST-%s T:T %d", config.name.c_str(),
+           ingress_service.c_str(), (int32_t)service_time);
 #endif
   if (ingress.size() != 0) {
     dump_entire_state();
@@ -932,8 +933,7 @@ float State::cal_local_service_time(std::string_view us_service) {
 
   auto us_rt = stats.ma_us_service_time_us.get(us_service).get_value();
 
-  if (it->second.pfanout.value_or(false) ||
-      it->second.dfanout.value_or(false)) {
+  if (it->second.pfanout.value_or(false)) {
     // find maximum service time
     auto max = 0.0F;
     for (auto &ds_service : it->second.downstreams) {
@@ -945,6 +945,17 @@ float State::cal_local_service_time(std::string_view us_service) {
     }
 
     return us_rt - max;
+  } else if (it->second.dfanout.value_or(false)) {
+    auto min = MAXFLOAT;
+    for (auto &ds_service : it->second.downstreams) {
+      auto value = stats.ma_ds_service_time_us.get(ds_service).get_value() +
+                   local_state.ma_credit_delay_us.get(ds_service).get_value();
+      if (value < min) {
+        min = value;
+      }
+    }
+
+    return us_rt - min;
   } else {
     auto sum = 0.0F;
     for (auto &ds_service : it->second.downstreams) {
