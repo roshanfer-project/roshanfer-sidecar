@@ -734,7 +734,7 @@ void State::ingress_admit() {
 
   float service_time = 0;
   auto &ema_st = stats.ema_ds_service_time_us.get(ingress_service);
-  if (ema_st.get_count() > 500) {
+  if (ema_st.get_count() > 2000) {
     service_time = (float)stats.td_ds_service_time_us.get(ingress_service)
                        .get_quantile(0.97);
   } else {
