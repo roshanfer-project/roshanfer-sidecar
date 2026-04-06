@@ -581,7 +581,7 @@ void State::ppm_client(bool dn_resp,
                     std::chrono::steady_clock::now() - rpc->req_rcv_time)
                     .count();
       local_state.ma_credit_delay_us.get(service).update(wd);
-      local_state.td_credit_delay_us.add(wd);
+      local_state.td_credit_delay_us.get(service).add(wd);
       local_state.ema_ds_concurrency.get(service).up();
       VLOG(1) << "RPCForward: EGRESS request. "
               << "| service: " << service << "| id: " << rpc->get_id()
@@ -763,7 +763,7 @@ void State::ingress_admit() {
            stats.ema_ds_service_time_us.get(ingress_service).get_value());
   NANO_LOG(NOTICE, "M# %s Estimated WT-R-%s T:T %d", config.name.c_str(),
            ingress_service.c_str(),
-           (int32_t)(stats.tdigest_ds_service_time_us.get(ingress_service)
+           (int32_t)(stats.td_ds_service_time_us.get(ingress_service)
                          .get_quantile(0.95) *
                      (float)queue_size /
                      local_state.ema_ds_concurrency.get(ingress_service)
@@ -968,10 +968,12 @@ LocalState::LocalState(std::vector<std::string> /*hosted_services*/,
                        std::vector<std::string> downstream_services,
                        std::string &ingress_service)
     : ma_credit_delay_us(downstream_services),
-      ema_ds_concurrency(downstream_services), td_credit_delay_us(), drops(0),
+      ema_ds_concurrency(downstream_services),
+      td_credit_delay_us(downstream_services), drops(0),
       last_rtt_us(downstream_services) {
   for (auto &service : downstream_services) {
     ema_ds_concurrency.get(service).set_description("DSC-" + service);
     ma_credit_delay_us.get(service).set_description("Credit-Delay-" + service);
+    td_credit_delay_us.get(service).set_description("Credit-Delay-" + service);
   }
 }

@@ -67,7 +67,7 @@ public:
   */
   LocalMap<MovingAverage> ma_credit_delay_us;
   LocalMap<ExponentialMovingAverage> ema_ds_concurrency;
-  TDigest td_credit_delay_us;
+  LocalMap<TDigest> td_credit_delay_us;
 
   // number of drops (updated if only config.is_ingress is true)
   uint32_t drops;
