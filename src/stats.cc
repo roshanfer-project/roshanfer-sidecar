@@ -98,6 +98,10 @@ void MovingAverage::update(int32_t new_value) {
     VLOG(1) << "Stats: Moving average update. "
             << "| description: " << description << "| value: " << std::fixed
             << std::setprecision(4) << value;
+#ifdef NANO_LOG_ENABLED
+    NANO_LOG(NOTICE, "M# %s MA %s T:T %f", config.name.c_str(),
+             description.c_str(), value);
+#endif
   }
 }
 
@@ -159,24 +163,23 @@ int32_t Counter::get_count() { return count; }
 
 Stats::Stats(std::vector<std::string> ds_services,
              std::vector<std::string> us_services)
-    : mode2_credits("Mode2 Credits"), ema_service_time_us(ds_services),
-      ma_us_service_time_us(us_services), ma_sidecar_rtt_us(us_services),
-      tdigest_service_time_us(ds_services), tdigest_e2e_us(ds_services) {
+    : mode2_credits("Mode2 Credits"), ema_ds_service_time_us(ds_services),
+      ma_ds_service_time_us(ds_services), ma_us_service_time_us(us_services),
+      ma_us_sidecar_rtt_us(us_services),
+      tdigest_ds_service_time_us(ds_services) {
   for (const auto &service : us_services) {
-    ma_sidecar_rtt_us.get(service).set_description("RTT-" + service);
+    ma_us_sidecar_rtt_us.get(service).set_description("RTT-" + service);
     ma_us_service_time_us.get(service).set_description("US-RT-" + service);
   }
-}
-
-void Stats::update_hist(struct hdr_histogram *new_hist) {
-  this->hist = new_hist;
+  for (const auto &service : ds_services) {
+    ema_ds_service_time_us.get(service).set_description("DS-RT-" + service);
+    ma_ds_service_time_us.get(service).set_description("DS-RT-" + service);
+  }
 }
 
 void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
-  if (!config.is_ingress && rpc->get_type() == ConnectionType::EGRESS) {
-    return;
-  }
-
+  // For drops we only log metrics related to it and return as it won't update
+  // other stats
   if (rpc->is_error()) {
 #ifdef NANO_LOG_ENABLED
     if (rpc->http() == HTTP::HTTP1) {
@@ -196,55 +199,68 @@ void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
     return;
   }
 
-  if (rpc->req_for_time.time_since_epoch() >
-      std::chrono::steady_clock::now().time_since_epoch()) {
-    LOG(FATAL) << "Service time is negative";
-  }
-  auto service_time = std::chrono::duration_cast<std::chrono::microseconds>(
-                          std::chrono::steady_clock::now() - rpc->req_for_time)
-                          .count();
+  switch (rpc->get_type()) {
+  case ConnectionType::EGRESS: {
+    // EGRESS side should only update ds metrics
 
-  if (!config.is_ingress) {
+    if (rpc->req_for_time.time_since_epoch() >
+        std::chrono::steady_clock::now().time_since_epoch()) {
+      LOG(FATAL) << "Service time is negative";
+    }
+    auto ds_service_time =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - rpc->req_for_time)
+            .count();
+    ema_ds_service_time_us.get(rpc->get_service())
+        .update(static_cast<int32_t>(ds_service_time));
+    ma_ds_service_time_us.get(rpc->get_service())
+        .update(static_cast<int32_t>(ds_service_time));
+    tdigest_ds_service_time_us.get(rpc->get_service())
+        .add(static_cast<int32_t>(ds_service_time));
+
+    VLOG(2) << "Stats: EGRESS Reported latency "
+            << "| service: " << rpc->get_service()
+            << "| service_time: " << ds_service_time;
+
+    break;
+  }
+  case ConnectionType::INGRESS: {
+    // INGRESS side should update both us and e2e metrics
+
+    if (rpc->req_for_time.time_since_epoch() >
+        std::chrono::steady_clock::now().time_since_epoch()) {
+      LOG(FATAL) << "Service time is negative";
+    }
+    auto us_service_time =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - rpc->req_for_time)
+            .count();
     ma_us_service_time_us.get(rpc->get_service())
-        .update(static_cast<int32_t>(service_time));
-#ifdef NANO_LOG_ENABLED
-    NANO_LOG(NOTICE, "M# %s SERVICE_TIME %s %s:%s %lld", config.name.c_str(),
-             type_to_str(rpc->get_type()).c_str(), rpc->get_service().c_str(),
-             rpc->get_method().c_str(), service_time);
-#endif
-    return;
-  }
+        .update(static_cast<int32_t>(us_service_time));
 
-  if (std::chrono::steady_clock::now().time_since_epoch() <
-      rpc->req_rcv_time.time_since_epoch()) {
-    LOG(FATAL) << "E2E time is negative";
-  }
-  auto e2e = std::chrono::duration_cast<std::chrono::microseconds>(
-                 std::chrono::steady_clock::now() - rpc->req_rcv_time)
-                 .count();
+    VLOG(2) << "Stats: INGRESS Reported latency "
+            << "| service: " << rpc->get_service()
+            << "| service_time: " << us_service_time;
 
-  // update hist only if we are Ingress and also just for E2E Ingress requests
-  bool ret = hdr_record_value(hist, static_cast<int64_t>(service_time));
-  if (!ret) {
-    LOG(FATAL) << "Failed to record value: "
-               << static_cast<int64_t>(service_time)
-               << ", req_for_time: " << rpc->req_for_time.time_since_epoch()
-               << ", req_rcv_time: " << rpc->req_rcv_time.time_since_epoch()
-               << ", service: " << rpc->get_service();
+    break;
   }
-  ema_service_time_us.get(rpc->get_service())
-      .update(static_cast<int32_t>(service_time));
-  tdigest_service_time_us.get(rpc->get_service())
-      .add(static_cast<int32_t>(service_time));
-  tdigest_e2e_us.get(rpc->get_service()).add(static_cast<int32_t>(e2e));
-
-  VLOG(2) << "Stats: Reported latency "
-          << "| service: " << rpc->get_service()
-          << "| service_time: " << service_time << "| e2e: " << e2e;
+  default:
+    LOG(FATAL) << "Unhandeld ConnectionType in Stats";
+    break;
+  }
 
 #ifdef NANO_LOG_ENABLED
 
   if (!rpc->is_error()) {
+
+    if (rpc->req_rcv_time.time_since_epoch() >
+        std::chrono::steady_clock::now().time_since_epoch()) {
+      LOG(FATAL) << "Service time is negative";
+    }
+    auto e2e = std::chrono::duration_cast<std::chrono::microseconds>(
+                   std::chrono::steady_clock::now() - rpc->req_rcv_time)
+                   .count();
+
     // template: M# <sidecar name> <metric name> <connection type>
     // <service>:<method> <value>
     NANO_LOG(NOTICE, "M# %s E2E %s %s:%s %lld", config.name.c_str(),

@@ -53,14 +53,6 @@ Config load_config(const std::string &filename) {
 
   LOG(INFO) << "config.is_plain_frontend: " << local_config.is_plain_frontend;
 
-  // Optional report_latency
-  if (node["report_latency"]) {
-    local_config.report_latency = node["report_latency"].as<bool>();
-  } else {
-    local_config.report_latency = false;
-  }
-  LOG(INFO) << "config.report_latency: " << local_config.report_latency;
-
   // Optional over_commitment
   if (!local_config.is_ingress && !node["over_commitment"]) {
     LOG(FATAL) << "over_commitment is required for non-ingress";

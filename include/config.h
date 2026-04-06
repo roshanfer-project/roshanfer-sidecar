@@ -45,7 +45,6 @@ struct Config {
   bool is_ingress;
   bool is_frontend;
   bool is_plain_frontend;
-  bool report_latency;
   std::optional<int> ingress_pool_connections;
   std::optional<int> frontend_pool_connections;
   std::optional<int> cpu_count;

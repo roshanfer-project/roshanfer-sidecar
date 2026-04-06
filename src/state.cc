@@ -6,7 +6,6 @@
 #include "connection_enums.h"
 #include "fast_map.hpp"
 #include "glog/logging.h"
-#include "hdr/hdr_histogram.h"
 #include "ppm_queue.h"
 #include "ring_wrapper.h"
 #include "rpc_mapper.h"
@@ -93,10 +92,10 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
       upstream_route_mapper(), ring(ring_ref),
       buffer_manager(buffer_manager_ref), rpc_mapper(mapper_ref),
       rpc_queue(queue_ref), listeners(listeners_ref), ppm_queue(config.routing),
-      ingress(ingress_ref), hist(), thread_id(thread_id_arg),
+      ingress(ingress_ref), thread_id(thread_id_arg),
       shared_state(shared_state_ref),
       local_state(get_hosted_services(parsed_config),
-                  get_downstream_services(parsed_config)),
+                  get_downstream_services(parsed_config), ingress_service_ref),
       utilization(1000, get_hosted_services(parsed_config)),
       ingress_service(ingress_service_ref),
       stats(get_downstream_services(parsed_config),
@@ -184,17 +183,6 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
     LOG(FATAL) << "Failed to bind PPM UDP socket to port "
                << config.ingress_listener_port << ": " << strerror(errno);
   }
-
-  if (int ret = hdr_init(1, 5000000, 3, &hist); ret < 0) {
-    LOG(FATAL) << "Failed to initialize histogram: " << strerror(ret);
-  }
-  stats.update_hist(hist);
-  for (const auto &service : get_downstream_services(parsed_config)) {
-    stats.get_ema_service_time_us().get(service).set_description("RT-" +
-                                                                 service);
-  }
-  LOG(INFO) << "State initialized";
-  next_hist_update = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 
   LOG(INFO) << "ppm_limit: " << shared_state.credit_queue.get_ppm_limit();
   for (const auto &service : get_hosted_services(parsed_config)) {
@@ -435,7 +423,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
             if (!config.is_ingress) {
               fanout_res_credit_management(rpc->get_id());
             }
-            local_state.avg_ds_concurrency.get(rpc->get_service()).down();
+            local_state.ema_ds_concurrency.get(rpc->get_service()).down();
           } else if (type == ConnectionType::INGRESS) {
             // credit management and check for credit transmission
             shared_state.credit_queue.decrement_in_flight(rpc->get_service());
@@ -722,9 +710,9 @@ std::shared_ptr<RPCMessage> inline State::send_sub_request(
   auto wd = (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::steady_clock::now() - rpc->req_rcv_time)
                 .count();
-  local_state.avg_cal_waiting_delay.update(wd);
-  local_state.td_wd.add(wd);
-  local_state.avg_ds_concurrency.get(service).up();
+  local_state.ma_credit_delay_us.get(service).update(wd);
+  local_state.td_credit_delay_us.add(wd);
+  local_state.ema_ds_concurrency.get(service).up();
 
   VLOG(1) << "RPCForward: EGRESS request. "
           << "| service: " << service << "| id: " << rpc->get_id()
@@ -838,42 +826,24 @@ void State::ingress_admit() {
     LOG(FATAL) << "Ingress queue size is not 1 (Ingress assumes single request "
                   "at a time)";
   }
-  if (std::chrono::steady_clock::now() >= next_hist_update &&
-      hist->total_count >= 500) {
-    /* #ifdef NANO_LOG_ENABLED
-        NANO_LOG(NOTICE, "M# %s HIST-P50 RT-%s T:T %ld", config.name.c_str(),
-                 ingress_service.c_str(), hdr_value_at_percentile(hist, 50));
-        NANO_LOG(NOTICE, "M# %s HIST-P95 RT-%s T:T %ld", config.name.c_str(),
-                 ingress_service.c_str(), hdr_value_at_percentile(hist, 95));
-        NANO_LOG(NOTICE, "M# %s HIST-P99 RT-%s T:T %ld", config.name.c_str(),
-                 ingress_service.c_str(), hdr_value_at_percentile(hist, 99));
-    #endif */
-    hdr_reset(hist);
-    next_hist_update =
-        std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
-  }
 
   // check for any potential admitting or dropping
   int32_t queue_size = (int32_t)ppm_queue.size(ingress_service);
-  int32_t wt = (int32_t)(stats.get_ema_service_time_us()
-                             .get(ingress_service)
-                             .get_value() *
-                         (float)queue_size /
-                         local_state.avg_ds_concurrency.get(ingress_service)
-                             .get_value_cap(1, INFINITY));
+  int32_t wt =
+      (int32_t)(stats.ema_ds_service_time_us.get(ingress_service).get_value() *
+                (float)queue_size /
+                local_state.ema_ds_concurrency.get(ingress_service)
+                    .get_value_cap(1, INFINITY));
 
   int32_t e2e_delay =
       wt +
-      (int32_t)stats.get_ema_service_time_us().get(ingress_service).get_value();
+      (int32_t)stats.ema_ds_service_time_us.get(ingress_service).get_value();
 
   auto added =
       ingress.add_to_be_admitted_or_drop(rpc_queue, rpc_mapper, e2e_delay);
 #ifdef NANO_LOG_ENABLED
   NANO_LOG(NOTICE, "M# %s Measured QS-%s T:T %d", config.name.c_str(),
            ingress_service.c_str(), queue_size);
-  NANO_LOG(NOTICE, "M# %s Estimated WT-%s T:T %d", config.name.c_str(),
-           ingress_service.c_str(),
-           (int32_t)local_state.avg_cal_waiting_delay.get_value());
   NANO_LOG(NOTICE, "M# %s Instant WT-%s T:T %d", config.name.c_str(),
            ingress_service.c_str(),
            (int32_t)ppm_queue.get_waiting_delay_us(ingress_service));
@@ -885,13 +855,13 @@ void State::ingress_admit() {
   }
   NANO_LOG(NOTICE, "M# %s Estimated RT-%s T:T %f", config.name.c_str(),
            ingress_service.c_str(),
-           stats.get_ema_service_time_us().get(ingress_service).get_value());
+           stats.ema_ds_service_time_us.get(ingress_service).get_value());
   NANO_LOG(NOTICE, "M# %s Estimated WT-R-%s T:T %d", config.name.c_str(),
            ingress_service.c_str(),
-           (int32_t)(stats.get_tdigest_service_time_us(ingress_service)
+           (int32_t)(stats.tdigest_ds_service_time_us.get(ingress_service)
                          .get_quantile(0.95) *
                      (float)queue_size /
-                     local_state.avg_ds_concurrency.get(ingress_service)
+                     local_state.ema_ds_concurrency.get(ingress_service)
                          .get_value_cap(1, INFINITY)));
 #endif
   if (ingress.size() != 0) {
@@ -948,24 +918,57 @@ void State::check_credit_transmission() {
   VLOG(2) << "QM: Sent credit " << "| thread id: " << thread_id;
 }
 
+float State::cal_local_service_time(std::string_view us_service) {
+  auto it = config.mapping.find(us_service);
+  if (it == config.mapping.end()) {
+    LOG(FATAL) << "service " << us_service << " should be in mapping.";
+  }
+
+  auto us_rt = stats.ma_us_service_time_us.get(us_service).get_value();
+
+  if (it->second.pfanout.value_or(false)) {
+    // find maximum service time
+    auto max = 0.0F;
+    for (auto &ds_service : it->second.downstreams) {
+      auto value = stats.ma_ds_service_time_us.get(ds_service).get_value() +
+                   local_state.ma_credit_delay_us.get(ds_service).get_value();
+      if (value > max) {
+        max = value;
+      }
+    }
+
+    return us_rt - max;
+  } else {
+    auto sum = 0.0F;
+    for (auto &ds_service : it->second.downstreams) {
+      sum += stats.ma_ds_service_time_us.get(ds_service).get_value() +
+             local_state.ma_credit_delay_us.get(ds_service).get_value();
+    }
+
+    return us_rt - sum;
+  }
+}
+
 void State::update_limits(int32_t rtt, std::string_view service) {
   VLOG(2) << "QM: RTT " << rtt << " for service " << service;
-  auto &rtt_stats = stats.get_ma_sidecar_rtt_us().get(service);
+  auto &rtt_stats = stats.ma_us_sidecar_rtt_us.get(service);
   rtt_stats.update(rtt);
   if (rtt_stats.get_count() % 2000 == 0) {
     VLOG(1) << "QM: RTT " << rtt_stats.get_value() << " for service "
             << service;
-    VLOG(1) << "QM: Service time "
-            << stats.get_ma_us_service_time_us().get(service).get_value()
-            << " for service " << service;
+    auto local_rt = cal_local_service_time(service);
+    // auto local_rt = stats.ma_us_service_time_us.get(service).get_value();
+    VLOG(1) << "QM: Local Service time " << local_rt << " for service "
+            << service;
+    auto it = config.mapping.find(service);
+    if (it == config.mapping.end()) {
+      LOG(FATAL) << "service " << service << " not found in config.mapping";
+    }
     int32_t new_limit =
-        (std::max(
-             (int32_t)std::ceil(
-                 rtt_stats.get_value() /
-                 stats.get_ma_us_service_time_us().get(service).get_value()),
-             1) +
+        (std::max((int32_t)std::ceil(rtt_stats.get_value() / local_rt), 1) +
          1) *
         config.cpu_count.value();
+    new_limit += it->second.downstreams.size();
     new_limit += config.extra_limit;
     shared_state.credit_queue.update_endpoint_limit(new_limit, service);
     VLOG(1) << "QM: New limit for service " << service << " is " << new_limit;
@@ -983,6 +986,16 @@ void State::update_limits(int32_t rtt, std::string_view service) {
                               config.over_commitment.value()));
     VLOG(1) << "QM: New ppm limit is "
             << shared_state.credit_queue.get_ppm_limit();
+#ifdef NANO_LOG_ENABLED
+    NANO_LOG(NOTICE, "M# %s LIMIT GLOBAL T:T %d", config.name.c_str(),
+             shared_state.credit_queue.get_ppm_limit());
+    NANO_LOG(NOTICE, "M# %s LIMIT LOCAL-%.*s T:T %d", config.name.c_str(),
+             static_cast<int>(service.size()), service.data(),
+             shared_state.credit_queue.get_per_endpoint_limit(service));
+    NANO_LOG(NOTICE, "M# %s Measured Local-RT-%.*s T:T %d", config.name.c_str(),
+             static_cast<int>(service.size()), service.data(),
+             (int32_t)local_rt);
+#endif
   }
 }
 
@@ -1083,10 +1096,13 @@ SharedState::SharedState(std::vector<std::string> hosted_service,
     : credit_queue(hosted_service, config.cpu_count.value_or(-1)) {}
 
 LocalState::LocalState(std::vector<std::string> /*hosted_services*/,
-                       std::vector<std::string> downstream_services)
-    : avg_cal_waiting_delay(), avg_ds_concurrency(downstream_services), td_wd(),
-      drops(0), last_rtt_us(downstream_services) {
+                       std::vector<std::string> downstream_services,
+                       std::string &ingress_service)
+    : ma_credit_delay_us(downstream_services),
+      ema_ds_concurrency(downstream_services), td_credit_delay_us(), drops(0),
+      last_rtt_us(downstream_services) {
   for (auto &service : downstream_services) {
-    avg_ds_concurrency.get(service).set_description("DSC-" + service);
+    ema_ds_concurrency.get(service).set_description("DSC-" + service);
+    ma_credit_delay_us.get(service).set_description("Credit-Delay-" + service);
   }
 }
