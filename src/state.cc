@@ -827,17 +827,22 @@ void State::ingress_admit() {
                   "at a time)";
   }
 
+  float service_time = 0;
+  auto &ema_st = stats.ema_ds_service_time_us.get(ingress_service);
+  if (ema_st.get_count() > 2000) {
+    service_time = (float)stats.td_ds_service_time_us.get(ingress_service)
+                       .get_quantile(0.97);
+  } else {
+    service_time = ema_st.get_value();
+  }
+
   // check for any potential admitting or dropping
   int32_t queue_size = (int32_t)ppm_queue.size(ingress_service);
-  int32_t wt =
-      (int32_t)(stats.ema_ds_service_time_us.get(ingress_service).get_value() *
-                (float)queue_size /
-                local_state.ema_ds_concurrency.get(ingress_service)
-                    .get_value_cap(1, INFINITY));
+  int32_t wt = (int32_t)(service_time * (float)queue_size /
+                         local_state.ema_ds_concurrency.get(ingress_service)
+                             .get_value_cap(1, INFINITY));
 
-  int32_t e2e_delay =
-      wt +
-      (int32_t)stats.ema_ds_service_time_us.get(ingress_service).get_value();
+  int32_t e2e_delay = wt + (int32_t)service_time;
 
   auto added =
       ingress.add_to_be_admitted_or_drop(rpc_queue, rpc_mapper, e2e_delay);
@@ -858,7 +863,7 @@ void State::ingress_admit() {
            stats.ema_ds_service_time_us.get(ingress_service).get_value());
   NANO_LOG(NOTICE, "M# %s Estimated WT-R-%s T:T %d", config.name.c_str(),
            ingress_service.c_str(),
-           (int32_t)(stats.tdigest_ds_service_time_us.get(ingress_service)
+           (int32_t)(stats.td_ds_service_time_us.get(ingress_service)
                          .get_quantile(0.95) *
                      (float)queue_size /
                      local_state.ema_ds_concurrency.get(ingress_service)
@@ -1102,10 +1107,12 @@ LocalState::LocalState(std::vector<std::string> /*hosted_services*/,
                        std::vector<std::string> downstream_services,
                        std::string &ingress_service)
     : ma_credit_delay_us(downstream_services),
-      ema_ds_concurrency(downstream_services), td_credit_delay_us(), drops(0),
+      ema_ds_concurrency(downstream_services),
+      td_credit_delay_us(downstream_services), drops(0),
       last_rtt_us(downstream_services) {
   for (auto &service : downstream_services) {
     ema_ds_concurrency.get(service).set_description("DSC-" + service);
     ma_credit_delay_us.get(service).set_description("Credit-Delay-" + service);
+    td_credit_delay_us.get(service).set_description("Credit-Delay-" + service);
   }
 }

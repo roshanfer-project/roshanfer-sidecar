@@ -161,12 +161,29 @@ void Counter::down(int32_t val) { count -= val; }
 
 int32_t Counter::get_count() { return count; }
 
+void TDigest::add(int32_t val) {
+  td_add(td, val, 1);
+
+#ifdef NANO_LOG_ENABLED
+  count++;
+  if (count % 2000 == 0) {
+
+    if (description == "") {
+      LOG(FATAL) << "description is not set for TD";
+    }
+    NANO_LOG(NOTICE, "M# %s TD-95 %s T:T %f", config.name.c_str(),
+             description.c_str(), get_quantile(0.95));
+    NANO_LOG(NOTICE, "M# %s TD-99 %s T:T %f", config.name.c_str(),
+             description.c_str(), get_quantile(0.99));
+  }
+#endif
+}
+
 Stats::Stats(std::vector<std::string> ds_services,
              std::vector<std::string> us_services)
     : mode2_credits("Mode2 Credits"), ema_ds_service_time_us(ds_services),
       ma_ds_service_time_us(ds_services), ma_us_service_time_us(us_services),
-      ma_us_sidecar_rtt_us(us_services),
-      tdigest_ds_service_time_us(ds_services) {
+      ma_us_sidecar_rtt_us(us_services), td_ds_service_time_us(ds_services) {
   for (const auto &service : us_services) {
     ma_us_sidecar_rtt_us.get(service).set_description("RTT-" + service);
     ma_us_service_time_us.get(service).set_description("US-RT-" + service);
@@ -174,6 +191,7 @@ Stats::Stats(std::vector<std::string> ds_services,
   for (const auto &service : ds_services) {
     ema_ds_service_time_us.get(service).set_description("DS-RT-" + service);
     ma_ds_service_time_us.get(service).set_description("DS-RT-" + service);
+    td_ds_service_time_us.get(service).set_description("DS-RT-" + service);
   }
 }
 
@@ -215,7 +233,7 @@ void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
         .update(static_cast<int32_t>(ds_service_time));
     ma_ds_service_time_us.get(rpc->get_service())
         .update(static_cast<int32_t>(ds_service_time));
-    tdigest_ds_service_time_us.get(rpc->get_service())
+    td_ds_service_time_us.get(rpc->get_service())
         .add(static_cast<int32_t>(ds_service_time));
 
     VLOG(2) << "Stats: EGRESS Reported latency "

@@ -41,7 +41,7 @@ Ingress::Ingress(int index_arg, std::string &ingress_service_ref)
     max_th_us =
         (float)config.routing.at(ingress_service_ref).slo.value() * 1000 * 1.0F;
     min_th_us =
-        (float)config.routing.at(ingress_service_ref).slo.value() * 1000 * 0.3F;
+        (float)config.routing.at(ingress_service_ref).slo.value() * 1000 * 0.6F;
     LOG(INFO) << "Ingress: " << ingress_service << " max_th_us: " << max_th_us
               << " min_th_us: " << min_th_us;
   }
@@ -99,9 +99,9 @@ int64_t Ingress::add_to_be_admitted_or_drop(RPCQueue &rpc_queue,
                                             RPCMapper &rpc_mapper,
                                             int32_t e2e_delay) {
   bool drop = false;
+  float max_p = 1.0F;
   if ((float)e2e_delay >= min_th_us && (float)e2e_delay <= max_th_us) {
     red_count++;
-    float max_p = 1.0F;
     float pb = max_p * ((float)e2e_delay - min_th_us) / (max_th_us - min_th_us);
     float uni_rv = (float)dis(gen);
     drop = uni_rv < pb;

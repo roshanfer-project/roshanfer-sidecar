@@ -97,13 +97,14 @@ private:
 
 class TDigest {
 public:
-  TDigest() : td(td_new(200)) {}
+  TDigest() : td(td_new(200)), count(0), description("") {}
 
-  void add(int32_t val) { td_add(td, val, 1); }
+  void add(int32_t);
   double get_quantile(double q) {
     double val = td_value_at(td, q);
     return std::isnan(val) ? 0 : val;
   }
+  void set_description(std::string dec) { description = dec; }
 
   // delete copy semantics
   TDigest(const TDigest &) = delete;
@@ -115,6 +116,8 @@ public:
 
 private:
   td_histogram_t *td;
+  int64_t count;
+  std::string description;
 };
 
 class Stats {
@@ -137,5 +140,5 @@ public:
   LocalMap<MovingAverage> ma_ds_service_time_us;
   LocalMap<MovingAverage> ma_us_service_time_us;
   LocalMap<MovingAverage> ma_us_sidecar_rtt_us;
-  LocalMap<TDigest> tdigest_ds_service_time_us;
+  LocalMap<TDigest> td_ds_service_time_us;
 };
