@@ -732,17 +732,22 @@ void State::ingress_admit() {
                   "at a time)";
   }
 
+  float service_time = 0;
+  auto &ema_st = stats.ema_ds_service_time_us.get(ingress_service);
+  if (ema_st.get_count() > 500) {
+    service_time = (float)stats.td_ds_service_time_us.get(ingress_service)
+                       .get_quantile(0.97);
+  } else {
+    service_time = ema_st.get_value();
+  }
+
   // check for any potential admitting or dropping
   int32_t queue_size = (int32_t)ppm_queue.size(ingress_service);
-  int32_t wt = (int32_t)(stats.td_ds_service_time_us.get(ingress_service)
-                             .get_quantile(0.97) *
-                         (float)queue_size /
+  int32_t wt = (int32_t)(service_time * (float)queue_size /
                          local_state.ema_ds_concurrency.get(ingress_service)
                              .get_value_cap(1, INFINITY));
 
-  int32_t e2e_delay =
-      wt + (int32_t)stats.td_ds_service_time_us.get(ingress_service)
-               .get_quantile(0.97);
+  int32_t e2e_delay = wt + (int32_t)service_time;
 
   auto added =
       ingress.add_to_be_admitted_or_drop(rpc_queue, rpc_mapper, e2e_delay);
