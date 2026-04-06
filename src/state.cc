@@ -711,7 +711,7 @@ std::shared_ptr<RPCMessage> inline State::send_sub_request(
                 std::chrono::steady_clock::now() - rpc->req_rcv_time)
                 .count();
   local_state.ma_credit_delay_us.get(service).update(wd);
-  local_state.td_credit_delay_us.add(wd);
+  local_state.td_credit_delay_us.get(service).add(wd);
   local_state.ema_ds_concurrency.get(service).up();
 
   VLOG(1) << "RPCForward: EGRESS request. "
