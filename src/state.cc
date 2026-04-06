@@ -734,15 +734,15 @@ void State::ingress_admit() {
 
   // check for any potential admitting or dropping
   int32_t queue_size = (int32_t)ppm_queue.size(ingress_service);
-  int32_t wt =
-      (int32_t)(stats.ema_ds_service_time_us.get(ingress_service).get_value() *
-                (float)queue_size /
-                local_state.ema_ds_concurrency.get(ingress_service)
-                    .get_value_cap(1, INFINITY));
+  int32_t wt = (int32_t)(stats.td_ds_service_time_us.get(ingress_service)
+                             .get_quantile(0.97) *
+                         (float)queue_size /
+                         local_state.ema_ds_concurrency.get(ingress_service)
+                             .get_value_cap(1, INFINITY));
 
   int32_t e2e_delay =
-      wt +
-      (int32_t)stats.ema_ds_service_time_us.get(ingress_service).get_value();
+      wt + (int32_t)stats.td_ds_service_time_us.get(ingress_service)
+               .get_quantile(0.97);
 
   auto added =
       ingress.add_to_be_admitted_or_drop(rpc_queue, rpc_mapper, e2e_delay);
