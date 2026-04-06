@@ -926,7 +926,8 @@ float State::cal_local_service_time(std::string_view us_service) {
 
   auto us_rt = stats.ma_us_service_time_us.get(us_service).get_value();
 
-  if (it->second.pfanout.value_or(false)) {
+  if (it->second.pfanout.value_or(false) ||
+      it->second.dfanout.value_or(false)) {
     // find maximum service time
     auto max = 0.0F;
     for (auto &ds_service : it->second.downstreams) {
@@ -968,7 +969,9 @@ void State::update_limits(int32_t rtt, std::string_view service) {
         (std::max((int32_t)std::ceil(rtt_stats.get_value() / local_rt), 1) +
          1) *
         config.cpu_count.value();
-    new_limit += it->second.downstreams.size();
+    if (!it->second.dfanout.value_or(false)) {
+      new_limit += it->second.downstreams.size();
+    }
     new_limit += config.extra_limit;
     shared_state.credit_queue.update_endpoint_limit(new_limit, service);
     VLOG(1) << "QM: New limit for service " << service << " is " << new_limit;
