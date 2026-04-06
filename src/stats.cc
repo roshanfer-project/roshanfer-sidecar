@@ -182,8 +182,9 @@ void TDigest::add(int32_t val) {
 Stats::Stats(std::vector<std::string> ds_services,
              std::vector<std::string> us_services)
     : mode2_credits("Mode2 Credits"), ema_ds_service_time_us(ds_services),
-      ma_ds_service_time_us(ds_services), ma_us_service_time_us(us_services),
-      ma_us_sidecar_rtt_us(us_services), td_ds_service_time_us(ds_services) {
+      ma_ds_service_time_us(ds_services), ma_ds_queue_size(ds_services),
+      ma_us_service_time_us(us_services), ma_us_sidecar_rtt_us(us_services),
+      td_ds_service_time_us(ds_services) {
   for (const auto &service : us_services) {
     ma_us_sidecar_rtt_us.get(service).set_description("RTT-" + service);
     ma_us_service_time_us.get(service).set_description("US-RT-" + service);
@@ -192,6 +193,7 @@ Stats::Stats(std::vector<std::string> ds_services,
     ema_ds_service_time_us.get(service).set_description("DS-RT-" + service);
     ma_ds_service_time_us.get(service).set_description("DS-RT-" + service);
     td_ds_service_time_us.get(service).set_description("DS-RT-" + service);
+    ma_ds_queue_size.get(service).set_description("QS-" + service);
   }
 }
 

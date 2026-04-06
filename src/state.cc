@@ -826,7 +826,9 @@ void State::ingress_admit() {
     LOG(FATAL) << "Ingress queue size is not 1 (Ingress assumes single request "
                   "at a time)";
   }
-
+  int32_t queue_size = (int32_t)ppm_queue.size(ingress_service);
+  auto &qs = stats.ma_ds_queue_size.get(ingress_service);
+  qs.update(queue_size);
   float service_time = 0;
   auto &ema_st = stats.ema_ds_service_time_us.get(ingress_service);
   if (ema_st.get_count() > 2000) {
@@ -836,9 +838,8 @@ void State::ingress_admit() {
     service_time = ema_st.get_value();
   }
 
-  // check for any potential admitting or dropping
-  int32_t queue_size = (int32_t)ppm_queue.size(ingress_service);
-  int32_t wt = (int32_t)(service_time * (float)queue_size /
+  int32_t wt = (int32_t)(service_time * (float)queue_size *
+                         ((float)queue_size / qs.get_value()) /
                          local_state.ema_ds_concurrency.get(ingress_service)
                              .get_value_cap(1, INFINITY));
 

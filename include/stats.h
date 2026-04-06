@@ -138,6 +138,7 @@ public:
   Counter mode2_credits;
   LocalMap<ExponentialMovingAverage> ema_ds_service_time_us;
   LocalMap<MovingAverage> ma_ds_service_time_us;
+  LocalMap<MovingAverage> ma_ds_queue_size;
   LocalMap<MovingAverage> ma_us_service_time_us;
   LocalMap<MovingAverage> ma_us_sidecar_rtt_us;
   LocalMap<TDigest> td_ds_service_time_us;
