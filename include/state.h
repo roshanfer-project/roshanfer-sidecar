@@ -113,17 +113,14 @@ public:
 
 private:
   // PPM-related functions
-  void send_dn(struct sockaddr_in, const std::string &, size_t, RPCID,
-               Priority);
-  std::unique_ptr<Buffer>
-  prepare_credit_return(const std::unique_ptr<Buffer> &);
+  void send_dn(struct sockaddr_in, const std::string &, size_t, RPCID, Priority,
+               bool);
   std::tuple<const std::string &, bool, size_t, RPCID>
   valid_credit(const char *);
   bool check_credit_available(std::string_view);
   void check_credit_transmission();
   void update_limits(int32_t, std::string_view);
-  void fanout_req_management(RPCID, const std::string &,
-                             const std::unique_ptr<Buffer> &);
+  void fanout_req_management(RPCID, const std::string &);
   std::shared_ptr<RPCMessage> send_sub_request(RPCID, const std::string &);
   float cal_local_service_time(std::string_view);
   void fanout_res_credit_management(RPCID);

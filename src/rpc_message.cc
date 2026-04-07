@@ -15,8 +15,7 @@
 //////// RPCMessage Implementation
 
 RPCMessage::RPCMessage()
-    : ds_stream_id(0), ds_fd(-1), us_stream_id(0), us_fd(-1), id(-1),
-      credit_return_queue() {}
+    : ds_stream_id(0), ds_fd(-1), us_stream_id(0), us_fd(-1), id(-1) {}
 
 RPCMessage::~RPCMessage() {
   LOG(FATAL) << "RPC Message deconstructor (should not be called)";
@@ -179,9 +178,6 @@ void gRPCMessage::clear() {
   id = -1;
   pfanout_req = 0;
   pfanout_res = 0;
-  if (credit_return_queue.size() != 0) {
-    LOG(FATAL) << "credit_return queue is not empty";
-  }
   dfanout_service = nullptr;
 }
 
@@ -339,9 +335,6 @@ void HTTPMessage::clear() {
   id = -1;
   pfanout_req = 0;
   pfanout_res = 0;
-  if (credit_return_queue.size() != 0) {
-    LOG(FATAL) << "credit_return queue is not empty";
-  }
   dfanout_service = nullptr;
 }
 

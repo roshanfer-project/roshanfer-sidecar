@@ -1,6 +1,5 @@
 #pragma once
 
-#include "buffer.h"
 #include "connection_enums.h"
 #include "fast_map.hpp"
 #include <array>
@@ -110,8 +109,7 @@ public:
   uint8_t pfanout_req;
   uint8_t pfanout_res;
 
-  // dynamic fan-out credit return queue
-  std::queue<std::unique_ptr<Buffer>> credit_return_queue;
+  // dynamic fan-out service
   std::string *dfanout_service;
 };
 

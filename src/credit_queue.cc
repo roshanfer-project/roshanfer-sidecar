@@ -27,9 +27,20 @@ std::unique_ptr<Buffer> InnerCreditQueue::pop(
     if (it->value.size() > 0 &&
         in_flight_per_endpoint.get(it->key) < per_endpoint_limit.get(it->key) &&
         in_flight < ppm_limit) {
-      in_flight_per_endpoint.get(it->key)++;
-      in_flight++;
       auto buffer = std::move(it->value.front());
+
+      // do not increment active requests for dfanout branches that are not the
+      // actual rpc branch
+      char b1 = buffer->data.at(1);
+      if (b1 == 0x01) {
+        in_flight_per_endpoint.get(it->key)++;
+        in_flight++;
+      } else if (b1 == 0x02) {
+        // reset the b1 bit to normal DN
+        buffer->data.at(1) = 0x01;
+      } else {
+        LOG(FATAL) << "Received DN with invalid b1" << (int)b1;
+      }
       it->value.pop_front();
       it++;
       _size--;

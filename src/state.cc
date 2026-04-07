@@ -576,7 +576,7 @@ void State::ppm_client(bool dn_resp,
 
     for (size_t i = 0; i < num_credits; i++) {
       if (!config.is_ingress) {
-        fanout_req_management(id, service, dn_resp_buffer);
+        fanout_req_management(id, service);
       } else {
         send_sub_request(id, service);
       }
@@ -597,7 +597,8 @@ void State::ppm_client(bool dn_resp,
       // send out DNs
       if (config.is_ingress) {
         send_dn(upstream_route_mapper.get_pool(rpc->get_service()).get_addr(),
-                rpc->get_service(), 1, rpc->get_id(), rpc->get_priority());
+                rpc->get_service(), 1, rpc->get_id(), rpc->get_priority(),
+                false);
       } else {
         auto &ingress_rpc = rpc_mapper.get_ingress_rpc(rpc->get_id());
         auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
@@ -605,13 +606,16 @@ void State::ppm_client(bool dn_resp,
         // for dynamic fan-out, send DN to all downstreams
         if (mapping_entry.dfanout.value_or(false)) {
           ingress_rpc->dfanout_service = &rpc->get_service();
+          bool null_dn;
           for (auto &ds_service : mapping_entry.downstreams) {
+            null_dn = ds_service != rpc->get_service() ? true : false;
             send_dn(upstream_route_mapper.get_pool(ds_service).get_addr(),
-                    ds_service, 1, rpc->get_id(), rpc->get_priority());
+                    ds_service, 1, rpc->get_id(), rpc->get_priority(), null_dn);
           }
         } else {
           send_dn(upstream_route_mapper.get_pool(rpc->get_service()).get_addr(),
-                  rpc->get_service(), 1, rpc->get_id(), rpc->get_priority());
+                  rpc->get_service(), 1, rpc->get_id(), rpc->get_priority(),
+                  false);
         }
       }
     }
@@ -622,8 +626,7 @@ void State::ppm_client(bool dn_resp,
   This method is resonsible for credit management (sub request out event) and
   RPC transmission (for non-ingress) when downstream pattern is fanout
 */
-void State::fanout_req_management(RPCID id, const std::string &service,
-                                  const std::unique_ptr<Buffer> &dn_reply) {
+void State::fanout_req_management(RPCID id, const std::string &service) {
   // credit management and transmission
   auto &ingress_rpc = rpc_mapper.get_ingress_rpc(id);
   auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
@@ -637,27 +640,11 @@ void State::fanout_req_management(RPCID id, const std::string &service,
     }
   } else if (mapping_entry.dfanout.value_or(false)) {
     ingress_rpc->pfanout_req++;
-    // fill dfanout queue
-    if (*ingress_rpc->dfanout_service != service) {
-      auto credit_return = prepare_credit_return(dn_reply);
-      ingress_rpc->credit_return_queue.push(std::move(credit_return));
-      VLOG(2) << "PPMClient: Add credit for service: " << service
-              << " id: " << id << " to Credit Return Queue";
-    }
 
     if (ingress_rpc->pfanout_req != mapping_entry.downstreams.size()) {
       return;
     } else {
       send_sub_request(id, *ingress_rpc->dfanout_service);
-
-      // send out queued credit returns
-      while (ingress_rpc->credit_return_queue.size() > 0) {
-        auto ret = std::move(ingress_rpc->credit_return_queue.front());
-        ingress_rpc->credit_return_queue.pop();
-        ring.prepare_sendmsg(sockfd, std::move(ret),
-                             buffer_manager.get_user_data());
-      }
-      VLOG(2) << "PPMClient: Flush Credit Return Queue for id: " << id;
     }
   } else {
     // sequential fanout
@@ -667,28 +654,6 @@ void State::fanout_req_management(RPCID id, const std::string &service,
   // for non pfanout or last branch in pfanout, decrement active requests
   shared_state.credit_queue.decrement_in_flight(ingress_rpc->get_service());
   check_credit_transmission();
-}
-
-std::unique_ptr<Buffer>
-State::prepare_credit_return(const std::unique_ptr<Buffer> &dn_reply) {
-  auto credit_ret = buffer_manager.get_dn_buffer();
-
-  // copy the content
-  if (credit_ret->get_size() - credit_ret->get_filled() <
-      dn_reply->get_filled()) {
-    LOG(FATAL) << "buffer overflow";
-  }
-  std::copy_n(dn_reply->data.begin(), dn_reply->get_filled(),
-              credit_ret->data.begin());
-  credit_ret->set_filled(dn_reply->get_filled());
-
-  // set the command code
-  credit_ret->data.at(1) = 0x02; // credit return (0x02)
-
-  // set the detination
-  credit_ret->prepare_sendmsg(dn_reply->get_addr());
-
-  return credit_ret;
 }
 
 std::shared_ptr<RPCMessage> inline State::send_sub_request(
@@ -741,7 +706,8 @@ void State::fanout_res_credit_management(RPCID id) {
 }
 
 void State::send_dn(struct sockaddr_in addr, const std::string &service,
-                    size_t num_credits, RPCID id, Priority priority) {
+                    size_t num_credits, RPCID id, Priority priority,
+                    bool dfanout) {
   // send a demand notification
   ssize_t header_size = 26;
   size_t len = (size_t)header_size + service.length();
@@ -750,7 +716,10 @@ void State::send_dn(struct sockaddr_in addr, const std::string &service,
     LOG(FATAL) << "Buffer size is too small";
   }
   buffer->data.at(0) = (char)len;
-  buffer->data.at(1) = 0x01;              // demand notification (0x01)
+  buffer->data.at(1) =
+      !dfanout
+          ? 0x01
+          : 0x02; // demand notification (0x01), null demand notification (0x02)
   buffer->data.at(2) = 0x00;              // request (0x00), response (0x01)
   buffer->data.at(3) = (char)num_credits; // number of requested credits
   // position 4 is for the received number of credits
@@ -1032,11 +1001,7 @@ void State::dispatch_ppm_recv(const std::unique_ptr<Buffer> &buf) {
   }
   uint8_t b1 = (unsigned char)d[1];
   uint8_t b2 = (unsigned char)d[2];
-  if (b1 == 0x02) {
-    queue_multiplexer(buf);
-    return;
-  }
-  if (b1 == 0x01 && b2 == 0x00) {
+  if ((b1 == 0x01 || b1 == 0x02) && b2 == 0x00) {
     queue_multiplexer(buf);
     return;
   }
@@ -1050,7 +1015,8 @@ void State::dispatch_ppm_recv(const std::unique_ptr<Buffer> &buf) {
 
 void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
   // read the request
-  if (req->data.at(1) == 0x01) {
+  char b1 = req->data.at(1);
+  if (b1 == 0x01 || b1 == 0x02) {
     // we have demand notification
 
     // check if it's a request
@@ -1098,16 +1064,6 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
 
     // check credit transmission
     check_credit_transmission();
-
-  } else if (req->data.at(1) == 0x02) {
-    // credit return
-    auto service = extract_service_from_ppm_req(req->data.data());
-    VLOG(2) << "QM: Received Credit Return "
-            << "| service: " << service;
-    shared_state.credit_queue.decrement_in_flight(service);
-    check_credit_transmission();
-  } else {
-    LOG(FATAL) << "Unknown message type";
   }
 }
 
