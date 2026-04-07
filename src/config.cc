@@ -255,6 +255,8 @@ Config load_config(const std::string &filename) {
     for (const auto &downstream : pair.second.downstreams) {
       LOG(INFO) << "  downstream: " << downstream;
     }
+    LOG(INFO) << "pfanout: " << pair.second.pfanout.value_or(false);
+    LOG(INFO) << "dfanout: " << pair.second.dfanout.value_or(false);
   }
 
   config = local_config;
