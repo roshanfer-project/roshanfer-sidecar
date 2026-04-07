@@ -166,7 +166,6 @@ struct io_uring_cqe *RingWrapper::peek_cqe() {
   int ret = io_uring_peek_cqe(&ring, &cqe);
   if (ret == -EAGAIN) {
     VLOG(1) << "No completion event.";
-    seen_cqe(cqe);
     return nullptr;
   }
   if (ret < 0) {
