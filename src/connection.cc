@@ -736,7 +736,9 @@ void HTTP1Connection::http_read(const std::unique_ptr<Buffer> &buffer,
     if (content_length >= 0) {
       LOG(FATAL)
           << "Content-Length header is not supported in HTTP/1.1 requests, fd: "
-          << fd << ", content_length: " << content_length;
+          << fd << ", content_length: " << content_length
+          << ", method: " << std::string(method, method_len)
+          << ", path: " << std::string(path, path_len);
     }
 
     if (buf_len > (size_t)hdr_size) {
