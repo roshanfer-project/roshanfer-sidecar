@@ -164,24 +164,28 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
     ring.prepare_connect(std::move(conn), buffer_manager.get_user_data());
   }
 
-  // PPM UDP: one bound socket for send + recv (SO_REUSEPORT for multi-thread)
+  // PPM UDP: mesh binds well-known port + SO_REUSEPORT; ingress stays unbound
+  // so credit replies return to the per-thread ephemeral source of each DN.
   sockfd = socket(AF_INET, SOCK_DGRAM, 0);
   if (sockfd < 0) {
     LOG(FATAL) << "Failed to create socket";
   }
-  int reuse = 1;
-  if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse)) < 0) {
-    LOG(FATAL) << "Failed to set SO_REUSEPORT on PPM socket: "
-               << strerror(errno);
-  }
-  struct sockaddr_in ppm_addr{};
-  ppm_addr.sin_family = AF_INET;
-  ppm_addr.sin_port = htons(config.ingress_listener_port);
-  ppm_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-  if (bind(sockfd, reinterpret_cast<struct sockaddr *>(&ppm_addr),
-           sizeof(ppm_addr)) < 0) {
-    LOG(FATAL) << "Failed to bind PPM UDP socket to port "
-               << config.ingress_listener_port << ": " << strerror(errno);
+  if (!config.is_ingress) {
+    int reuse = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse)) <
+        0) {
+      LOG(FATAL) << "Failed to set SO_REUSEPORT on PPM socket: "
+                 << strerror(errno);
+    }
+    struct sockaddr_in ppm_addr{};
+    ppm_addr.sin_family = AF_INET;
+    ppm_addr.sin_port = htons(config.ingress_listener_port);
+    ppm_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (bind(sockfd, reinterpret_cast<struct sockaddr *>(&ppm_addr),
+             sizeof(ppm_addr)) < 0) {
+      LOG(FATAL) << "Failed to bind PPM UDP socket to port "
+                 << config.ingress_listener_port << ": " << strerror(errno);
+    }
   }
 
   LOG(INFO) << "ppm_limit: " << shared_state.credit_queue.get_ppm_limit();
