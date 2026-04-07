@@ -87,6 +87,10 @@ std::unique_ptr<Buffer> BufferManager::get_buffer() {
 }
 
 std::unique_ptr<Buffer> BufferManager::get_buffer_by_index(size_t index) {
+  if (index >= count) {
+    LOG(FATAL) << "TCP buffer id out of range: " << index << " (count=" << count
+               << ") — wrong buffer group on CQE?";
+  }
   if (buffer_vector.at(index) == nullptr) {
     LOG(FATAL) << "Buffer is null, index: " << index;
     return nullptr;
@@ -101,6 +105,11 @@ std::unique_ptr<Buffer> BufferManager::get_buffer_by_index(size_t index) {
 }
 
 std::unique_ptr<Buffer> BufferManager::get_dn_buffer_by_index(size_t index) {
+  if (index < count || index >= count + dn_buffer_vector.size()) {
+    LOG(FATAL) << "DN buffer id out of range: " << index << " (expect [" << count
+               << ", " << count + dn_buffer_vector.size()
+               << ")) — TCP id or corrupt CQE flags?";
+  }
   if (dn_buffer_vector.at(index - count) == nullptr) {
     LOG(FATAL) << "Buffer is null, index: " << index;
     return nullptr;
