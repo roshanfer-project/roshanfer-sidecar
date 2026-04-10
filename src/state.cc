@@ -730,12 +730,12 @@ std::shared_ptr<RPCMessage> inline State::send_sub_request(
 */
 void State::fanout_res_credit_management(RPCID id) {
   auto &ingress_rpc = rpc_mapper.get_ingress_rpc(id);
-
-  if (config.mapping.at(ingress_rpc->get_service()).pfanout.value_or(false)) {
+  auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
+  if (mapping_entry.pfanout.value_or(false)) {
     ingress_rpc->pfanout_res++;
 
-    // if we are not the first branch, do nothing
-    if (ingress_rpc->pfanout_res > 1) {
+    // if we are not the last branch, do nothing
+    if (ingress_rpc->pfanout_res < mapping_entry.downstreams.size()) {
       return;
     }
   }
