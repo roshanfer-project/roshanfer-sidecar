@@ -997,18 +997,19 @@ void State::update_limits(int32_t rtt, std::string_view service) {
     shared_state.credit_queue.update_endpoint_limit(new_limit, service);
     VLOG(1) << "QM: New limit for service " << service << " is " << new_limit;
 
-    // update ppm_limit
-    auto sum_limits = 0;
-    auto max_limit = 0;
-    for (auto &[us_service, _] : config.mapping) {
-      auto limit = shared_state.credit_queue.get_per_endpoint_limit(us_service);
-      sum_limits += limit;
-      max_limit = limit > max_limit ? limit : max_limit;
-    }
-
     // only update global limit for leaf services (intermediate services don't
     // use it)
     if (config.routing.size() == 0) {
+      // update ppm_limit
+      auto sum_limits = 0;
+      auto max_limit = 0;
+      for (auto &[us_service, _] : config.mapping) {
+        auto limit =
+            shared_state.credit_queue.get_per_endpoint_limit(us_service);
+        sum_limits += limit;
+        max_limit = limit > max_limit ? limit : max_limit;
+      }
+
       shared_state.credit_queue.update_ppm_limit(
           max_limit + (int32_t)((float)(sum_limits - max_limit) *
                                 config.over_commitment.value()));
