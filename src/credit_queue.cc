@@ -2,6 +2,7 @@
 #include "config.h"
 #include "fast_map.hpp"
 #include "rpc_message.h"
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <utility>
@@ -56,8 +57,14 @@ CreditQueue::CreditQueue(std::vector<std::string> endpoints, int32_t cpu_count)
   }
   auto max_limit = cpu_count * 2 + config.extra_limit;
   auto sum_limit = max_limit * (int)endpoints.size();
-  ppm_limit = max_limit + (int32_t)((float)(sum_limit - max_limit) *
-                                    config.over_commitment.value_or(-1));
+  if (config.routing.size() == 0) {
+    // for leaf services
+    ppm_limit = max_limit + (int32_t)((float)(sum_limit - max_limit) *
+                                      config.over_commitment.value_or(-1));
+  } else {
+    // for intermediate services
+    ppm_limit = INT_MAX;
+  }
 }
 
 size_t CreditQueue::size() { return _size.load(); }

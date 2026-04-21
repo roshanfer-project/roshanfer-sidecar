@@ -1005,9 +1005,15 @@ void State::update_limits(int32_t rtt, std::string_view service) {
       sum_limits += limit;
       max_limit = limit > max_limit ? limit : max_limit;
     }
-    shared_state.credit_queue.update_ppm_limit(
-        max_limit + (int32_t)((float)(sum_limits - max_limit) *
-                              config.over_commitment.value()));
+
+    // only update global limit for leaf services (intermediate services don't
+    // use it)
+    if (config.routing.size() == 0) {
+      shared_state.credit_queue.update_ppm_limit(
+          max_limit + (int32_t)((float)(sum_limits - max_limit) *
+                                config.over_commitment.value()));
+    }
+
     VLOG(1) << "QM: New ppm limit is "
             << shared_state.credit_queue.get_ppm_limit();
 #ifdef NANO_LOG_ENABLED
