@@ -570,6 +570,7 @@ void State::ppm_client(bool dn_resp,
     int32_t rtt = total - queueing_time;
     if (rtt > 0) {
       local_state.last_rtt_us.set(service, rtt);
+      stats.ema_ds_sidecar_rtt_us.get(service).update(rtt);
     } else {
       LOG(FATAL) << "Invalid RTT: " << rtt;
     }
@@ -973,7 +974,7 @@ float State::cal_local_service_time(std::string_view us_service) {
 
 void State::update_limits(int32_t rtt, std::string_view service) {
   VLOG(2) << "QM: RTT " << rtt << " for service " << service;
-  auto &rtt_stats = stats.ma_us_sidecar_rtt_us.get(service);
+  auto &rtt_stats = stats.ema_us_sidecar_rtt_us.get(service);
   rtt_stats.update(rtt);
   if (rtt_stats.get_count() % 2000 == 0) {
     VLOG(1) << "QM: RTT " << rtt_stats.get_value() << " for service "
