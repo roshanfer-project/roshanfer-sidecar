@@ -31,6 +31,7 @@ Ingress::Ingress(int index_arg, std::string &ingress_service_ref,
       queue(std::deque<std::shared_ptr<RPCMessage>>()), has_dn_on_fly(false),
       drop_id(0), drop_fd(-index_arg), last_rpc_id((RPCID)index_arg << 48),
       ingress_service(ingress_service_ref) {
+  ingress_mean.set_description("Ingress-Mean-" + ingress_service);
   if (config.is_ingress) {
     if (!config.routing.at(ingress_service_ref).slo.has_value()) {
       LOG(FATAL) << "No SLO configured for ingress service: "
@@ -119,7 +120,7 @@ void Ingress::update_ingress_cap() {
 #ifdef NANO_LOG_ENABLED
   NANO_LOG(NOTICE, "M# %s Measured QS-CAP-%s T:T %zu", config.name.c_str(),
            ingress_service.c_str(), ingress_size_cap);
-  NANO_LOG(NOTICE, "M# %s Measured ERR-%s T:T %f", config.name.c_str(),
+  NANO_LOG(NOTICE, "M# %s Measured ERR-%s N:N %f", config.name.c_str(),
            ingress_service.c_str(), err);
 #endif
 }

@@ -177,9 +177,9 @@ public:
     last_t_ = now;
 #ifdef NANO_LOG_ENABLED
     if (description == "") {
-      LOG(FATAL) << "Description of TimeMean is empty";
+      LOG(FATAL) << "Description of TwAvg is empty";
     }
-    NANO_LOG(NOTICE, "M# %s TimeMean %s T:T %f", config.name.c_str(),
+    NANO_LOG(NOTICE, "M# %s TwAvg %s N:N %f", config.name.c_str(),
              description.c_str(), area_);
 #endif
     return std::exchange(area_, 0.0);
