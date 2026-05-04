@@ -181,9 +181,6 @@ Config load_config(const std::string &filename) {
             for (const auto &downstream : mapping_node.second["downstreams"]) {
               mapping_info.downstreams.push_back(downstream.as<std::string>());
             }
-            if (mapping_info.downstreams.size() > 10) {
-              LOG(FATAL) << "Maximum downstream queue for dfanout is 10";
-            }
             if (mapping_info.downstreams.size() > 255) {
               LOG(FATAL) << "For parallel fan-out we use uint8 for counting";
             }
@@ -204,6 +201,10 @@ Config load_config(const std::string &filename) {
 
         if (mapping_node.second["dfanout"]) {
           mapping_info.dfanout = mapping_node.second["dfanout"].as<bool>();
+        }
+        if (mapping_info.downstreams.size() > 10 &&
+            mapping_info.dfanout.value_or(false)) {
+          LOG(FATAL) << "Maximum downstream queue for dfanout is 10";
         }
 
         if (local_config.is_ingress) {
