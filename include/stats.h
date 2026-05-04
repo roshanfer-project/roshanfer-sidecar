@@ -121,6 +121,82 @@ private:
   std::string description;
 };
 
+// O(1) state: ∫ x dt since last flush in area; last_flush starts a window.
+// update uses steady_clock::now(); value(now) uses the same clock unless
+// overridden. Piecewise-constant x between updates.
+class TimeWeightedMean {
+public:
+  using Clock = std::chrono::steady_clock;
+
+  TimeWeightedMean() : area_(0.0), last_x_(0.0) {}
+
+  void up() { up(Clock::now()); }
+
+  void up(Clock::time_point t) {
+    const double b = last_flush_.has_value() ? last_x_ : 0.0;
+    update(b + 1.0, t);
+  }
+
+  void down() { down(Clock::now()); }
+
+  void down(Clock::time_point t) {
+    const double b = last_flush_.has_value() ? last_x_ : 0.0;
+    if (b - 1 < 0) {
+      LOG(FATAL) << "negative value in down method of TimeWeightedMean with "
+                    "description: "
+                 << description;
+    }
+    update(b - 1.0, t);
+  }
+
+  void update(double sample) { update(sample, Clock::now()); }
+
+  void update(double sample, Clock::time_point t) {
+    if (!last_flush_.has_value()) {
+      last_flush_ = t;
+      last_t_ = t;
+      last_x_ = sample;
+      return;
+    }
+    const double dt = std::chrono::duration<double>(t - *last_t_).count();
+    if (dt > 0.0)
+      area_ += last_x_ * dt;
+    last_x_ = sample;
+    last_t_ = t;
+  }
+
+  double value() { return value(Clock::now()); }
+
+  double value(Clock::time_point now) {
+    if (!last_flush_.has_value() || !(now > *last_flush_))
+      return 0;
+    if (now > *last_t_)
+      area_ += last_x_ * std::chrono::duration<double>(now - *last_t_).count();
+    area_ /= std::chrono::duration<double>(now - *last_flush_).count();
+    last_flush_ = now;
+    last_t_ = now;
+#ifdef NANO_LOG_ENABLED
+    if (description == "") {
+      LOG(FATAL) << "Description of TimeMean is empty";
+    }
+    NANO_LOG(NOTICE, "M# %s TimeMean %s T:T %f", config.name.c_str(),
+             description.c_str(), area_);
+#endif
+    return std::exchange(area_, 0.0);
+  }
+
+  void set_description(std::string desc) { description = desc; }
+
+  bool empty() const { return !last_flush_.has_value(); }
+
+private:
+  std::optional<Clock::time_point> last_flush_;
+  std::optional<Clock::time_point> last_t_;
+  double area_;
+  double last_x_;
+  std::string description;
+};
+
 class Stats {
 public:
   Stats(std::vector<std::string>, std::vector<std::string>);
@@ -142,4 +218,7 @@ public:
   LocalMap<ExponentialMovingAverage> ema_us_sidecar_rtt_us;
   LocalMap<ExponentialMovingAverage> ema_ds_sidecar_rtt_us;
   LocalMap<SmoothedQuantileEstimator> tail_ds_service_time_us;
+  LocalMap<SmoothedQuantileEstimator> tail_e2e_time_us;
+  LocalMap<TimeWeightedMean> time_mean_ds_concurrency;
+  LocalMap<ExponentialMovingAverage> ema_credit_delay_us;
 };

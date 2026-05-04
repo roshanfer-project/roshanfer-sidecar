@@ -4,7 +4,7 @@ PPM is a protocol that ensures services only receive requests up to their config
 
 1. Demand Notification (DN): Used to inform a server that the client has a number of requests to send. An important field is "requested credits". Note that this is only sent for new arriving requests to the client (for now it's always 1). There are no retries in the protocol. No timeouts are required (in fact not implemented in the current version) if we assume servers don't crash, which is out of our scope.
 2. Credit response: It uses a the same header and structure as DN. It is distinguished from DN by setting a field. An important field is "granted credits". This type is the explciit response to a DN. In other words, there is a 1-to-1 mapping between DN and credit response. **NOTE: In the new version of the protocol, we do not send back credit responses with no granted credits.** This message only goes back when there is a credit.
-3. Credit return (`data[1] == 0x02`): Sent by a **client** to release a granted slot without forwarding an HTTP request (e.g. dfanout unused branches, or **ingress** when every queued RPC missed its deadline after receiving a grant). Handled by **`queue_multiplexer`** → **`decrement_in_flight(service)`**.
+3. Credit return (`data[1] == 0x02`): Sent by a **client** to release a granted slot without forwarding an HTTP request (e.g. dfanout unused branches, or **ingress** when **`ingress_post_credit`** has no RPC to forward—**`0x02`** path—or legacy/defensive empty-dequeue handling). Handled by **`queue_multiplexer`** → **`decrement_in_flight(service)`**.
 
 # Parameters
 
@@ -34,7 +34,7 @@ PPM is a stateful protocol, so both client and server rely on some state variabl
 
 1. **PPMQueue** (non-ingress mesh nodes): Holds RPCs that already triggered a DN and are waiting for credit before `forward_request`.
 
-2. **Ingress-only**: There is **no `PPMQueue`** step for externally originated HTTP requests. Pending RPCs live only in **`Ingress`’s deque**. At most **one DN is outstanding** per ingress worker (`Ingress::send_dn_checker` / `has_dn_on_fly`). Additional arrivals enqueue behind the head but **do not send another DN** until the current grant cycle finishes (`ingress_post_credit` → optional **`send_sub_request`** or **credit return** → **`ingress_pre_credit`**). **`ppm_client(true)` is not used on ingress**; **`ingress_post_credit`** handles grants. If **all** queued RPCs violate their deadline when the grant arrives, ingress sends **`0x02` credit return** (no HTTP forward for that grant).
+2. **Ingress-only**: There is **no `PPMQueue`** step for externally originated HTTP requests on the normal ingress HTTP path—pending RPCs live only in **`Ingress`’s deque**, and **`rpc_queue` EGRESS downstream** stays empty so **`ppm_client(false)`** does not stash ingress HTTP into **`PPMQueue`**. At most **one DN is outstanding** per ingress worker (`Ingress::send_dn_checker` / `has_dn_on_fly`). Additional arrivals enqueue behind the head but **do not send another DN** until the current grant cycle finishes (`ingress_post_credit` → **`send_sub_request`** or **credit return** → **`ingress_pre_credit`**). **`ppm_client(true)` is not used on ingress**; **`ingress_post_credit`** handles grants.
 
 ## Server-side
 
@@ -49,8 +49,8 @@ PPM is a stateful protocol, so both client and server rely on some state variabl
 ### Ingress
 
 1. After TCP READ handling, **`ingress_pre_credit`** may **`send_dn`** once per “credit cycle” when backlog exists and no DN is in flight.
-2. **`Ingress::enqueue`** assigns **`rpc-id`**, **`priority`**, and a **deadline**: **`slo_us = slo_ms * 1000`**, **`slack = slo_us - ceil(tail_ds_service_time_us)`** (fatal if negative), then **`slack -= (int)(slo_us * 0.05)`**; see `ingress.cc` and `rpc_flow.md`.
-3. On UDP credit grant, **`ingress_post_credit`** (exactly **one** credit): **`Ingress::dequeue`** drops expired-at-front RPCs; returns **`nullopt`** if none survive → **`prepare_credit_return`** / **`0x02`** to frontend; otherwise **`send_sub_request`**. Then **`forward` EGRESS UPSTREAM** flushes 503s; then **`ingress_pre_credit`** (no **`PPMQueue`**).
+2. **`Ingress::enqueue`**: **Admission** is gated by **`ingress_size_cap`** ( **`drop_rpc` / 503** when the deque would exceed the cap). Adds **`rpc-id`** and **`priority`** headers. Tracks occupancy via **`ingress_mean`** (**`up`** on admit, **`down`** on **`dequeue`**) for AIMD (see **`rpc_flow.md`**, subsection **AIMD cap**).
+3. On UDP credit grant, **`ingress_post_credit`** (exactly **one** credit): **`Ingress::dequeue`** pops the head RPC ( **`ingress_mean.down()`** ) → **`send_sub_request`** when present; otherwise **`prepare_credit_return`** / **`0x02`**. Then **`forward` EGRESS UPSTREAM** flushes 503s; then **`ingress_pre_credit`** (no **`PPMQueue`**).
 
 ### Every request (non-ingress clients)
 
@@ -96,7 +96,7 @@ External clients --HTTP/1 (without PPM protocol)--> Ingress --HTTP/1 (with PPM p
 **Role-Specific Logic:**
 
 - **Ingress**: 
-  - **Drops**: Deadline-based shedding and explicit **`drop_rpc`** paths run **only** at ingress (503 to client). Other roles do not drop.
-  - **Credits**: Ingress uses **PPM DNs and grants** toward the frontend but buffers pending HTTP RPCs in **`Ingress::queue`**, not **`PPMQueue`**. It may send **`0x02` credit return** when a grant arrives but **no** RPC is eligible (all deadlines expired). Frontend **`queue_multiplexer`** treats **`0x02`** like other clients (**`decrement_in_flight`**).
+  - **Drops**: **Head-drop when the ingress deque reaches `ingress_size_cap`** (**`Ingress::drop_rpc`** → 503). Other roles do not drop.
+  - **Credits**: Ingress uses **PPM DNs and grants** toward the frontend but buffers pending HTTP RPCs in **`Ingress::queue`**, not **`PPMQueue`**. It may send **`0x02` credit return** when a grant arrives but **`dequeue`** yields no RPC (**`ingress_post_credit`** path). Frontend **`queue_multiplexer`** treats **`0x02`** like other clients (**`decrement_in_flight`**).
 - **Mesh Services**: Strictly enforce PPM credits and do not drop requests (at all).
 

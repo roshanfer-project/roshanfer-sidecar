@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <limits>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #if defined(NANO_LOG_ENABLED) || defined(NABO_LOG_TRACE_ENABLED)
@@ -105,6 +106,9 @@ public:
   double value() const { return has_value() ? smoothed_ : 0.0; }
   bool has_value() const { return std::isfinite(smoothed_); }
 
+  /** True once per flush that updated smoothed_; clears on read (no double notify). */
+  bool consume_flush_updated() { return std::exchange(flush_updated_, false); }
+
   void set_description(std::string desc) { description = desc; }
 
 private:
@@ -128,6 +132,7 @@ private:
       smoothed_ = q;
     else
       smoothed_ = ema_alpha_ * q + (1.0 - ema_alpha_) * smoothed_;
+    flush_updated_ = true;
 
 #ifdef NANO_LOG_ENABLED
     if (description == "") {
@@ -150,4 +155,5 @@ private:
   std::vector<double> scratch_;
   std::optional<Clock::time_point> next_flush_;
   double smoothed_;
+  bool flush_updated_{false};
 };

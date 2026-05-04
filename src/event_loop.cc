@@ -377,7 +377,7 @@ EventLoop::EventLoop(int th_index, std::string &ingress_service_ref,
       listeners(), rpc_mapper(), rpc_queue(),
       stats(get_downstream_services(parsed_config),
             get_hosted_services(parsed_config)),
-      ingress(th_index, ingress_service_ref, stats),
+      ingress(th_index, ingress_service_ref, stats, rpc_mapper, rpc_queue),
       state(config, ring, buffer_manager, rpc_mapper, rpc_queue, listeners,
             ingress, shared_state, ingress_service_ref, th_index, stats) {
 

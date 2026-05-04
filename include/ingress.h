@@ -13,24 +13,37 @@
 
 class Ingress {
 public:
-  Ingress(int, std::string &, Stats &);
+  Ingress(int, std::string &, Stats &, RPCMapper &, RPCQueue &);
   ~Ingress();
 
   void enqueue(std::shared_ptr<RPCMessage>);
-  std::optional<std::shared_ptr<RPCMessage>> dequeue(RPCQueue &, RPCMapper &);
+  std::optional<std::shared_ptr<RPCMessage>> dequeue();
   size_t size();
+  void update_ingress_cap();
   void dump_state();
   bool send_dn_checker();
   RPCID get_tail_id();
   Priority get_tail_priority();
 
 private:
-  void drop_rpc(std::shared_ptr<RPCMessage>, RPCQueue &, RPCMapper &);
+  void drop_rpc(std::shared_ptr<RPCMessage>);
   void add_rpc_id_header(std::shared_ptr<RPCMessage> &);
   void add_priority_header(std::shared_ptr<RPCMessage> &);
 
+  // AIMD members
+  size_t ingress_size_cap = 10;
+  const float aimd_err_d = 0.0F;
+  const float aimd_err_i = -0.2F;
+  const float aimd_adj_d = 2.0F;
+  const float aimd_adj_i = 2.0F;
+  const float safe_multiply = 2.0F;
+  const float aimd_queue_th = 0.8F;
+
   Stats &stats;
+  RPCMapper &rpc_mapper;
+  RPCQueue &rpc_queue;
   std::deque<std::shared_ptr<RPCMessage>> queue;
+  TimeWeightedMean ingress_mean;
   bool has_dn_on_fly;
   int32_t priority;
   int32_t drop_id;

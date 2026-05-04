@@ -410,7 +410,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
             if (!config.is_ingress) {
               fanout_res_credit_management(rpc->get_id());
             }
-            local_state.ema_ds_concurrency.get(rpc->get_service()).down();
+            stats.time_mean_ds_concurrency.get(rpc->get_service()).down();
           } else if (type == ConnectionType::INGRESS) {
             // credit management and check for credit transmission
             shared_state.credit_queue.decrement_in_flight(rpc->get_service());
@@ -705,8 +705,8 @@ void inline State::send_sub_request(std::shared_ptr<RPCMessage> rpc) {
   auto wd = (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::steady_clock::now() - rpc->req_rcv_time)
                 .count();
-  local_state.ema_credit_delay_us.get(service).update(wd);
-  local_state.ema_ds_concurrency.get(service).up();
+  stats.ema_credit_delay_us.get(service).update(wd);
+  stats.time_mean_ds_concurrency.get(service).up();
 
   VLOG(1) << "RPCForward: EGRESS request. "
           << "| service: " << service << "| id: " << rpc->get_id()
@@ -812,6 +812,10 @@ void State::dump_entire_state() {
 }
 
 void State::ingress_pre_credit() {
+  if (stats.tail_e2e_time_us.get(ingress_service).consume_flush_updated()) {
+    ingress.update_ingress_cap();
+  }
+
   if (!ingress.send_dn_checker()) {
     return;
   }
@@ -835,7 +839,7 @@ void State::ingress_post_credit(const std::unique_ptr<Buffer> &buf) {
   }
 
   for (size_t i = 0; i < num_credits; i++) {
-    auto rpc_optional = ingress.dequeue(rpc_queue, rpc_mapper);
+    auto rpc_optional = ingress.dequeue();
     if (rpc_optional.has_value()) {
       send_sub_request(std::move(rpc_optional.value()));
     } else {
@@ -911,7 +915,7 @@ float State::cal_local_service_time(std::string_view us_service) {
     auto max = 0.0F;
     for (auto &ds_service : it->second.downstreams) {
       auto value = stats.ema_ds_service_time_us.get(ds_service).get_value() +
-                   local_state.ema_credit_delay_us.get(ds_service).get_value();
+                   stats.ema_credit_delay_us.get(ds_service).get_value();
       if (value > max) {
         max = value;
       }
@@ -922,7 +926,7 @@ float State::cal_local_service_time(std::string_view us_service) {
     auto min = MAXFLOAT;
     for (auto &ds_service : it->second.downstreams) {
       auto value = stats.ema_ds_service_time_us.get(ds_service).get_value() +
-                   local_state.ema_credit_delay_us.get(ds_service).get_value();
+                   stats.ema_credit_delay_us.get(ds_service).get_value();
       if (value < min) {
         min = value;
       }
@@ -933,7 +937,7 @@ float State::cal_local_service_time(std::string_view us_service) {
     auto sum = 0.0F;
     for (auto &ds_service : it->second.downstreams) {
       sum += stats.ema_ds_service_time_us.get(ds_service).get_value() +
-             local_state.ema_credit_delay_us.get(ds_service).get_value();
+             stats.ema_credit_delay_us.get(ds_service).get_value();
     }
 
     return us_rt - sum;
@@ -1101,12 +1105,5 @@ SharedState::SharedState(std::vector<std::string> hosted_service,
 
 LocalState::LocalState(std::vector<std::string> /*hosted_services*/,
                        std::vector<std::string> downstream_services,
-                       std::string &ingress_service)
-    : ema_credit_delay_us(downstream_services),
-      ema_ds_concurrency(downstream_services), drops(0),
-      last_rtt_us(downstream_services) {
-  for (auto &service : downstream_services) {
-    ema_ds_concurrency.get(service).set_description("DSC-" + service);
-    ema_credit_delay_us.get(service).set_description("Credit-Delay-" + service);
-  }
-}
+                       std::string & /*ingress_service*/)
+    : drops(0), last_rtt_us(downstream_services) {}

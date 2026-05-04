@@ -1,4 +1,5 @@
 #include "stats.h"
+#include "config.h"
 #include "connection_enums.h"
 #include "fast_map.hpp"
 #include "hdr/hdr_histogram.h"
@@ -182,15 +183,20 @@ Stats::Stats(std::vector<std::string> ds_services,
              std::vector<std::string> us_services)
     : mode2_credits("Mode2 Credits"), ema_ds_service_time_us(ds_services),
       ema_us_service_time_us(us_services), ema_us_sidecar_rtt_us(us_services),
-      ema_ds_sidecar_rtt_us(ds_services), tail_ds_service_time_us(ds_services) {
+      ema_ds_sidecar_rtt_us(ds_services), tail_ds_service_time_us(ds_services),
+      tail_e2e_time_us(us_services), time_mean_ds_concurrency(ds_services),
+      ema_credit_delay_us(ds_services) {
   for (const auto &service : us_services) {
     ema_us_sidecar_rtt_us.get(service).set_description("US-RTT-" + service);
     ema_us_service_time_us.get(service).set_description("US-RT-" + service);
+    tail_e2e_time_us.get(service).set_description("E2E-" + service);
   }
   for (const auto &service : ds_services) {
     ema_ds_service_time_us.get(service).set_description("DS-RTT-" + service);
     ema_ds_service_time_us.get(service).set_description("DS-RT-" + service);
     tail_ds_service_time_us.get(service).set_description("DS-RT-" + service);
+    time_mean_ds_concurrency.get(service).set_description("DSC-" + service);
+    ema_credit_delay_us.get(service).set_description("Credit-Delay-" + service);
   }
 }
 
@@ -232,6 +238,18 @@ void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
         .update(static_cast<int32_t>(ds_service_time));
     tail_ds_service_time_us.get(rpc->get_service())
         .update(static_cast<int32_t>(ds_service_time));
+
+    if (config.is_ingress) {
+      // calculate E2E for Ingress
+      if (rpc->req_rcv_time.time_since_epoch() >
+          std::chrono::steady_clock::now().time_since_epoch()) {
+        LOG(FATAL) << "Service time is negative";
+      }
+      auto e2e_time = std::chrono::duration_cast<std::chrono::microseconds>(
+                          std::chrono::steady_clock::now() - rpc->req_rcv_time)
+                          .count();
+      tail_e2e_time_us.get(rpc->get_service()).update((double)e2e_time);
+    }
 
     VLOG(2) << "Stats: EGRESS Reported latency "
             << "| service: " << rpc->get_service()

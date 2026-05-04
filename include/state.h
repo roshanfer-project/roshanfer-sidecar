@@ -62,11 +62,6 @@ public:
   /*ConnectionType::INGRESS-side metrics*/
 
   /*ConnectionType::EGRESS-side metrics*/
-  /*
-  Average calculated waiting delay in the Ingress's queue
-  */
-  LocalMap<ExponentialMovingAverage> ema_credit_delay_us;
-  LocalMap<ExponentialMovingAverage> ema_ds_concurrency;
 
   // number of drops (updated if only config.is_ingress is true)
   uint32_t drops;

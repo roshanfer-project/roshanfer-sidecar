@@ -25,10 +25,11 @@ using namespace NanoLog::LogLevels;
 #endif
 
 Ingress::Ingress(int index_arg, std::string &ingress_service_ref,
-                 Stats &stats_ref)
-    : stats(stats_ref), queue(std::deque<std::shared_ptr<RPCMessage>>()),
-      has_dn_on_fly(false), drop_id(0), drop_fd(-index_arg),
-      last_rpc_id((RPCID)index_arg << 48),
+                 Stats &stats_ref, RPCMapper &rpc_mapper_ref,
+                 RPCQueue &rpc_queue_ref)
+    : stats(stats_ref), rpc_mapper(rpc_mapper_ref), rpc_queue(rpc_queue_ref),
+      queue(std::deque<std::shared_ptr<RPCMessage>>()), has_dn_on_fly(false),
+      drop_id(0), drop_fd(-index_arg), last_rpc_id((RPCID)index_arg << 48),
       ingress_service(ingress_service_ref) {
   if (config.is_ingress) {
     if (!config.routing.at(ingress_service_ref).slo.has_value()) {
@@ -57,22 +58,14 @@ void Ingress::enqueue(std::shared_ptr<RPCMessage> rpc) {
   }
 
   // run the head-drop hook, if applicable
-  // set the dealine
-  auto slo = config.routing.at(ingress_service).slo.value_or(0) * 1000;
-  auto slack =
-      slo - (int)std::ceil(
-                stats.tail_ds_service_time_us.get(ingress_service).value());
-  // apply guard
-  slack -= (int)(slo * 0.05);
-  if (slack < 0) {
-    slack = slo;
+  if (queue.size() >= ingress_size_cap) {
+    drop_rpc(std::move(rpc));
+    return;
   }
-
-  rpc->deadline =
-      std::chrono::steady_clock::now() + std::chrono::microseconds(slack);
 
   add_rpc_id_header(rpc);
   add_priority_header(rpc);
+  ingress_mean.up();
   queue.push_back(std::move(rpc));
   VLOG(2) << "Enqueued RPC message for service: " << ingress_service;
 
@@ -84,41 +77,53 @@ void Ingress::enqueue(std::shared_ptr<RPCMessage> rpc) {
 #endif
 }
 
-std::optional<std::shared_ptr<RPCMessage>>
-Ingress::dequeue(RPCQueue &rpc_queue, RPCMapper &rpc_mapper) {
+std::optional<std::shared_ptr<RPCMessage>> Ingress::dequeue() {
   if (queue.empty()) {
     LOG(FATAL) << "No RPC message in ingress queue for service: "
                << ingress_service;
   }
 
-  // run the tail-drop logic
-  bool succuss = false;
-  std::shared_ptr<RPCMessage> rpc;
-  while (queue.size() != 0) {
-    rpc = std::move(queue.front());
-    queue.pop_front();
+  auto rpc = std::move(queue.front());
+  queue.pop_front();
 
-    // check the deadline
-    if (std::chrono::steady_clock::now() > rpc->deadline) {
-      // deadline missed
-      drop_rpc(std::move(rpc), rpc_queue, rpc_mapper);
-    } else {
-      succuss = true;
-      break;
+  has_dn_on_fly = false;
+  ingress_mean.down();
+  VLOG(2) << "Dequeued RPC message for service: " << ingress_service;
+#ifdef NANO_LOG_ENABLED
+  NANO_LOG(NOTICE, "M# %s Measured QS-%s T:T %zu", config.name.c_str(),
+           ingress_service.c_str(), queue.size());
+#endif
+  return rpc;
+}
+
+void Ingress::update_ingress_cap() {
+  auto slo_us = config.routing.at(ingress_service).slo.value_or(0) * 1000;
+  auto err =
+      (stats.tail_e2e_time_us.get(ingress_service).value() - slo_us) / slo_us;
+
+  if (err > aimd_err_d) {
+    ingress_size_cap = (size_t)std::ceil((float)ingress_size_cap / aimd_adj_d);
+  } else if (err < aimd_err_i) {
+    auto ing_mean = ingress_mean.value();
+    auto concurrency =
+        stats.time_mean_ds_concurrency.get(ingress_service).value();
+    if (ing_mean >= (float)ingress_size_cap * aimd_queue_th) {
+      ingress_size_cap += (size_t)std::ceil((-err) * aimd_adj_i);
+    } else if ((float)ingress_size_cap > safe_multiply * concurrency) {
+      const double lowered =
+          std::ceil((double)ingress_size_cap / (double)aimd_adj_d);
+      ingress_size_cap =
+          (size_t)std::max((double)(safe_multiply * concurrency), lowered);
     }
   }
 
-  has_dn_on_fly = false;
-  if (succuss) {
-    VLOG(2) << "Dequeued RPC message for service: " << ingress_service;
+  ingress_size_cap = std::max((size_t)1, ingress_size_cap);
 #ifdef NANO_LOG_ENABLED
-    NANO_LOG(NOTICE, "M# %s Measured QS-%s T:T %zu", config.name.c_str(),
-             ingress_service.c_str(), queue.size());
+  NANO_LOG(NOTICE, "M# %s Measured QS-CAP-%s T:T %zu", config.name.c_str(),
+           ingress_service.c_str(), ingress_size_cap);
+  NANO_LOG(NOTICE, "M# %s Measured ERR-%s T:T %f", config.name.c_str(),
+           ingress_service.c_str(), err);
 #endif
-    return rpc;
-  } else {
-    return std::nullopt;
-  }
 }
 
 void Ingress::add_rpc_id_header(std::shared_ptr<RPCMessage> &rpc) {
@@ -146,8 +151,7 @@ void Ingress::add_priority_header(std::shared_ptr<RPCMessage> &rpc) {
       priority_header_value.size(), true, false);
 }
 
-void Ingress::drop_rpc(std::shared_ptr<RPCMessage> rpc, RPCQueue &rpc_queue,
-                       RPCMapper &rpc_mapper) {
+void Ingress::drop_rpc(std::shared_ptr<RPCMessage> rpc) {
   auto drop_rpc = std::dynamic_pointer_cast<HTTPMessage>(std::move(rpc));
   if (!drop_rpc) {
     LOG(FATAL) << "Null pointer after dynamic_pointer_cast"
