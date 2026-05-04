@@ -62,12 +62,11 @@ void Ingress::enqueue(std::shared_ptr<RPCMessage> rpc) {
   auto slack =
       slo - (int)std::ceil(
                 stats.tail_ds_service_time_us.get(ingress_service).value());
-  if (slack < 0) {
-    LOG(FATAL) << "slack is negative for service: " << ingress_service;
-  }
-
   // apply guard
   slack -= (int)(slo * 0.05);
+  if (slack < 0) {
+    slack = slo;
+  }
 
   rpc->deadline =
       std::chrono::steady_clock::now() + std::chrono::microseconds(slack);
