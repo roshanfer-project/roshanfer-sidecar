@@ -203,6 +203,7 @@ void EventLoop::run() {
         // check if the connection is successful
         if (cqe->res < 0) {
           LOG(FATAL) << "Failed to connect to fd: " << ud->conn->get_fd()
+                     << ", host:" << ud->conn->get_host()
                      << ", error: " << strerror(-cqe->res);
           break;
         }
@@ -373,8 +374,8 @@ EventLoop::EventLoop(int th_index, std::string &ingress_service_ref,
     : index(th_index), ingress_service(ingress_service_ref),
       config(parsed_config), ring(config.ring_size),
       buffer_manager(config.buffer_count, config.buffer_size, ring),
-      listeners(), rpc_mapper(),
-      rpc_queue(), ingress(th_index, ingress_service_ref),
+      listeners(), rpc_mapper(), rpc_queue(),
+      ingress(th_index, ingress_service_ref),
       state(config, ring, buffer_manager, rpc_mapper, rpc_queue, listeners,
             ingress, shared_state, ingress_service_ref, th_index) {
 
