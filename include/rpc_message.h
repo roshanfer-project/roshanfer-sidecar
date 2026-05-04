@@ -113,6 +113,8 @@ public:
   // dynamic fan-out credit return queue
   std::queue<std::unique_ptr<Buffer>> credit_return_queue;
   std::string *dfanout_service;
+
+  std::chrono::time_point<std::chrono::steady_clock> deadline;
 };
 
 class gRPCMessage : public RPCMessage {

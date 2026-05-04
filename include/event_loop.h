@@ -27,6 +27,7 @@ public:
   std::unordered_map<ConnectionType, std::shared_ptr<Listener>> listeners;
   RPCMapper rpc_mapper;
   RPCQueue rpc_queue;
+  Stats stats;
   Ingress ingress;
   State state;
 };

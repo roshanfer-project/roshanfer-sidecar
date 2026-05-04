@@ -65,29 +65,14 @@ ConnectionPool &UpstreamRouteMapper::get_pool(const std::string &service) {
   }
 }
 
-std::vector<std::string> get_downstream_services(const Config &local_config) {
-  std::vector<std::string> downstream_services;
-  for (const auto &[route, _] : local_config.routing) {
-    downstream_services.push_back(route);
-  }
-  return downstream_services;
-}
-
-std::vector<std::string> get_hosted_services(const Config &local_config) {
-  std::vector<std::string> hosted_services;
-  for (const auto &mapping : local_config.mapping) {
-    hosted_services.push_back(mapping.first);
-  }
-  return hosted_services;
-}
-
 State::State(Config parsed_config, RingWrapper &ring_ref,
              BufferManager &buffer_manager_ref, RPCMapper &mapper_ref,
              RPCQueue &queue_ref,
              std::unordered_map<ConnectionType, std::shared_ptr<Listener>>
                  &listeners_ref,
              Ingress &ingress_ref, SharedState &shared_state_ref,
-             std::string &ingress_service_ref, int thread_id_arg)
+             std::string &ingress_service_ref, int thread_id_arg,
+             Stats &stats_ref)
     : config(parsed_config), ingress_pool(ConnectionType::INGRESS),
       upstream_route_mapper(), ring(ring_ref),
       buffer_manager(buffer_manager_ref), rpc_mapper(mapper_ref),
@@ -97,9 +82,7 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
       local_state(get_hosted_services(parsed_config),
                   get_downstream_services(parsed_config), ingress_service_ref),
       utilization(1000, get_hosted_services(parsed_config)),
-      ingress_service(ingress_service_ref),
-      stats(get_downstream_services(parsed_config),
-            get_hosted_services(parsed_config)) {
+      ingress_service(ingress_service_ref), stats(stats_ref) {
 
   if (config.buffer_size > HTTP1Connection_BUF_SIZE) {
     LOG(FATAL) << "Buffer size cannot be larger than "
@@ -502,9 +485,14 @@ static std::string_view extract_service_from_ppm_req(const char *data) {
 }
 
 std::tuple<const std::string &, bool, size_t, RPCID>
-State::valid_credit(const char *data) {
+State::credit_post_process(const std::unique_ptr<Buffer> &buf) {
+
+  const char *data = buf->data.data();
+
   // check the data format and extract the service name
   auto key = extract_service_from_ppm_req(data);
+  const std::string &service =
+      config.is_ingress ? ingress_service : ppm_queue.check(key);
   // extract the ID of the request (int64_t)
   RPCID id = (int64_t)((uint64_t)(unsigned char)data[5] << 56 |
                        (uint64_t)(unsigned char)data[6] << 48 |
@@ -515,65 +503,63 @@ State::valid_credit(const char *data) {
                        (uint64_t)(unsigned char)data[11] << 8 |
                        (uint64_t)(unsigned char)data[12]);
 
+  // update RTT
+  int64_t timestamp =
+      (int64_t)((uint64_t)(unsigned char)buf->data.at(14) << 56 |
+                (uint64_t)(unsigned char)buf->data.at(15) << 48 |
+                (uint64_t)(unsigned char)buf->data.at(16) << 40 |
+                (uint64_t)(unsigned char)buf->data.at(17) << 32 |
+                (uint64_t)(unsigned char)buf->data.at(18) << 24 |
+                (uint64_t)(unsigned char)buf->data.at(19) << 16 |
+                (uint64_t)(unsigned char)buf->data.at(20) << 8 |
+                (uint64_t)(unsigned char)buf->data.at(21));
+  int32_t queueing_time =
+      (int32_t)((uint32_t)(unsigned char)buf->data.at(22) << 24 |
+                (uint32_t)(unsigned char)buf->data.at(23) << 16 |
+                (uint32_t)(unsigned char)buf->data.at(24) << 8 |
+                (uint32_t)(unsigned char)buf->data.at(25));
+  int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                       std::chrono::steady_clock::now().time_since_epoch())
+                       .count();
+  int32_t total = (int32_t)(now_us - timestamp);
+  int32_t rtt = total - queueing_time;
+  if (rtt > 0) {
+    local_state.last_rtt_us.set(service, rtt);
+    stats.ema_ds_sidecar_rtt_us.get(service).update(rtt);
+  } else {
+    LOG(FATAL) << "Invalid RTT: " << rtt;
+  }
+
   // add the difference between requested credits and available credits to the
   // denied requests
   int credit_diff = (int)(data[3] - data[4]);
-  if (credit_diff > 0) {
-    VLOG(1) << "PPMClient: Credit denied "
-            << "| service: " << key << "| id: " << id
-            << "| num denied requests: " << credit_diff
-            << "| ppm_queue size: " << ppm_queue.size(ppm_queue.check(key));
-  } else if (credit_diff < 0) {
-    LOG(FATAL) << "Received more credits than requested: " << (int)data[3]
+  if (credit_diff != 0) {
+    LOG(FATAL) << "Missmatch between credits requested: " << (int)data[3]
                << " vs " << (int)data[4];
-  } else {
-    VLOG(1) << "PPMClient: Valid credit "
-            << "| id: " << id << "| service: " << key
-            << "| new credits: " << (int)data[4]
-            << "| ppm_queue size: " << ppm_queue.size(ppm_queue.check(key));
+  }
+  if ((int)data[4] == 0) {
+    LOG(FATAL) << "Receiving 0 credits is not allowed."
+               << "service: " << key;
+  }
+  if (config.is_ingress && ingress_service != key) {
+    LOG(FATAL) << "Received credits for a wrong service in ingress"
+               << ", ingress_service: " << ingress_service
+               << ", service of the credit: " << key;
   }
 
-  if (data[4] >= 1) {
-    // make sure we are not receiving more than what we want
-    return {ppm_queue.check(key), true, data[4], id};
-  } else {
-    return {ppm_queue.check(key), false, 0, id};
-  }
+  VLOG(1) << "PPMClient: Valid credit "
+          << "| id: " << id << "| service: " << key
+          << "| new credits: " << (int)data[4]
+          << "| ppm_queue size: " << ppm_queue.size(service);
+
+  return {service, true, data[4], id};
 }
 
 void State::ppm_client(bool dn_resp,
                        const std::unique_ptr<Buffer> &dn_resp_buffer) {
   if (dn_resp) {
     // we have received a demand notification response
-    auto [service, ok, num_credits, id] =
-        valid_credit(dn_resp_buffer->data.data());
-
-    // extract the timestamp
-    int64_t timestamp =
-        (int64_t)((uint64_t)(unsigned char)dn_resp_buffer->data.at(14) << 56 |
-                  (uint64_t)(unsigned char)dn_resp_buffer->data.at(15) << 48 |
-                  (uint64_t)(unsigned char)dn_resp_buffer->data.at(16) << 40 |
-                  (uint64_t)(unsigned char)dn_resp_buffer->data.at(17) << 32 |
-                  (uint64_t)(unsigned char)dn_resp_buffer->data.at(18) << 24 |
-                  (uint64_t)(unsigned char)dn_resp_buffer->data.at(19) << 16 |
-                  (uint64_t)(unsigned char)dn_resp_buffer->data.at(20) << 8 |
-                  (uint64_t)(unsigned char)dn_resp_buffer->data.at(21));
-    int32_t queueing_time =
-        (int32_t)((uint32_t)(unsigned char)dn_resp_buffer->data.at(22) << 24 |
-                  (uint32_t)(unsigned char)dn_resp_buffer->data.at(23) << 16 |
-                  (uint32_t)(unsigned char)dn_resp_buffer->data.at(24) << 8 |
-                  (uint32_t)(unsigned char)dn_resp_buffer->data.at(25));
-    int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                         std::chrono::steady_clock::now().time_since_epoch())
-                         .count();
-    int32_t total = (int32_t)(now_us - timestamp);
-    int32_t rtt = total - queueing_time;
-    if (rtt > 0) {
-      local_state.last_rtt_us.set(service, rtt);
-      stats.ema_ds_sidecar_rtt_us.get(service).update(rtt);
-    } else {
-      LOG(FATAL) << "Invalid RTT: " << rtt;
-    }
+    auto [service, ok, num_credits, id] = credit_post_process(dn_resp_buffer);
 
     if (!ok) {
       return;
@@ -583,7 +569,8 @@ void State::ppm_client(bool dn_resp,
       if (!config.is_ingress) {
         fanout_req_management(id, service, dn_resp_buffer);
       } else {
-        send_sub_request(id, service);
+        LOG(FATAL) << "Ingress should not use ppm_client for sending requests "
+                      "post credit";
       }
     }
   } else {
@@ -634,7 +621,8 @@ void State::fanout_req_management(RPCID id, const std::string &service,
   auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
   if (mapping_entry.pfanout.value_or(false)) {
     ingress_rpc->pfanout_req++;
-    send_sub_request(id, service);
+    auto rpc = ppm_queue.pop(service, id);
+    send_sub_request(std::move(rpc));
 
     // if we are not the last branch, do nothing
     if (ingress_rpc->pfanout_req != mapping_entry.downstreams.size()) {
@@ -653,7 +641,8 @@ void State::fanout_req_management(RPCID id, const std::string &service,
     if (ingress_rpc->pfanout_req != mapping_entry.downstreams.size()) {
       return;
     } else {
-      send_sub_request(id, *ingress_rpc->dfanout_service);
+      auto rpc = ppm_queue.pop(*ingress_rpc->dfanout_service, id);
+      send_sub_request(std::move(rpc));
 
       // send out queued credit returns
       while (ingress_rpc->credit_return_queue.size() > 0) {
@@ -666,7 +655,8 @@ void State::fanout_req_management(RPCID id, const std::string &service,
     }
   } else {
     // sequential fanout
-    send_sub_request(id, service);
+    auto rpc = ppm_queue.pop(service, id);
+    send_sub_request(std::move(rpc));
   }
 
   // for non pfanout or last branch in pfanout, decrement active requests
@@ -696,33 +686,31 @@ State::prepare_credit_return(const std::unique_ptr<Buffer> &dn_reply) {
   return credit_ret;
 }
 
-std::shared_ptr<RPCMessage> inline State::send_sub_request(
-    RPCID id, const std::string &service) {
-  if (ppm_queue.size(service) == 0) {
+void inline State::send_sub_request(std::shared_ptr<RPCMessage> rpc) {
+  /* if (ppm_queue.size(service) == 0) {
     dump_entire_state();
     LOG(FATAL)
         << "Received more credits than available in the queue for service: "
         << service << "| id: " << id
         << "| queue size: " << ppm_queue.size(service);
   }
-  auto rpc = ppm_queue.pop(service, id);
+  auto rpc = ppm_queue.pop(service, id); */
+  auto &service = rpc->get_service();
   route_request(ConnectionType::EGRESS, rpc->get_ds_stream_id(),
                 rpc->get_ds_fd());
-  forward_request(
-      upstream_route_mapper.get_pool(service).get_connection(rpc->get_us_fd()),
-      rpc);
+  forward_request(upstream_route_mapper.get_pool(rpc->get_service())
+                      .get_connection(rpc->get_us_fd()),
+                  rpc);
 
   auto wd = (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::steady_clock::now() - rpc->req_rcv_time)
                 .count();
-  local_state.ma_credit_delay_us.get(service).update(wd);
-  local_state.td_credit_delay_us.get(service).add(wd);
+  local_state.ema_credit_delay_us.get(service).update(wd);
   local_state.ema_ds_concurrency.get(service).up();
 
   VLOG(1) << "RPCForward: EGRESS request. "
           << "| service: " << service << "| id: " << rpc->get_id()
           << "| ppm_queue size: " << ppm_queue.size(service);
-  return rpc;
 }
 
 /*
@@ -823,66 +811,32 @@ void State::dump_entire_state() {
   LOG(INFO) << "---  Drops (local_state.drops) ---" << local_state.drops;
 }
 
-void State::ingress_admit() {
-  if (ingress.size() == 0) {
+void State::ingress_pre_credit() {
+  if (!ingress.send_dn_checker()) {
     return;
   }
-  if (ingress.size() != 1) {
-    LOG(FATAL) << "Ingress queue size is not 1 (Ingress assumes single request "
-                  "at a time)";
-  }
-  int32_t queue_size = (int32_t)ppm_queue.size(ingress_service);
-  auto &qs = stats.ma_ds_queue_size.get(ingress_service);
-  qs.update(queue_size);
-  float service_time = 0;
-  auto &ema_st = stats.ema_ds_service_time_us.get(ingress_service);
-  if (ema_st.get_count() > 2000) {
-    service_time = (float)stats.td_ds_service_time_us.get(ingress_service)
-                       .get_quantile(0.97);
-  } else {
-    service_time = ema_st.get_value();
-  }
 
-  int32_t wt = (int32_t)(service_time * (float)queue_size *
-                         ((float)queue_size / qs.get_value()) /
-                         local_state.ema_ds_concurrency.get(ingress_service)
-                             .get_value_cap(1, INFINITY));
+  // we should send a DN
+  auto id = ingress.get_tail_id();
+  auto priority = ingress.get_tail_priority();
+  send_dn(upstream_route_mapper.get_pool(ingress_service).get_addr(),
+          ingress_service, 1, id, priority);
+}
 
-  int32_t e2e_delay = wt + (int32_t)service_time;
+void State::ingress_post_credit(const std::unique_ptr<Buffer> &buf) {
+  auto [_, ok, num_credits, id] = credit_post_process(buf);
 
-  auto added =
-      ingress.add_to_be_admitted_or_drop(rpc_queue, rpc_mapper, e2e_delay);
-#ifdef NANO_LOG_ENABLED
-  NANO_LOG(NOTICE, "M# %s Measured QS-%s T:T %d", config.name.c_str(),
-           ingress_service.c_str(), queue_size);
-  NANO_LOG(NOTICE, "M# %s Instant WT-%s T:T %d", config.name.c_str(),
-           ingress_service.c_str(),
-           (int32_t)ppm_queue.get_waiting_delay_us(ingress_service));
-  NANO_LOG(NOTICE, "M# %s Estimated E2E-%s T:T %d", config.name.c_str(),
-           ingress_service.c_str(), e2e_delay);
-  if (added > 0) {
-    NANO_LOG(NOTICE, "M# %s Estimated A-E2E-%s T:T %d", config.name.c_str(),
-             ingress_service.c_str(), e2e_delay);
-    NANO_LOG(NOTICE, "M# %s Estimated A-WT-%s T:T %d", config.name.c_str(),
-             ingress_service.c_str(), wt);
-    NANO_LOG(NOTICE, "M# %s Estimated A-ST-%s T:T %d", config.name.c_str(),
-             ingress_service.c_str(), (int32_t)service_time);
-  }
-  NANO_LOG(NOTICE, "M# %s Estimated RT-%s T:T %f", config.name.c_str(),
-           ingress_service.c_str(),
-           stats.ema_ds_service_time_us.get(ingress_service).get_value());
-  NANO_LOG(NOTICE, "M# %s Estimated WT-%s T:T %d", config.name.c_str(),
-           ingress_service.c_str(), wt);
-  NANO_LOG(NOTICE, "M# %s Estimated ST-%s T:T %d", config.name.c_str(),
-           ingress_service.c_str(), (int32_t)service_time);
-#endif
-  if (ingress.size() != 0) {
-    dump_entire_state();
-    LOG(FATAL) << "Ingress queue size is not 0";
+  if (!ok) {
+    return;
   }
 
-  // forward potential dropped requests
-  forward(ConnectionType::EGRESS, ConnectionDirection::UPSTREAM);
+  for (size_t i = 0; i < num_credits; i++) {
+    auto rpc = ingress.dequeue(rpc_queue, rpc_mapper);
+    send_sub_request(std::move(rpc));
+  }
+
+  // send the next DN
+  ingress_pre_credit();
 }
 
 inline static void write_dn_response(int result,
@@ -936,14 +890,14 @@ float State::cal_local_service_time(std::string_view us_service) {
     LOG(FATAL) << "service " << us_service << " should be in mapping.";
   }
 
-  auto us_rt = stats.ma_us_service_time_us.get(us_service).get_value();
+  auto us_rt = stats.ema_us_service_time_us.get(us_service).get_value();
 
   if (it->second.pfanout.value_or(false)) {
     // find maximum service time
     auto max = 0.0F;
     for (auto &ds_service : it->second.downstreams) {
-      auto value = stats.ma_ds_service_time_us.get(ds_service).get_value() +
-                   local_state.ma_credit_delay_us.get(ds_service).get_value();
+      auto value = stats.ema_ds_service_time_us.get(ds_service).get_value() +
+                   local_state.ema_credit_delay_us.get(ds_service).get_value();
       if (value > max) {
         max = value;
       }
@@ -953,8 +907,8 @@ float State::cal_local_service_time(std::string_view us_service) {
   } else if (it->second.dfanout.value_or(false)) {
     auto min = MAXFLOAT;
     for (auto &ds_service : it->second.downstreams) {
-      auto value = stats.ma_ds_service_time_us.get(ds_service).get_value() +
-                   local_state.ma_credit_delay_us.get(ds_service).get_value();
+      auto value = stats.ema_ds_service_time_us.get(ds_service).get_value() +
+                   local_state.ema_credit_delay_us.get(ds_service).get_value();
       if (value < min) {
         min = value;
       }
@@ -964,8 +918,8 @@ float State::cal_local_service_time(std::string_view us_service) {
   } else {
     auto sum = 0.0F;
     for (auto &ds_service : it->second.downstreams) {
-      sum += stats.ma_ds_service_time_us.get(ds_service).get_value() +
-             local_state.ma_credit_delay_us.get(ds_service).get_value();
+      sum += stats.ema_ds_service_time_us.get(ds_service).get_value() +
+             local_state.ema_credit_delay_us.get(ds_service).get_value();
     }
 
     return us_rt - sum;
@@ -1053,7 +1007,11 @@ void State::dispatch_ppm_recv(const std::unique_ptr<Buffer> &buf) {
     return;
   }
   if (b1 == 0x01 && b2 == 0x01) {
-    ppm_client(true, buf);
+    if (config.is_ingress) {
+      ingress_post_credit(buf);
+    } else {
+      ppm_client(true, buf);
+    }
     return;
   }
   LOG(FATAL) << "Unknown PPM UDP message: type " << (int)b1 << " flags "
@@ -1130,13 +1088,11 @@ SharedState::SharedState(std::vector<std::string> hosted_service,
 LocalState::LocalState(std::vector<std::string> /*hosted_services*/,
                        std::vector<std::string> downstream_services,
                        std::string &ingress_service)
-    : ma_credit_delay_us(downstream_services),
-      ema_ds_concurrency(downstream_services),
-      td_credit_delay_us(downstream_services), drops(0),
+    : ema_credit_delay_us(downstream_services),
+      ema_ds_concurrency(downstream_services), drops(0),
       last_rtt_us(downstream_services) {
   for (auto &service : downstream_services) {
     ema_ds_concurrency.get(service).set_description("DSC-" + service);
-    ma_credit_delay_us.get(service).set_description("Credit-Delay-" + service);
-    td_credit_delay_us.get(service).set_description("Credit-Delay-" + service);
+    ema_credit_delay_us.get(service).set_description("Credit-Delay-" + service);
   }
 }

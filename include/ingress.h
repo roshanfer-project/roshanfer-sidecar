@@ -3,36 +3,37 @@
 #include "rpc_mapper.h"
 #include "rpc_message.h"
 #include "rpc_queue.h"
+#include "stats.h"
 #include <cstddef>
 #include <cstdint>
 #include <deque>
-#include <random>
+#include <memory>
 #include <string>
 
 class Ingress {
 public:
-  Ingress(int, std::string &);
+  Ingress(int, std::string &, Stats &);
   ~Ingress();
 
-  void enqueue(std::shared_ptr<RPCMessage> rpc);
-  std::shared_ptr<RPCMessage> dequeue();
+  void enqueue(std::shared_ptr<RPCMessage>);
+  std::shared_ptr<RPCMessage> dequeue(RPCQueue &, RPCMapper &);
   size_t size();
-  int64_t add_to_be_admitted_or_drop(RPCQueue &, RPCMapper &, int32_t);
   void dump_state();
+  bool send_dn_checker();
+  RPCID get_tail_id();
+  Priority get_tail_priority();
+
+private:
+  void drop_rpc(std::shared_ptr<RPCMessage>, RPCQueue &, RPCMapper &);
   void add_rpc_id_header(std::shared_ptr<RPCMessage> &);
   void add_priority_header(std::shared_ptr<RPCMessage> &);
 
-private:
+  Stats &stats;
   std::deque<std::shared_ptr<RPCMessage>> queue;
+  bool has_dn_on_fly;
   int32_t priority;
   int32_t drop_id;
   int drop_fd;
-  float max_th_us;
-  float min_th_us;
-  int32_t red_count;
-  std::random_device rd;
-  std::mt19937 gen;
-  std::uniform_real_distribution<> dis;
   RPCID last_rpc_id;
   const uint8_t *RPC_ID_HEADER_NAME =
       reinterpret_cast<const uint8_t *>("rpc-id");

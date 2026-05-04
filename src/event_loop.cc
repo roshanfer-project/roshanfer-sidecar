@@ -182,7 +182,7 @@ void EventLoop::run() {
 
         // check ingress admission
         if (config.is_ingress) {
-          state.ingress_admit();
+          state.ingress_pre_credit();
         }
 
         try {
@@ -373,10 +373,12 @@ EventLoop::EventLoop(int th_index, std::string &ingress_service_ref,
     : index(th_index), ingress_service(ingress_service_ref),
       config(parsed_config), ring(config.ring_size),
       buffer_manager(config.buffer_count, config.buffer_size, ring),
-      listeners(), rpc_mapper(),
-      rpc_queue(), ingress(th_index, ingress_service_ref),
+      listeners(), rpc_mapper(), rpc_queue(),
+      stats(get_downstream_services(parsed_config),
+            get_hosted_services(parsed_config)),
+      ingress(th_index, ingress_service_ref, stats),
       state(config, ring, buffer_manager, rpc_mapper, rpc_queue, listeners,
-            ingress, shared_state, ingress_service_ref, th_index) {
+            ingress, shared_state, ingress_service_ref, th_index, stats) {
 
   uint16_t egress_port;
   if (config.is_ingress) {

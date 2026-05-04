@@ -65,9 +65,8 @@ public:
   /*
   Average calculated waiting delay in the Ingress's queue
   */
-  LocalMap<MovingAverage> ma_credit_delay_us;
+  LocalMap<ExponentialMovingAverage> ema_credit_delay_us;
   LocalMap<ExponentialMovingAverage> ema_ds_concurrency;
-  LocalMap<TDigest> td_credit_delay_us;
 
   // number of drops (updated if only config.is_ingress is true)
   uint32_t drops;
@@ -92,7 +91,7 @@ class State {
 public:
   State(Config, RingWrapper &, BufferManager &, RPCMapper &, RPCQueue &,
         std::unordered_map<ConnectionType, std::shared_ptr<Listener>> &,
-        Ingress &, SharedState &, std::string &, int);
+        Ingress &, SharedState &, std::string &, int, Stats &);
   void forward(ConnectionType, ConnectionDirection);
   void remove_connection(std::shared_ptr<HTTPConnection>);
 
@@ -100,7 +99,9 @@ public:
   void dispatch_ppm_recv(const std::unique_ptr<Buffer> &);
   void queue_multiplexer(const std::unique_ptr<Buffer> &);
   void ppm_client(bool, const std::unique_ptr<Buffer> &);
-  void ingress_admit();
+
+  void ingress_pre_credit();
+  void ingress_post_credit(const std::unique_ptr<Buffer> &);
 
   /*Write request/response from connection's internal state to buffers.
   For HTTP/2 it also writes setting/ping/etc frames.*/
@@ -118,13 +119,13 @@ private:
   std::unique_ptr<Buffer>
   prepare_credit_return(const std::unique_ptr<Buffer> &);
   std::tuple<const std::string &, bool, size_t, RPCID>
-  valid_credit(const char *);
+  credit_post_process(const std::unique_ptr<Buffer> &);
   bool check_credit_available(std::string_view);
   void check_credit_transmission();
   void update_limits(int32_t, std::string_view);
   void fanout_req_management(RPCID, const std::string &,
                              const std::unique_ptr<Buffer> &);
-  std::shared_ptr<RPCMessage> send_sub_request(RPCID, const std::string &);
+  void send_sub_request(std::shared_ptr<RPCMessage>);
   float cal_local_service_time(std::string_view);
   void fanout_res_credit_management(RPCID);
 
@@ -147,5 +148,5 @@ public:
   LocalState local_state;
   Utilization utilization;
   std::string &ingress_service;
-  Stats stats;
+  Stats &stats;
 };

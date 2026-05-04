@@ -1,5 +1,4 @@
 #include "stats.h"
-#include "config.h"
 #include "connection_enums.h"
 #include "fast_map.hpp"
 #include "hdr/hdr_histogram.h"
@@ -182,19 +181,16 @@ void TDigest::add(int32_t val) {
 Stats::Stats(std::vector<std::string> ds_services,
              std::vector<std::string> us_services)
     : mode2_credits("Mode2 Credits"), ema_ds_service_time_us(ds_services),
-      ma_ds_service_time_us(ds_services), ma_ds_queue_size(ds_services),
-      ma_us_service_time_us(us_services), ema_us_sidecar_rtt_us(us_services),
-      ema_ds_sidecar_rtt_us(ds_services), td_ds_service_time_us(ds_services) {
+      ema_us_service_time_us(us_services), ema_us_sidecar_rtt_us(us_services),
+      ema_ds_sidecar_rtt_us(ds_services), tail_ds_service_time_us(ds_services) {
   for (const auto &service : us_services) {
     ema_us_sidecar_rtt_us.get(service).set_description("US-RTT-" + service);
-    ma_us_service_time_us.get(service).set_description("US-RT-" + service);
+    ema_us_service_time_us.get(service).set_description("US-RT-" + service);
   }
   for (const auto &service : ds_services) {
     ema_ds_service_time_us.get(service).set_description("DS-RTT-" + service);
     ema_ds_service_time_us.get(service).set_description("DS-RT-" + service);
-    ma_ds_service_time_us.get(service).set_description("DS-RT-" + service);
-    td_ds_service_time_us.get(service).set_description("DS-RT-" + service);
-    ma_ds_queue_size.get(service).set_description("QS-" + service);
+    tail_ds_service_time_us.get(service).set_description("DS-RT-" + service);
   }
 }
 
@@ -234,10 +230,8 @@ void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
             .count();
     ema_ds_service_time_us.get(rpc->get_service())
         .update(static_cast<int32_t>(ds_service_time));
-    ma_ds_service_time_us.get(rpc->get_service())
+    tail_ds_service_time_us.get(rpc->get_service())
         .update(static_cast<int32_t>(ds_service_time));
-    td_ds_service_time_us.get(rpc->get_service())
-        .add(static_cast<int32_t>(ds_service_time));
 
     VLOG(2) << "Stats: EGRESS Reported latency "
             << "| service: " << rpc->get_service()
@@ -256,7 +250,7 @@ void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
         std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::steady_clock::now() - rpc->req_for_time)
             .count();
-    ma_us_service_time_us.get(rpc->get_service())
+    ema_us_service_time_us.get(rpc->get_service())
         .update(static_cast<int32_t>(us_service_time));
 
     VLOG(2) << "Stats: INGRESS Reported latency "

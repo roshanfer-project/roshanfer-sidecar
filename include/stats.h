@@ -2,6 +2,7 @@
 
 #include "fast_map.hpp"
 #include "hdr/hdr_histogram.h"
+#include "quantile_estimator.hpp"
 #include "rpc_message.h"
 #include "tdigest.h"
 #include <chrono>
@@ -137,10 +138,8 @@ public:
 public:
   Counter mode2_credits;
   LocalMap<ExponentialMovingAverage> ema_ds_service_time_us;
-  LocalMap<MovingAverage> ma_ds_service_time_us;
-  LocalMap<MovingAverage> ma_ds_queue_size;
-  LocalMap<MovingAverage> ma_us_service_time_us;
+  LocalMap<ExponentialMovingAverage> ema_us_service_time_us;
   LocalMap<ExponentialMovingAverage> ema_us_sidecar_rtt_us;
   LocalMap<ExponentialMovingAverage> ema_ds_sidecar_rtt_us;
-  LocalMap<TDigest> td_ds_service_time_us;
+  LocalMap<SmoothedQuantileEstimator> tail_ds_service_time_us;
 };

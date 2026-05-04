@@ -55,3 +55,21 @@ struct Config {
 Config load_config(const std::string &filename);
 
 extern Config config;
+
+inline std::vector<std::string>
+get_downstream_services(const Config &local_config) {
+  std::vector<std::string> downstream_services;
+  for (const auto &[route, _] : local_config.routing) {
+    downstream_services.push_back(route);
+  }
+  return downstream_services;
+}
+
+inline std::vector<std::string>
+get_hosted_services(const Config &local_config) {
+  std::vector<std::string> hosted_services;
+  for (const auto &mapping : local_config.mapping) {
+    hosted_services.push_back(mapping.first);
+  }
+  return hosted_services;
+}
