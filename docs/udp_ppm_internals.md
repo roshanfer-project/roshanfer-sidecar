@@ -6,9 +6,9 @@ This document describes how demand notifications (DNs) and credit messages are s
 
 | Socket | File / symbol | Role |
 |--------|---------------|------|
-| PPM | `State::sockfd` | Created in `State` ctor (`state.cc`) as `AF_INET` / `SOCK_DGRAM`, **`bind` to `ingress_listener_port`** with **`SO_REUSEPORT`** for multi-thread sidecars. **Sends** DNs (`send_dn`), credit replies from `check_credit_transmission`, and credit returns (dfanout path). **Receives** all inbound PPM datagrams on one multishot `recvmsg`. |
+| PPM | `State::sockfd` | Created in `State` ctor (`state.cc`) as `AF_INET` / `SOCK_DGRAM`. **Non-ingress** mesh sidecars **`bind`** to `ingress_listener_port` with **`SO_REUSEPORT`**. **Ingress** leaves the socket **unbound** so replies match the ephemeral source of each DN. **Sends** DNs (`send_dn`), credit replies from `check_credit_transmission`, and **credit returns** (`0x02`): dfanout path and **ingress** when **all** ingress deque RPCs miss deadline after a grant. **Receives** inbound PPM datagrams on multishot `recvmsg` where configured.
 
-TCP ingress and UDP PPM may share the same port number (`ingress_listener_port`); the kernel distinguishes them by protocol.
+TCP ingress and UDP PPM may share the same port number (`ingress_listener_port`) on mesh nodes; the kernel distinguishes them by protocol.
 
 ## Receive demux: `dispatch_ppm_recv`
 
@@ -18,7 +18,7 @@ After `handle_multishot_recv`, the event loop calls `State::dispatch_ppm_recv` (
 |-----------|---------|
 | `data[1] == 0x02` | `queue_multiplexer` — credit return (`decrement_in_flight`) |
 | `data[1] == 0x01` && `data[2] == 0x00` | `queue_multiplexer` — DN request |
-| `data[1] == 0x01` && `data[2] == 0x01` | `ppm_client(true, buffer)` — credit grant (response to our DN) |
+| `data[1] == 0x01` && `data[2] == 0x01` | **Ingress:** `ingress_post_credit` — single credit, `Ingress::dequeue` (optional → else `prepare_credit_return` `0x02`), `forward` EGRESS UPSTREAM for 503s, `ingress_pre_credit`. **Others:** `ppm_client(true, buffer)` — credit grant |
 
 Unknown combinations `LOG(FATAL)`.
 
@@ -33,7 +33,7 @@ Unknown combinations `LOG(FATAL)`.
 
 - Outgoing DN: `RingWrapper::prepare_sendmsg_with_serveraddr` — `Buffer::prepare_sendmsg(servaddr)`, then `io_uring_prep_sendmsg` (`ring_wrapper.cc`, `buffer.cc`).
 - Credit reply to a peer that sent a DN: `Buffer::prepare_sendmsg(req->get_addr())` in `write_failed_dn_response` before the response is queued; later `check_credit_transmission` calls `RingWrapper::prepare_sendmsg(sockfd, ...)`.
-- Credit return: same `sockfd` + `prepare_sendmsg` with peer address from the grant datagram.
+- Credit return: same `sockfd` + `prepare_sendmsg` with peer address from the template datagram (dfanout / **ingress** grant buffer).
 
 ## Buffer management
 
@@ -57,10 +57,10 @@ Instances come from `BufferManager::get_user_data()` and are returned with `free
 
 | Phase | Trigger | Key calls |
 |--------|---------|-----------|
-| Outbound DN | After HTTP work; see [rpc_flow.md](rpc_flow.md) | `State::ppm_client(false, nullptr)` → `send_dn` → `ring.prepare_sendmsg_with_serveraddr(sockfd, ..., addr)` |
-| Inbound PPM | `RCVMSG` on `sockfd` | `handle_multishot_recv` → `dispatch_ppm_recv` → `queue_multiplexer` and/or `ppm_client(true, ...)` |
-| DN accepted | via `dispatch_ppm_recv` → QM | `shared_state.credit_queue.push` → `check_credit_transmission` → may `ring.prepare_sendmsg(sockfd, ...)` |
-| Credit grant | `dispatch_ppm_recv` → `ppm_client(true, buffer)` | `valid_credit`, RTT from header → may `forward_request`, `fanout_req_management` |
+| Outbound DN | After TCP READ handling | **Ingress:** `ingress_pre_credit` → `send_dn` → `prepare_sendmsg_with_serveraddr`. **Other clients:** `ppm_client(false, nullptr)` drains `rpc_queue` / `PPMQueue` then `send_dn` |
+| Inbound PPM | `RCVMSG` on `sockfd` | `handle_multishot_recv` → `dispatch_ppm_recv` → `queue_multiplexer` and/or grant handler below |
+| DN accepted (server) | `dispatch_ppm_recv` → QM | `shared_state.credit_queue.push` → `check_credit_transmission` → may `ring.prepare_sendmsg(sockfd, ...)` |
+| Credit grant | `dispatch_ppm_recv` | **Ingress:** `ingress_post_credit`. **Others:** `ppm_client(true, buf)` → `fanout_req_management` / `PPMQueue::pop` / `send_sub_request` |
 | Credit return | `dispatch_ppm_recv` → QM `0x02` branch | `decrement_in_flight` → `check_credit_transmission` |
 | Slot freed (ingress path) | Response forwarded on ingress side | `credit_queue.decrement_in_flight` → `check_credit_transmission` (`state.cc`) |
 
@@ -96,7 +96,7 @@ flowchart LR
 
 - **Buffers:** `BufferManager::get_dn_buffer`, `get_dn_buffer_by_index`, `free_dn_buffer`
 - **Ring:** `RingWrapper::prepare_rcvmsg`, `handle_multishot_recv`, `prepare_sendmsg`, `prepare_sendmsg_with_serveraddr`
-- **State:** `send_dn`, `dispatch_ppm_recv`, `queue_multiplexer`, `check_credit_transmission`, `ppm_client`, `valid_credit`, `extract_service_from_ppm_req`
+- **State:** `send_dn`, `dispatch_ppm_recv`, `queue_multiplexer`, `check_credit_transmission`, `ppm_client`, `ingress_pre_credit`, `ingress_post_credit`, `prepare_credit_return`, `credit_post_process`, `extract_service_from_ppm_req`
 - **Types:** `Operation`, `UserData`, `UDPType` in `ring_helper.hpp`
 
 ## Further reading
