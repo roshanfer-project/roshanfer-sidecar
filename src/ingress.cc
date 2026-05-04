@@ -72,8 +72,6 @@ void Ingress::enqueue(std::shared_ptr<RPCMessage> rpc) {
 #ifdef NANO_LOG_ENABLED
   NANO_LOG(NOTICE, "M# %s Measured QS-%s T:T %zu", config.name.c_str(),
            ingress_service.c_str(), queue.size());
-  NANO_LOG(NOTICE, "M# %s Measured Deadline-slack-%s T:T %d",
-           config.name.c_str(), ingress_service.c_str(), slack);
 #endif
 }
 
