@@ -203,6 +203,7 @@ void EventLoop::run() {
         // check if the connection is successful
         if (cqe->res < 0) {
           LOG(FATAL) << "Failed to connect to fd: " << ud->conn->get_fd()
+                     << ", host:" << ud->conn->get_host()
                      << ", error: " << strerror(-cqe->res);
           break;
         }
