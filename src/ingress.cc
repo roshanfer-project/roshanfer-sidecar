@@ -58,13 +58,17 @@ void Ingress::enqueue(std::shared_ptr<RPCMessage> rpc) {
 
   // run the head-drop hook, if applicable
   // set the dealine
+  auto slo = config.routing.at(ingress_service).slo.value_or(0) * 1000;
   auto slack =
-      config.routing.at(ingress_service).slo.value_or(0) * (int)(1000 * 0.95) -
-      (int)std::ceil(
-          stats.tail_ds_service_time_us.get(ingress_service).value());
+      slo - (int)std::ceil(
+                stats.tail_ds_service_time_us.get(ingress_service).value());
   if (slack < 0) {
     LOG(FATAL) << "slack is negative for service: " << ingress_service;
   }
+
+  // apply guard
+  slack -= (int)(slo * 0.05);
+
   rpc->deadline =
       std::chrono::steady_clock::now() + std::chrono::microseconds(slack);
 
@@ -81,8 +85,8 @@ void Ingress::enqueue(std::shared_ptr<RPCMessage> rpc) {
 #endif
 }
 
-std::shared_ptr<RPCMessage> Ingress::dequeue(RPCQueue &rpc_queue,
-                                             RPCMapper &rpc_mapper) {
+std::optional<std::shared_ptr<RPCMessage>>
+Ingress::dequeue(RPCQueue &rpc_queue, RPCMapper &rpc_mapper) {
   if (queue.empty()) {
     LOG(FATAL) << "No RPC message in ingress queue for service: "
                << ingress_service;
@@ -105,8 +109,8 @@ std::shared_ptr<RPCMessage> Ingress::dequeue(RPCQueue &rpc_queue,
     }
   }
 
+  has_dn_on_fly = false;
   if (succuss) {
-    has_dn_on_fly = false;
     VLOG(2) << "Dequeued RPC message for service: " << ingress_service;
 #ifdef NANO_LOG_ENABLED
     NANO_LOG(NOTICE, "M# %s Measured QS-%s T:T %zu", config.name.c_str(),
@@ -114,8 +118,7 @@ std::shared_ptr<RPCMessage> Ingress::dequeue(RPCQueue &rpc_queue,
 #endif
     return rpc;
   } else {
-    LOG(FATAL) << "No request left in the ingress queue of service:"
-               << ingress_service;
+    return std::nullopt;
   }
 }
 

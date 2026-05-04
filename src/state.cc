@@ -830,10 +830,24 @@ void State::ingress_post_credit(const std::unique_ptr<Buffer> &buf) {
     return;
   }
 
-  for (size_t i = 0; i < num_credits; i++) {
-    auto rpc = ingress.dequeue(rpc_queue, rpc_mapper);
-    send_sub_request(std::move(rpc));
+  if (num_credits != 1) {
+    LOG(FATAL) << "we should only get 1 credit";
   }
+
+  for (size_t i = 0; i < num_credits; i++) {
+    auto rpc_optional = ingress.dequeue(rpc_queue, rpc_mapper);
+    if (rpc_optional.has_value()) {
+      send_sub_request(std::move(rpc_optional.value()));
+    } else {
+      // return the credit
+      auto ret = prepare_credit_return(buf);
+      ring.prepare_sendmsg(sockfd, std::move(ret),
+                           buffer_manager.get_user_data());
+      VLOG(1) << "Returned a credit due to lack of requests in Ingress queue";
+    }
+  }
+  // drain drops
+  forward(ConnectionType::EGRESS, ConnectionDirection::UPSTREAM);
 
   // send the next DN
   ingress_pre_credit();

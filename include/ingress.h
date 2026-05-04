@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <string>
 
 class Ingress {
@@ -16,7 +17,7 @@ public:
   ~Ingress();
 
   void enqueue(std::shared_ptr<RPCMessage>);
-  std::shared_ptr<RPCMessage> dequeue(RPCQueue &, RPCMapper &);
+  std::optional<std::shared_ptr<RPCMessage>> dequeue(RPCQueue &, RPCMapper &);
   size_t size();
   void dump_state();
   bool send_dn_checker();
