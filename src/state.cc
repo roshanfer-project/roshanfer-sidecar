@@ -468,8 +468,9 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
           << " and direction " << direction_to_str(direction);
 }
 
-void State::remove_connection(std::shared_ptr<HTTPConnection> /*conn*/) {
-  LOG(FATAL) << "Removing connection for upstream is not implemented";
+void State::remove_connection(std::shared_ptr<HTTPConnection> conn) {
+  LOG(FATAL) << "Removing connection for upstream is not implemented. host: "
+             << conn->get_host();
   // pools.at(conn.type).remove_connection(conn.get_fd());
 }
 
