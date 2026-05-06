@@ -144,13 +144,13 @@ void gRPCMessage::add_header_field(const uint8_t *name, size_t name_len,
 
 void gRPCMessage::set_local_id_header() {
   rpc_local_id_header_value.fill(0);
-  // convert last_rpc_id to a char array
-  std::snprintf(rpc_local_id_header_value.data(),
-                rpc_local_id_header_value.size(), "%lld", (long long)local_id);
+  size_t len = (size_t)std::snprintf(rpc_local_id_header_value.data(),
+                                     rpc_local_id_header_value.size(), "%lld",
+                                     (long long)local_id);
   add_header_field(
       RPC_LOCAL_ID_HEADER_NAME, RPC_LOCAL_ID_HEADER_NAME_LEN,
-      reinterpret_cast<const uint8_t *>(rpc_local_id_header_value.data()),
-      rpc_local_id_header_value.size(), true, false);
+      reinterpret_cast<const uint8_t *>(rpc_local_id_header_value.data()), len,
+      true, false);
 }
 
 void gRPCMessage::add_data(const uint8_t *data, size_t len, bool request) {
@@ -341,13 +341,13 @@ void HTTPMessage::add_header_field(const uint8_t *name, size_t name_len,
 
 void HTTPMessage::set_local_id_header() {
   rpc_local_id_header_value.fill(0);
-  // convert last_rpc_id to a char array
-  std::snprintf(rpc_local_id_header_value.data(),
-                rpc_local_id_header_value.size(), "%lld", (long long)local_id);
+  size_t len = (size_t)std::snprintf(rpc_local_id_header_value.data(),
+                                     rpc_local_id_header_value.size(), "%lld",
+                                     (long long)local_id);
   add_header_field(
       RPC_LOCAL_ID_HEADER_NAME, RPC_LOCAL_ID_HEADER_NAME_LEN,
-      reinterpret_cast<const uint8_t *>(rpc_local_id_header_value.data()),
-      rpc_local_id_header_value.size(), true, false);
+      reinterpret_cast<const uint8_t *>(rpc_local_id_header_value.data()), len,
+      true, false);
 }
 
 void HTTPMessage::add_data(const uint8_t *data, size_t len, bool request) {

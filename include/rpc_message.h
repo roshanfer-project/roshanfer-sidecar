@@ -126,7 +126,7 @@ public:
 
   const uint8_t *RPC_LOCAL_ID_HEADER_NAME =
       reinterpret_cast<const uint8_t *>("rpc-local-id");
-  const size_t RPC_LOCAL_ID_HEADER_NAME_LEN = 13;
+  const size_t RPC_LOCAL_ID_HEADER_NAME_LEN = 12;
   std::array<char, 32> rpc_local_id_header_value;
 };
 
