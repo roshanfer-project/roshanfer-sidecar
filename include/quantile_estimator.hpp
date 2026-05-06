@@ -73,7 +73,7 @@ public:
   using Clock = std::chrono::steady_clock;
 
   SmoothedQuantileEstimator(
-      double ema_alpha = 0.7,
+      double ema_alpha = 0.5,
       std::chrono::milliseconds time_period = std::chrono::milliseconds(200),
       std::size_t sample_period = 100, double target_quantile = 0.99)
       : ema_alpha_(ema_alpha), time_period_(time_period),
@@ -106,7 +106,8 @@ public:
   double value() const { return has_value() ? smoothed_ : 0.0; }
   bool has_value() const { return std::isfinite(smoothed_); }
 
-  /** True once per flush that updated smoothed_; clears on read (no double notify). */
+  /** True once per flush that updated smoothed_; clears on read (no double
+   * notify). */
   bool consume_flush_updated() { return std::exchange(flush_updated_, false); }
 
   void set_description(std::string desc) { description = desc; }

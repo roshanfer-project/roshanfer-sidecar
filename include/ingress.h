@@ -32,10 +32,10 @@ private:
 
   // AIMD members
   size_t ingress_size_cap = 10;
-  const float aimd_err_d = 0.0F;
-  const float aimd_err_i = -0.2F;
-  const float aimd_adj_d = 2.0F;
-  const float aimd_adj_i = 2.0F;
+  const float aimd_err_d = -0.05F;
+  const float aimd_err_i = -0.3F;
+  const float aimd_adj_d = 1.5F;
+  const float aimd_adj_i = 1.0F;
   const float safe_multiply = 2.0F;
   const float aimd_queue_th = 0.8F;
 
