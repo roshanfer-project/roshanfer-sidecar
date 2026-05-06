@@ -19,7 +19,12 @@ PPMQueue::PPMQueue(std::unordered_map<std::string, RoutingEntry,
 
 void PPMQueue::push(std::shared_ptr<RPCMessage> rpc) {
   try {
-    ppm_queue.at(rpc->get_service()).emplace(rpc->get_id(), rpc);
+    auto [_, check] =
+        ppm_queue.at(rpc->get_service()).emplace(rpc->get_local_id(), rpc);
+    if (!check) {
+      LOG(FATAL) << "Insertion of id: " << rpc->get_id_string()
+                 << " into ppm_queue did not take place";
+    }
   } catch (const std::out_of_range &e) {
     LOG(FATAL) << "Error in pushing RPC message: " << e.what()
                << " service: " << rpc->get_service();
@@ -28,7 +33,8 @@ void PPMQueue::push(std::shared_ptr<RPCMessage> rpc) {
                << " service: " << rpc->get_service();
   }
   VLOG(1) << "PPMQueue: Pushed RPC message "
-          << "| service: " << rpc->get_service() << "| id: " << rpc->get_id();
+          << "| service: " << rpc->get_service()
+          << "| id: " << rpc->get_id_string();
 }
 
 std::shared_ptr<RPCMessage> PPMQueue::pop(const std::string &service,

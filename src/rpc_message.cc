@@ -1,4 +1,6 @@
 #include "rpc_message.h"
+#include "config.h"
+#include "connection_enums.h"
 #include "fast_map.hpp"
 #include <algorithm>
 #include <array>
@@ -12,11 +14,15 @@
 #include <sys/types.h>
 #include <vector>
 
+RPCID local_id_counter = 1;
+
+static inline RPCID get_new_local_id() { return ++local_id_counter; }
+
 //////// RPCMessage Implementation
 
 RPCMessage::RPCMessage()
-    : ds_stream_id(0), ds_fd(-1), us_stream_id(0), us_fd(-1), id(-1),
-      credit_return_queue() {}
+    : ds_stream_id(0), ds_fd(-1), us_stream_id(0), us_fd(-1), local_id(-1),
+      global_id(-1), credit_return_queue() {}
 
 RPCMessage::~RPCMessage() {
   LOG(FATAL) << "RPC Message deconstructor (should not be called)";
@@ -84,9 +90,24 @@ void gRPCMessage::add_header_field(const uint8_t *name, size_t name_len,
 
   if (request) {
     if (std::memcmp(name, "rpc-id", 6) == 0) {
-      id = (RPCID)std::stoll(
+      global_id = (RPCID)std::stoll(
           std::string(reinterpret_cast<const char *>(value), value_len));
-      VLOG(1) << "RPC ID: " << id;
+      if (config.is_ingress) {
+        local_id = global_id;
+      } else {
+        local_id = local_id == -1 ? get_new_local_id() : local_id;
+      }
+      VLOG(1) << "RPC ID after reading global id: " << get_id_string();
+    }
+    if (std::memcmp(name, "rpc-local-id", 12) == 0) {
+      local_id = (RPCID)std::stoll(
+          std::string(reinterpret_cast<const char *>(value), value_len));
+      VLOG(1) << "RPC ID after reading local id: " << get_id_string();
+      // ignore this field on the EGRESS-side because downstream does not need
+      // it
+      if (type == ConnectionType::EGRESS) {
+        return;
+      }
     }
     if (std::memcmp(name, "priority", 9) == 0) {
       priority = (Priority)std::stoll(
@@ -119,6 +140,17 @@ void gRPCMessage::add_header_field(const uint8_t *name, size_t name_len,
       res_header_count++;
     }
   }
+}
+
+void gRPCMessage::set_local_id_header() {
+  rpc_local_id_header_value.fill(0);
+  // convert last_rpc_id to a char array
+  std::snprintf(rpc_local_id_header_value.data(),
+                rpc_local_id_header_value.size(), "%lld", (long long)local_id);
+  add_header_field(
+      RPC_LOCAL_ID_HEADER_NAME, RPC_LOCAL_ID_HEADER_NAME_LEN,
+      reinterpret_cast<const uint8_t *>(rpc_local_id_header_value.data()),
+      rpc_local_id_header_value.size(), true, false);
 }
 
 void gRPCMessage::add_data(const uint8_t *data, size_t len, bool request) {
@@ -176,7 +208,8 @@ void gRPCMessage::clear() {
   req_for_time = std::chrono::time_point<std::chrono::steady_clock>();
   req_rcv_time = std::chrono::time_point<std::chrono::steady_clock>();
   res_rcv_time = std::chrono::time_point<std::chrono::steady_clock>();
-  id = -1;
+  local_id = -1;
+  global_id = -1;
   pfanout_req = 0;
   pfanout_res = 0;
   if (credit_return_queue.size() != 0) {
@@ -265,9 +298,24 @@ void HTTPMessage::add_header_field(const uint8_t *name, size_t name_len,
 
   if (request) {
     if (std::memcmp(name, "rpc-id", 6) == 0) {
-      id = (RPCID)std::stoll(
+      global_id = (RPCID)std::stoll(
           std::string(reinterpret_cast<const char *>(value), value_len));
-      VLOG(1) << "RPC ID: " << id;
+      if (config.is_ingress) {
+        local_id = global_id;
+      } else {
+        local_id = local_id == -1 ? get_new_local_id() : local_id;
+      }
+      VLOG(1) << "RPC ID after reading global id: " << get_id_string();
+    }
+    if (std::memcmp(name, "rpc-local-id", 12) == 0) {
+      local_id = (RPCID)std::stoll(
+          std::string(reinterpret_cast<const char *>(value), value_len));
+      VLOG(1) << "RPC ID after reading local id: " << get_id_string();
+      // ignore this field on the EGRESS-side because downstream does not need
+      // it
+      if (type == ConnectionType::EGRESS) {
+        return;
+      }
     }
     if (std::memcmp(name, "priority", 9) == 0) {
       priority = (Priority)std::stoll(
@@ -289,6 +337,17 @@ void HTTPMessage::add_header_field(const uint8_t *name, size_t name_len,
     res_headers.at(res_header_count)->set(name, name_len, value, value_len);
     res_header_count++;
   }
+}
+
+void HTTPMessage::set_local_id_header() {
+  rpc_local_id_header_value.fill(0);
+  // convert last_rpc_id to a char array
+  std::snprintf(rpc_local_id_header_value.data(),
+                rpc_local_id_header_value.size(), "%lld", (long long)local_id);
+  add_header_field(
+      RPC_LOCAL_ID_HEADER_NAME, RPC_LOCAL_ID_HEADER_NAME_LEN,
+      reinterpret_cast<const uint8_t *>(rpc_local_id_header_value.data()),
+      rpc_local_id_header_value.size(), true, false);
 }
 
 void HTTPMessage::add_data(const uint8_t *data, size_t len, bool request) {
@@ -336,7 +395,8 @@ void HTTPMessage::clear() {
   req_for_time = std::chrono::time_point<std::chrono::steady_clock>();
   req_rcv_time = std::chrono::time_point<std::chrono::steady_clock>();
   res_rcv_time = std::chrono::time_point<std::chrono::steady_clock>();
-  id = -1;
+  local_id = -1;
+  global_id = -1;
   pfanout_req = 0;
   pfanout_res = 0;
   if (credit_return_queue.size() != 0) {
