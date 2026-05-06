@@ -983,12 +983,12 @@ void State::update_limits(int32_t rtt, std::string_view service) {
     VLOG(1) << "QM: Local Service time " << local_rt << " for service "
             << service;
     auto it = config.mapping.find(service);
-    bool sequential = !it->second.pfanout.value_or(false) &&
-                      !it->second.dfanout.value_or(false);
-    float theo_term = get_theo_term(service, sequential);
     if (it == config.mapping.end()) {
       LOG(FATAL) << "service " << service << " not found in config.mapping";
     }
+    bool sequential = !it->second.pfanout.value_or(false) &&
+                      !it->second.dfanout.value_or(false);
+    float theo_term = get_theo_term(service, sequential);
     int32_t new_limit =
         (std::max((int32_t)std::ceil(theo_term / local_rt), 1) + 1) *
         config.cpu_count.value();

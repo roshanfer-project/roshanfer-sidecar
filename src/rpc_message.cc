@@ -100,7 +100,7 @@ void gRPCMessage::add_header_field(const uint8_t *name, size_t name_len,
       global_id = (RPCID)std::stoll(
           std::string(reinterpret_cast<const char *>(value), value_len));
       if (config.is_ingress) {
-        local_id = global_id;
+        local_id = get_new_local_id(0);
       } else {
         // only set local id if we are on the INGRESS-side. The EGRESS-side
         // should be set by rpc-local-id branch
@@ -129,7 +129,7 @@ void gRPCMessage::add_header_field(const uint8_t *name, size_t name_len,
                 // services
       }
     }
-    if (std::memcmp(name, "priority", 9) == 0) {
+    if (std::memcmp(name, "priority", 8) == 0) {
       priority = (Priority)std::stoll(
           std::string(reinterpret_cast<const char *>(value), value_len));
       VLOG(1) << "Priority: " << priority;
@@ -321,7 +321,7 @@ void HTTPMessage::add_header_field(const uint8_t *name, size_t name_len,
       global_id = (RPCID)std::stoll(
           std::string(reinterpret_cast<const char *>(value), value_len));
       if (config.is_ingress) {
-        local_id = global_id;
+        local_id = get_new_local_id(0);
       } else {
         // only set local id if we are on the INGRESS-side. The EGRESS-side
         // should be set by rpc-local-id branch
@@ -350,7 +350,7 @@ void HTTPMessage::add_header_field(const uint8_t *name, size_t name_len,
                 // services
       }
     }
-    if (std::memcmp(name, "priority", 9) == 0) {
+    if (std::memcmp(name, "priority", 8) == 0) {
       priority = (Priority)std::stoll(
           std::string(reinterpret_cast<const char *>(value), value_len));
       VLOG(1) << "Priority: " << priority;
