@@ -306,6 +306,10 @@ bool State::forward_request(std::shared_ptr<HTTPConnection> conn,
   // get an upstream connection
   try {
 
+    if (conn->type == ConnectionType::INGRESS) {
+      rpc->set_local_id_header();
+    }
+
     // submit the request
     rpc->set_us_stream_id(conn->submit_request(rpc));
 
@@ -314,9 +318,6 @@ bool State::forward_request(std::shared_ptr<HTTPConnection> conn,
       rpc->dump_req_headers();
       LOG(FATAL) << "Request has no ID (probably service does not provide IDs "
                     "or perhanps you should set is_plain_frontend to true)";
-    }
-    if (conn->type == ConnectionType::INGRESS) {
-      rpc->set_local_id_header();
     }
     if (rpc->get_priority() == -1 && !config.is_plain_frontend) {
       rpc->dump_req_headers();
