@@ -50,3 +50,5 @@ The agent should reperat this phase until its certain.
 The agent simply executes the agreed plan.
 
 At the end, it should present a summary of changes to the user.
+
+**Make sure you are abiding by coding standards in `coding_standards.md`**
