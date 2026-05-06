@@ -197,6 +197,7 @@ Stats::Stats(std::vector<std::string> ds_services,
     tail_ds_service_time_us.get(service).set_description("DS-RT-" + service);
     time_mean_ds_concurrency.get(service).set_description("DSC-" + service);
     ema_credit_delay_us.get(service).set_description("Credit-Delay-" + service);
+    ema_ds_sidecar_rtt_us.get(service).set_description("DS-RTT-" + service);
   }
 }
 

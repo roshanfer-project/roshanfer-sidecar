@@ -952,6 +952,25 @@ float State::cal_local_service_time(std::string_view us_service) {
   }
 }
 
+float State::get_theo_term(std::string_view service, bool sequential) {
+  float theo_term = stats.ema_us_sidecar_rtt_us.get(service).get_value();
+  if (sequential) {
+    stats.ema_ds_sidecar_rtt_us.for_each_occupied_index([&](size_t i) {
+      theo_term += stats.ema_ds_sidecar_rtt_us.by_index(i).get_value();
+    });
+  } else {
+    float max_rtt = 0.0F;
+    stats.ema_ds_sidecar_rtt_us.for_each_occupied_index([&](size_t i) {
+      float v = stats.ema_ds_sidecar_rtt_us.by_index(i).get_value();
+      if (v > max_rtt)
+        max_rtt = v;
+    });
+    theo_term += max_rtt;
+  }
+
+  return theo_term;
+}
+
 void State::update_limits(int32_t rtt, std::string_view service) {
   VLOG(2) << "QM: RTT " << rtt << " for service " << service;
   auto &rtt_stats = stats.ema_us_sidecar_rtt_us.get(service);
@@ -964,12 +983,14 @@ void State::update_limits(int32_t rtt, std::string_view service) {
     VLOG(1) << "QM: Local Service time " << local_rt << " for service "
             << service;
     auto it = config.mapping.find(service);
+    bool sequential = !it->second.pfanout.value_or(false) &&
+                      !it->second.dfanout.value_or(false);
+    float theo_term = get_theo_term(service, sequential);
     if (it == config.mapping.end()) {
       LOG(FATAL) << "service " << service << " not found in config.mapping";
     }
     int32_t new_limit =
-        (std::max((int32_t)std::ceil(rtt_stats.get_value() / local_rt), 1) +
-         1) *
+        (std::max((int32_t)std::ceil(theo_term / local_rt), 1) + 1) *
         config.cpu_count.value();
     if (!it->second.dfanout.value_or(false)) {
       new_limit += it->second.downstreams.size();
@@ -1075,7 +1096,7 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
                             (uint32_t)(unsigned char)req->data.at(24) << 8 |
                             (uint32_t)(unsigned char)req->data.at(25));
     if (rtt >= 0) {
-      update_limits((int32_t)((float)rtt * 2), service);
+      update_limits((int32_t)rtt, service);
     } else {
       LOG(FATAL) << "Invalid RTT: " << rtt;
     }
