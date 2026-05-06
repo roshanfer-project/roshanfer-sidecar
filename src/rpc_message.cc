@@ -16,7 +16,14 @@
 
 RPCID local_id_counter = 1;
 
-static inline RPCID get_new_local_id() { return ++local_id_counter; }
+static inline RPCID get_new_local_id(RPCID parent) {
+  local_id_counter++;
+  const uint32_t branch = static_cast<uint32_t>(local_id_counter);
+  const uint64_t packed =
+      (static_cast<uint64_t>(static_cast<uint32_t>(parent)) << 32) |
+      static_cast<uint64_t>(branch);
+  return static_cast<RPCID>(packed);
+}
 
 //////// RPCMessage Implementation
 
@@ -95,18 +102,31 @@ void gRPCMessage::add_header_field(const uint8_t *name, size_t name_len,
       if (config.is_ingress) {
         local_id = global_id;
       } else {
-        local_id = local_id == -1 ? get_new_local_id() : local_id;
+        // only set local id if we are on the INGRESS-side. The EGRESS-side
+        // should be set by rpc-local-id branch
+        local_id =
+            type == ConnectionType::INGRESS ? get_new_local_id(0) : local_id;
       }
       VLOG(1) << "RPC ID after reading global id: " << get_id_string();
     }
     if (std::memcmp(name, "rpc-local-id", 12) == 0) {
-      local_id = (RPCID)std::stoll(
+      auto id_from_str = (RPCID)std::stoll(
           std::string(reinterpret_cast<const char *>(value), value_len));
-      VLOG(1) << "RPC ID after reading local id: " << get_id_string();
-      // ignore this field on the EGRESS-side because downstream does not need
-      // it
-      if (type == ConnectionType::EGRESS) {
-        return;
+      if (type == ConnectionType::INGRESS) {
+        if (id_from_str == -1) {
+          LOG(FATAL) << "rpc-local-id is -1 on INGRESS side";
+        }
+        VLOG(1) << "RPC ID after reading local id: " << get_id_string();
+      } else if (type == ConnectionType::EGRESS) {
+        if (id_from_str <= 0 || id_from_str > (RPCID)UINT32_MAX) {
+          LOG(FATAL)
+              << "local id: " << id_from_str
+              << " received from rpc-local-id header is not in valid range";
+        }
+        local_id = get_new_local_id(id_from_str);
+        VLOG(1) << "RPC ID after reading local id: " << get_id_string();
+        return; // we don't want to actually send rpc-local-id to downstream
+                // services
       }
     }
     if (std::memcmp(name, "priority", 9) == 0) {
@@ -303,18 +323,31 @@ void HTTPMessage::add_header_field(const uint8_t *name, size_t name_len,
       if (config.is_ingress) {
         local_id = global_id;
       } else {
-        local_id = local_id == -1 ? get_new_local_id() : local_id;
+        // only set local id if we are on the INGRESS-side. The EGRESS-side
+        // should be set by rpc-local-id branch
+        local_id =
+            type == ConnectionType::INGRESS ? get_new_local_id(0) : local_id;
       }
       VLOG(1) << "RPC ID after reading global id: " << get_id_string();
     }
     if (std::memcmp(name, "rpc-local-id", 12) == 0) {
-      local_id = (RPCID)std::stoll(
+      auto id_from_str = (RPCID)std::stoll(
           std::string(reinterpret_cast<const char *>(value), value_len));
-      VLOG(1) << "RPC ID after reading local id: " << get_id_string();
-      // ignore this field on the EGRESS-side because downstream does not need
-      // it
-      if (type == ConnectionType::EGRESS) {
-        return;
+      if (type == ConnectionType::INGRESS) {
+        if (id_from_str == -1) {
+          LOG(FATAL) << "rpc-local-id is -1 on INGRESS side";
+        }
+        VLOG(1) << "RPC ID after reading local id: " << get_id_string();
+      } else if (type == ConnectionType::EGRESS) {
+        if (id_from_str <= 0 || id_from_str > (RPCID)UINT32_MAX) {
+          LOG(FATAL)
+              << "local id: " << id_from_str
+              << " received from rpc-local-id header is not in valid range";
+        }
+        local_id = get_new_local_id(id_from_str);
+        VLOG(1) << "RPC ID after reading local id: " << get_id_string();
+        return; // we don't want to actually send rpc-local-id to downstream
+                // services
       }
     }
     if (std::memcmp(name, "priority", 9) == 0) {

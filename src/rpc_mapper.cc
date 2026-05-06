@@ -4,6 +4,7 @@
 #include "rpc_message.h"
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 
 RPCMapper::RPCMapper()
     : ds_map(std::unordered_map<
@@ -82,10 +83,15 @@ void RPCMapper::route(ConnectionType type, int32_t ds_stream_id, int ds_fd,
 }
 
 std::shared_ptr<RPCMessage> &RPCMapper::get_ingress_rpc(RPCID id) {
+  RPCID ingress_side_id = (uint64_t)id >> 32;
+  if (ingress_side_id == 0) {
+    LOG(FATAL) << "Upper 32 bits of local id is zero. This is not a valid "
+                  "local id at the EGRESS side";
+  }
   try {
-    return id_map.at(ConnectionType::INGRESS).at(id);
+    return id_map.at(ConnectionType::INGRESS).at(ingress_side_id);
   } catch (const std::out_of_range &e) {
-    LOG(FATAL) << "No INGRESS RPC found for id: " << id;
+    LOG(FATAL) << "No INGRESS RPC found for id: " << ingress_side_id;
   }
 }
 
