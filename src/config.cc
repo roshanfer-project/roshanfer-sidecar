@@ -244,7 +244,8 @@ Config load_config(const std::string &filename) {
     LOG(FATAL) << "Cannot set number of threads for non-ingress sidecars "
                   "higher than 1 because of RPC ID map that is local to "
                   "threads (fix that before removing this conditions). Also "
-                  "stats is shared among all threads.";
+                  "stats is shared among all threads. Also the "
+                  "local_id_counter is shared.";
   }
 
   // Log parsed mapping configuration

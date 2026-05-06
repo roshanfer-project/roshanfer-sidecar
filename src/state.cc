@@ -306,11 +306,15 @@ bool State::forward_request(std::shared_ptr<HTTPConnection> conn,
   // get an upstream connection
   try {
 
+    if (conn->type == ConnectionType::INGRESS) {
+      rpc->set_local_id_header();
+    }
+
     // submit the request
     rpc->set_us_stream_id(conn->submit_request(rpc));
 
     // check if the request has an ID
-    if (rpc->get_id() == -1 && !config.is_plain_frontend) {
+    if (rpc->get_local_id() == -1 && !config.is_plain_frontend) {
       rpc->dump_req_headers();
       LOG(FATAL) << "Request has no ID (probably service does not provide IDs "
                     "or perhanps you should set is_plain_frontend to true)";
@@ -373,7 +377,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
       }
       VLOG(1) << "RPCForward: INGRESS request "
               << "| service: " << rpc->get_service()
-              << "| id: " << rpc->get_id();
+              << "| id: " << rpc->get_id_string();
 
       if (!config.is_ingress) {
         shared_state.in_local.fetch_add(1);
@@ -400,7 +404,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
 
         // update stats
         if (!rpc->is_drop()) {
-          if (rpc->get_id() == -1 && !config.is_plain_frontend) {
+          if (rpc->get_local_id() == -1 && !config.is_plain_frontend) {
             LOG(FATAL)
                 << "Response has no ID (probably service does not provide "
                    "IDs "
@@ -408,7 +412,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
           }
           if (type == ConnectionType::EGRESS) {
             if (!config.is_ingress) {
-              fanout_res_credit_management(rpc->get_id());
+              fanout_res_credit_management(rpc->get_local_id());
             }
             stats.time_mean_ds_concurrency.get(rpc->get_service()).down();
           } else if (type == ConnectionType::INGRESS) {
@@ -426,11 +430,11 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
             if (type == ConnectionType::EGRESS) {
               VLOG(1) << "RPCForward: EGRESS response "
                       << "| service: " << rpc->get_service()
-                      << "| id: " << rpc->get_id();
+                      << "| id: " << rpc->get_id_string();
             } else {
               VLOG(1) << "RPCForward: INGRESS response "
                       << "| service: " << rpc->get_service()
-                      << "| id: " << rpc->get_id();
+                      << "| id: " << rpc->get_id_string();
             }
           }
 
@@ -590,9 +594,10 @@ void State::ppm_client(bool dn_resp,
       // send out DNs
       if (config.is_ingress) {
         send_dn(upstream_route_mapper.get_pool(rpc->get_service()).get_addr(),
-                rpc->get_service(), 1, rpc->get_id(), rpc->get_priority());
+                rpc->get_service(), 1, rpc->get_local_id(),
+                rpc->get_priority());
       } else {
-        auto &ingress_rpc = rpc_mapper.get_ingress_rpc(rpc->get_id());
+        auto &ingress_rpc = rpc_mapper.get_ingress_rpc(rpc->get_local_id());
         auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
 
         // for dynamic fan-out, send DN to all downstreams
@@ -600,11 +605,12 @@ void State::ppm_client(bool dn_resp,
           ingress_rpc->dfanout_service = &rpc->get_service();
           for (auto &ds_service : mapping_entry.downstreams) {
             send_dn(upstream_route_mapper.get_pool(ds_service).get_addr(),
-                    ds_service, 1, rpc->get_id(), rpc->get_priority());
+                    ds_service, 1, rpc->get_local_id(), rpc->get_priority());
           }
         } else {
           send_dn(upstream_route_mapper.get_pool(rpc->get_service()).get_addr(),
-                  rpc->get_service(), 1, rpc->get_id(), rpc->get_priority());
+                  rpc->get_service(), 1, rpc->get_local_id(),
+                  rpc->get_priority());
         }
       }
     }
@@ -710,7 +716,7 @@ void inline State::send_sub_request(std::shared_ptr<RPCMessage> rpc) {
   stats.time_mean_ds_concurrency.get(service).up();
 
   VLOG(1) << "RPCForward: EGRESS request. "
-          << "| service: " << service << "| id: " << rpc->get_id()
+          << "| service: " << service << "| id: " << rpc->get_id_string()
           << "| ppm_queue size: " << ppm_queue.size(service);
 }
 
@@ -720,8 +726,9 @@ void inline State::send_sub_request(std::shared_ptr<RPCMessage> rpc) {
 */
 void State::fanout_res_credit_management(RPCID id) {
   auto &ingress_rpc = rpc_mapper.get_ingress_rpc(id);
+  auto &entry = config.mapping.at(ingress_rpc->get_service());
 
-  if (config.mapping.at(ingress_rpc->get_service()).pfanout.value_or(false)) {
+  if (entry.pfanout.value_or(false)) {
     ingress_rpc->pfanout_res++;
 
     // if we are not the first branch, do nothing
@@ -900,7 +907,7 @@ void State::check_credit_transmission() {
   ring.prepare_sendmsg(sockfd, std::move(buffer),
                        buffer_manager.get_user_data());
 
-  VLOG(2) << "QM: Sent credit " << "| thread id: " << thread_id;
+  VLOG(1) << "QM: Sent credit " << "| thread id: " << thread_id;
 }
 
 float State::cal_local_service_time(std::string_view us_service) {
@@ -1073,7 +1080,7 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
       LOG(FATAL) << "Invalid RTT: " << rtt;
     }
 
-    VLOG(2) << "QM: Received DN request "
+    VLOG(1) << "QM: Received DN request "
             << "| service: " << service << "| id: " << rpc_id
             << "| priority: " << priority << "| thread id: " << thread_id;
 

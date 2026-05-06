@@ -66,8 +66,8 @@ void Ingress::enqueue(std::shared_ptr<RPCMessage> rpc) {
 
   add_rpc_id_header(rpc);
   add_priority_header(rpc);
-  ingress_mean.up();
   queue.push_back(std::move(rpc));
+  ingress_mean.update((double)queue.size());
   VLOG(2) << "Enqueued RPC message for service: " << ingress_service;
 
 #ifdef NANO_LOG_ENABLED
@@ -86,7 +86,7 @@ std::optional<std::shared_ptr<RPCMessage>> Ingress::dequeue() {
   queue.pop_front();
 
   has_dn_on_fly = false;
-  ingress_mean.down();
+  ingress_mean.update((double)queue.size());
   VLOG(2) << "Dequeued RPC message for service: " << ingress_service;
 #ifdef NANO_LOG_ENABLED
   NANO_LOG(NOTICE, "M# %s Measured QS-%s T:T %zu", config.name.c_str(),
@@ -164,6 +164,7 @@ void Ingress::drop_rpc(std::shared_ptr<RPCMessage> rpc) {
   drop_rpc->set_error(true);
   drop_rpc->set_status(503);
   drop_id++;
+  drop_rpc->set_local_id(-(drop_id + 1));
   drop_rpc->set_us_fd(drop_fd);
   drop_rpc->set_us_stream_id(drop_id);
   rpc_mapper.route(ConnectionType::EGRESS, drop_rpc->get_ds_stream_id(),
@@ -176,7 +177,8 @@ void Ingress::drop_rpc(std::shared_ptr<RPCMessage> rpc) {
       drop_rpc->get_us_fd(), drop_rpc->get_us_stream_id());
 
   VLOG(2) << "INGRESS: Dropped request "
-          << "| service: " << ingress_service << "| id: " << drop_rpc->get_id();
+          << "| service: " << ingress_service
+          << "| id: " << drop_rpc->get_id_string();
 }
 
 bool Ingress::send_dn_checker() {
@@ -185,7 +187,7 @@ bool Ingress::send_dn_checker() {
   return check;
 }
 
-RPCID Ingress::get_tail_id() { return queue.front()->get_id(); }
+RPCID Ingress::get_tail_id() { return queue.front()->get_local_id(); }
 
 Priority Ingress::get_tail_priority() { return queue.front()->get_priority(); }
 

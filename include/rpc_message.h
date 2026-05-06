@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <queue>
@@ -16,6 +17,8 @@
 #include <vector>
 
 const size_t MAX_HEADER_FIELD_SIZE = 60;
+
+extern int64_t local_id_counter;
 
 class HeaderField {
 public:
@@ -69,8 +72,11 @@ public:
   void set_us_stream_id(int32_t us_id) { us_stream_id = us_id; }
   int get_us_fd() const { return us_fd; }
   void set_us_fd(int fd) { us_fd = fd; }
-  RPCID get_id() const { return id; }
-  void set_id(RPCID new_id) { id = new_id; }
+  RPCID get_local_id() const { return local_id; }
+  std::string get_id_string() {
+    return std::format("(global: {}, local: {})", global_id, local_id);
+  }
+  void set_local_id(RPCID new_id) { local_id = new_id; }
   ConnectionType get_type() const { return type; }
   void set_type(ConnectionType new_type) { type = new_type; }
   Priority get_priority() const { return priority; }
@@ -78,6 +84,7 @@ public:
 
   virtual void add_header_field(const uint8_t *, size_t, const uint8_t *,
                                 size_t, bool, bool) = 0;
+  virtual void set_local_id_header() = 0;
   virtual void add_data(const uint8_t *, size_t, bool) = 0;
   virtual void clear() = 0;
   virtual std::string &get_service() = 0;
@@ -97,7 +104,8 @@ protected:
   int32_t us_stream_id;
   int us_fd;
 
-  RPCID id;
+  RPCID local_id;
+  RPCID global_id;
   Priority priority;
   ConnectionType type;
 
@@ -115,6 +123,11 @@ public:
   std::string *dfanout_service;
 
   std::chrono::time_point<std::chrono::steady_clock> deadline;
+
+  const uint8_t *RPC_LOCAL_ID_HEADER_NAME =
+      reinterpret_cast<const uint8_t *>("rpc-local-id");
+  const size_t RPC_LOCAL_ID_HEADER_NAME_LEN = 12;
+  std::array<char, 32> rpc_local_id_header_value;
 };
 
 class gRPCMessage : public RPCMessage {
@@ -133,6 +146,7 @@ public:
   // virtual methods
   void add_header_field(const uint8_t *, size_t, const uint8_t *, size_t, bool,
                         bool);
+  void set_local_id_header();
   void add_data(const uint8_t *, size_t, bool);
   void clear();
   bool is_error() { return error; };
@@ -190,6 +204,7 @@ public:
   // virtual methods
   void add_header_field(const uint8_t *, size_t, const uint8_t *, size_t, bool,
                         bool);
+  void set_local_id_header();
   void add_data(const uint8_t *, size_t, bool);
   void clear();
   bool is_error() { return error; };

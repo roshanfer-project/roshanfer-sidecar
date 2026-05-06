@@ -70,7 +70,12 @@ void RPCMapper::route(ConnectionType type, int32_t ds_stream_id, int ds_fd,
         us_fd, std::unordered_map<int32_t, std::shared_ptr<RPCMessage>>());
   }
   auto rpc = ds_map.at(type).at(ds_fd).at(ds_stream_id);
-  id_map.at(type).emplace(rpc->get_id(), rpc);
+  VLOG(1) << "RPCMapper: insering id: " << rpc->get_local_id()
+          << " into id_map";
+  auto [_, check] = id_map.at(type).emplace(rpc->get_local_id(), rpc);
+  if (!check) {
+    LOG(FATAL) << "id: " << rpc->get_local_id() << " already existed in id_map";
+  }
   us_map.at(type).at(us_fd).emplace(us_stream_id, std::move(rpc));
   VLOG(1) << "Mapping DS stream id: " << ds_stream_id << " and fd: " << ds_fd
           << " to US stream id: " << us_stream_id << " and fd: " << us_fd;
@@ -119,7 +124,8 @@ void RPCMapper::remove_rpc(ConnectionType type,
                            std::shared_ptr<RPCMessage> rpc) {
   us_map.at(type).at(rpc->get_us_fd()).erase(rpc->get_us_stream_id());
   ds_map.at(type).at(rpc->get_ds_fd()).erase(rpc->get_ds_stream_id());
-  id_map.at(type).erase(rpc->get_id());
+  id_map.at(type).erase(rpc->get_local_id());
+  VLOG(1) << "RPCMapper: erased id: " << rpc->get_local_id() << " from id_map";
   pool.free_rpc(std::move(rpc));
 }
 
