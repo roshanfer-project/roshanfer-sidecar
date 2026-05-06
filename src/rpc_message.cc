@@ -267,6 +267,31 @@ HTTPMessage::HTTPMessage()
   }
 }
 
+bool HTTPMessage::parse_service_from_request_target(const char *s, size_t s_len,
+                                                    std::string *out) {
+  const char *const end = s + s_len;
+  const char *p = s;
+  if (s_len >= 7) {
+    if (std::memcmp(s, "http://", 7) == 0) {
+      p += 7;
+    }
+  }
+
+  const char *slash =
+      static_cast<const char *>(std::memchr(p, '/', (size_t)(end - p)));
+  if (!slash || slash + 1 >= end) {
+    return false;
+  }
+
+  const char *svc_begin = slash + 1;
+  const char *question = static_cast<const char *>(
+      std::memchr(svc_begin, '?', (size_t)(end - svc_begin)));
+  const char *svc_end = question ? question : end;
+
+  out->assign(svc_begin, (size_t)(svc_end - svc_begin));
+  return true;
+}
+
 void HTTPMessage::set_service(const char *s, size_t s_len) {
   /*
       Extracts the main endpoint path as the service.
@@ -278,34 +303,11 @@ void HTTPMessage::set_service(const char *s, size_t s_len) {
       The service is "hotels"
   */
 
-  const char *const end = s + s_len;
-
-  // (1) skip "http://"
-  const char *p = s;
-  if (s_len >= 7) {
-    if (std::memcmp(s, "http://", 7) == 0) {
-      p += 7;
-    }
-  }
-
-  // (2) find the first '/' after host:port
-  const char *slash =
-      static_cast<const char *>(std::memchr(p, '/', (size_t)(end - p)));
-  if (!slash || slash + 1 >= end) {
+  if (!parse_service_from_request_target(s, s_len, &service)) {
     service.clear();
     LOG(FATAL) << "Invalid service format"
                << ", string: " << std::string(s, s_len) << ", len: " << s_len;
   }
-
-  // (3) service starts just after that '/'
-  const char *svc_begin = slash + 1;
-
-  // (4) find the '?' that marks end-of-service
-  const char *question = static_cast<const char *>(
-      std::memchr(svc_begin, '?', (size_t)(end - svc_begin)));
-  const char *svc_end = question ? question : end;
-
-  service.assign(svc_begin, (size_t)(svc_end - svc_begin));
 }
 
 void HTTPMessage::add_header_field(const uint8_t *name, size_t name_len,

@@ -19,6 +19,7 @@ public:
   void enqueue(std::shared_ptr<RPCMessage>);
   std::optional<std::shared_ptr<RPCMessage>> dequeue();
   size_t size();
+  const std::string &expected_service() const { return ingress_service; }
   void update_ingress_cap();
   void dump_state();
   bool send_dn_checker();

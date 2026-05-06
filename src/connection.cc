@@ -734,11 +734,33 @@ void HTTP1Connection::http_read(const std::unique_ptr<Buffer> &buffer,
     }
 
     if (content_length >= 0) {
+      if (config.is_ingress) {
+        throw HTTPParseException(
+            std::string("Content-Length header is not supported in HTTP/1.1 "
+                        "requests, fd: ") +
+            std::to_string(fd) +
+            ", content_length: " + std::to_string(content_length) +
+            ", method: " + std::string(method, method_len) +
+            ", path: " + std::string(path, path_len));
+      }
       LOG(FATAL)
           << "Content-Length header is not supported in HTTP/1.1 requests, fd: "
           << fd << ", content_length: " << content_length
           << ", method: " << std::string(method, method_len)
           << ", path: " << std::string(path, path_len);
+    }
+
+    if (config.is_ingress) {
+      std::string seg;
+      if (!HTTPMessage::parse_service_from_request_target(path, path_len,
+                                                          &seg)) {
+        throw HTTPParseException("invalid request target for ingress");
+      }
+      if (seg != ingress.expected_service()) {
+        throw HTTPParseException(
+            std::string("ingress service mismatch: expected ") +
+            ingress.expected_service() + ", got " + seg);
+      }
     }
 
     if (buf_len > (size_t)hdr_size) {
