@@ -8,8 +8,13 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
+
+#ifdef NANO_LOG_ENABLED
+#include "config.h"
+#endif
 
 class Utilization {
 public:
@@ -127,6 +132,7 @@ private:
 class TimeWeightedMean {
 public:
   using Clock = std::chrono::steady_clock;
+  static constexpr std::chrono::milliseconds kNanologSnapshotPeriod{250};
 
   TimeWeightedMean() : area_(0.0), last_x_(0.0) {}
 
@@ -163,6 +169,16 @@ public:
       area_ += last_x_ * dt;
     last_x_ = sample;
     last_t_ = t;
+#ifdef NANO_LOG_ENABLED
+    if (!description.empty() && last_value_call_time_.has_value() &&
+        (t - *last_value_call_time_) >= kNanologSnapshotPeriod &&
+        (!last_snapshot_nanolog_time_.has_value() ||
+         (t - *last_snapshot_nanolog_time_) >= kNanologSnapshotPeriod)) {
+      NANO_LOG(NOTICE, "M# %s TwAvg %s N:N %f", config.name.c_str(),
+               description.c_str(), snapshot_mean(t));
+      last_snapshot_nanolog_time_ = t;
+    }
+#endif
   }
 
   double value() { return value(Clock::now()); }
@@ -181,6 +197,8 @@ public:
     }
     NANO_LOG(NOTICE, "M# %s TwAvg %s N:N %f", config.name.c_str(),
              description.c_str(), area_);
+    last_value_call_time_ = now;
+    last_snapshot_nanolog_time_ = now;
 #endif
     return std::exchange(area_, 0.0);
   }
@@ -190,11 +208,30 @@ public:
   bool empty() const { return !last_flush_.has_value(); }
 
 private:
+#ifdef NANO_LOG_ENABLED
+  double snapshot_mean(Clock::time_point now) const {
+    if (!last_flush_.has_value() || !(now > *last_flush_))
+      return 0.0;
+    double snap = area_;
+    if (now > *last_t_)
+      snap += last_x_ * std::chrono::duration<double>(now - *last_t_).count();
+    const double span =
+        std::chrono::duration<double>(now - *last_flush_).count();
+    if (span <= 0.0)
+      return 0.0;
+    return snap / span;
+  }
+#endif
+
   std::optional<Clock::time_point> last_flush_;
   std::optional<Clock::time_point> last_t_;
   double area_;
   double last_x_;
   std::string description;
+#ifdef NANO_LOG_ENABLED
+  std::optional<Clock::time_point> last_value_call_time_;
+  std::optional<Clock::time_point> last_snapshot_nanolog_time_;
+#endif
 };
 
 class Stats {
