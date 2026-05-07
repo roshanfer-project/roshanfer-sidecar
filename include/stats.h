@@ -220,5 +220,5 @@ public:
   LocalMap<SmoothedQuantileEstimator> tail_ds_service_time_us;
   LocalMap<SmoothedQuantileEstimator> tail_e2e_time_us;
   LocalMap<TimeWeightedMean> time_mean_ds_concurrency;
-  LocalMap<ExponentialMovingAverage> ema_credit_delay_us;
+  LocalMap<ExponentialMovingAverage> ema_wait_to_tx_us;
 };
