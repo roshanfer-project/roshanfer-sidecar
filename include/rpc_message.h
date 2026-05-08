@@ -34,7 +34,7 @@ public:
 };
 
 const size_t MAX_PAYLOAD_SIZE = 20000;
-const size_t MAX_HEADER_FIELD_NUMBER = 12;
+const size_t MAX_HEADER_FIELD_NUMBER = 13;
 
 class DataReadStruct {
 public:
