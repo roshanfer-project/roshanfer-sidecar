@@ -185,7 +185,7 @@ Stats::Stats(std::vector<std::string> ds_services,
       ema_us_service_time_us(us_services), ema_us_sidecar_rtt_us(us_services),
       ema_ds_sidecar_rtt_us(ds_services), tail_ds_service_time_us(ds_services),
       tail_e2e_time_us(us_services), time_mean_ds_concurrency(ds_services),
-      ema_credit_delay_us(ds_services) {
+      ema_wait_to_tx_us(ds_services) {
   for (const auto &service : us_services) {
     ema_us_sidecar_rtt_us.get(service).set_description("US-RTT-" + service);
     ema_us_service_time_us.get(service).set_description("US-RT-" + service);
@@ -196,7 +196,8 @@ Stats::Stats(std::vector<std::string> ds_services,
     ema_ds_service_time_us.get(service).set_description("DS-RT-" + service);
     tail_ds_service_time_us.get(service).set_description("DS-RT-" + service);
     time_mean_ds_concurrency.get(service).set_description("DSC-" + service);
-    ema_credit_delay_us.get(service).set_description("Credit-Delay-" + service);
+    ema_wait_to_tx_us.get(service).set_description("DS-WAIT-TO-CREDIT-" +
+                                                   service);
     ema_ds_sidecar_rtt_us.get(service).set_description("DS-RTT-" + service);
   }
 }

@@ -712,7 +712,7 @@ void inline State::send_sub_request(std::shared_ptr<RPCMessage> rpc) {
   auto wd = (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::steady_clock::now() - rpc->req_rcv_time)
                 .count();
-  stats.ema_credit_delay_us.get(service).update(wd);
+  stats.ema_wait_to_tx_us.get(service).update(wd);
   stats.time_mean_ds_concurrency.get(service).up();
 
   VLOG(1) << "RPCForward: EGRESS request. "
@@ -923,7 +923,7 @@ float State::cal_local_service_time(std::string_view us_service) {
     auto max = 0.0F;
     for (auto &ds_service : it->second.downstreams) {
       auto value = stats.ema_ds_service_time_us.get(ds_service).get_value() +
-                   stats.ema_credit_delay_us.get(ds_service).get_value();
+                   stats.ema_wait_to_tx_us.get(ds_service).get_value();
       if (value > max) {
         max = value;
       }
@@ -934,7 +934,7 @@ float State::cal_local_service_time(std::string_view us_service) {
     auto min = MAXFLOAT;
     for (auto &ds_service : it->second.downstreams) {
       auto value = stats.ema_ds_service_time_us.get(ds_service).get_value() +
-                   stats.ema_credit_delay_us.get(ds_service).get_value();
+                   stats.ema_wait_to_tx_us.get(ds_service).get_value();
       if (value < min) {
         min = value;
       }
@@ -945,7 +945,7 @@ float State::cal_local_service_time(std::string_view us_service) {
     auto sum = 0.0F;
     for (auto &ds_service : it->second.downstreams) {
       sum += stats.ema_ds_service_time_us.get(ds_service).get_value() +
-             stats.ema_credit_delay_us.get(ds_service).get_value();
+             stats.ema_wait_to_tx_us.get(ds_service).get_value();
     }
 
     return us_rt - sum;
