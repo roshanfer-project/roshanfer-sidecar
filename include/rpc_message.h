@@ -222,7 +222,8 @@ public:
 
   void set_method(const char *m, size_t m_len) { method.assign(m, m_len); }
   void set_service(const char *s, size_t s_len);
-  /** First path segment (same semantics as set_service). False = invalid URL form. */
+  /** First path segment (same semantics as set_service). False = invalid URL
+   * form. */
   static bool parse_service_from_request_target(const char *s, size_t s_len,
                                                 std::string *out);
   void set_path(const char *p, size_t p_len) { path.assign(p, p_len); }
