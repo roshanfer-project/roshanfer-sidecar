@@ -18,9 +18,15 @@ option(SIDECAR_ENABLE_NANOLOG "Compile sidecar with NANO_LOG_ENABLED (metric exp
 # enable hardening
 add_compile_definitions(_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE)
 
-# Use libc++
+# Use libc++ (pin LLVM 18 headers when libc++-22 is also installed)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++")
+set(LIBCXX_ROOT "/usr/lib/llvm-18" CACHE PATH "libc++ root matching Clang 18")
+if(NOT EXISTS "${LIBCXX_ROOT}/include/c++/v1")
+  message(FATAL_ERROR "libc++ headers not found at ${LIBCXX_ROOT}. Install: apt install libc++-18-dev libc++abi-18-dev")
+endif()
+add_compile_options(-nostdinc++ -isystem "${LIBCXX_ROOT}/include/c++/v1")
+add_link_options(-L"${LIBCXX_ROOT}/lib" -Wl,-rpath,"${LIBCXX_ROOT}/lib")
 
 # enable clang-tidy
 #set(CMAKE_CXX_CLANG_TIDY

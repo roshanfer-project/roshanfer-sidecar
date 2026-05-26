@@ -1,3 +1,13 @@
+# Useful Commands
+
+To compile the sidecar (Clang 18 + libc++):
+
+```bash
+./build.sh release
+```
+
+Requires `libc++-18-dev` and `libc++abi-18-dev` (especially if `libc++-22-dev` is installed). Set `SIDECAR_ENABLE_NANOLOG=1` to enable NanoLog logging.
+
 # Project Instructions
 
 ## Role
