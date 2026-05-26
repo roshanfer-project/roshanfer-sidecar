@@ -1,6 +1,6 @@
-#include "rpc_message.h"
-#include "config.h"
-#include "connection_enums.h"
+#include "rpc_message.hpp"
+#include "config.hpp"
+#include "connection_enums.hpp"
 #include "fast_map.hpp"
 #include <algorithm>
 #include <array>
@@ -12,13 +12,14 @@
 #include <queue>
 #include <string>
 #include <sys/types.h>
+#include <utility>
 #include <vector>
 
 RPCID local_id_counter = 1;
 
 static inline RPCID get_new_local_id(RPCID parent) {
   local_id_counter++;
-  const uint32_t branch = static_cast<uint32_t>(local_id_counter);
+  const auto branch = static_cast<uint32_t>(local_id_counter);
   const uint64_t packed =
       (static_cast<uint64_t>(static_cast<uint32_t>(parent)) << 32) |
       static_cast<uint64_t>(branch);
@@ -27,9 +28,7 @@ static inline RPCID get_new_local_id(RPCID parent) {
 
 //////// RPCMessage Implementation
 
-RPCMessage::RPCMessage()
-    : ds_stream_id(0), ds_fd(-1), us_stream_id(0), us_fd(-1), local_id(-1),
-      global_id(-1), credit_return_queue() {}
+RPCMessage::RPCMessage() : credit_return_queue() {}
 
 RPCMessage::~RPCMessage() {
   LOG(FATAL) << "RPC Message deconstructor (should not be called)";
@@ -38,8 +37,8 @@ RPCMessage::~RPCMessage() {
 //////// gRPCMessage Implementation
 
 HeaderField::HeaderField()
-    : name(std::array<uint8_t, MAX_HEADER_FIELD_SIZE>()), name_len(0),
-      value(std::array<uint8_t, MAX_HEADER_FIELD_SIZE>()), value_len(0) {}
+    : name(std::array<uint8_t, MAX_HEADER_FIELD_SIZE>()),
+      value(std::array<uint8_t, MAX_HEADER_FIELD_SIZE>()) {}
 
 void HeaderField::set(const uint8_t *field_name, size_t field_name_len,
                       const uint8_t *field_value, size_t field_value_len) {
@@ -66,16 +65,14 @@ void HeaderField::set(const uint8_t *field_name, size_t field_name_len,
 }
 
 DataReadStruct::DataReadStruct()
-    : data(std::array<uint8_t, MAX_PAYLOAD_SIZE>()), offset(0), read_offset(0) {
-}
+    : data(std::array<uint8_t, MAX_PAYLOAD_SIZE>()) {}
 
 gRPCMessage::gRPCMessage()
-    : RPCMessage(), error(false),
-      data_map(std::unordered_map<uint8_t, DataReadStruct *>()),
-      req_headers(std::vector<HeaderField *>()), req_header_count(0),
-      res_headers(std::vector<HeaderField *>()), res_header_count(0),
-      res_trailers(std::vector<HeaderField *>()), res_trailer_count(0) {
-  for (int i = 0; i < (int)MAX_HEADER_FIELD_NUMBER; i++) {
+    : RPCMessage(), data_map(std::unordered_map<uint8_t, DataReadStruct *>()),
+      req_headers(std::vector<HeaderField *>()),
+      res_headers(std::vector<HeaderField *>()),
+      res_trailers(std::vector<HeaderField *>()) {
+  for (int i = 0; std::cmp_less(i, MAX_HEADER_FIELD_NUMBER); i++) {
     req_headers.push_back(new HeaderField());
     res_headers.push_back(new HeaderField());
     res_trailers.push_back(new HeaderField());
@@ -97,8 +94,8 @@ void gRPCMessage::add_header_field(const uint8_t *name, size_t name_len,
 
   if (request) {
     if (std::memcmp(name, "rpc-id", 6) == 0) {
-      global_id = (RPCID)std::stoll(
-          std::string(reinterpret_cast<const char *>(value), value_len));
+      global_id = static_cast<RPCID>(std::stoll(
+          std::string(reinterpret_cast<const char *>(value), value_len)));
       if (config.is_ingress) {
         local_id = get_new_local_id(0);
       } else {
@@ -110,15 +107,15 @@ void gRPCMessage::add_header_field(const uint8_t *name, size_t name_len,
       VLOG(1) << "RPC ID after reading global id: " << get_id_string();
     }
     if (std::memcmp(name, "rpc-local-id", 12) == 0) {
-      auto id_from_str = (RPCID)std::stoll(
-          std::string(reinterpret_cast<const char *>(value), value_len));
+      auto id_from_str = static_cast<RPCID>(std::stoll(
+          std::string(reinterpret_cast<const char *>(value), value_len)));
       if (type == ConnectionType::INGRESS) {
         if (id_from_str == -1) {
           LOG(FATAL) << "rpc-local-id is -1 on INGRESS side";
         }
         VLOG(1) << "RPC ID after reading local id: " << get_id_string();
       } else if (type == ConnectionType::EGRESS) {
-        if (id_from_str <= 0 || id_from_str > (RPCID)UINT32_MAX) {
+        if (id_from_str <= 0 || id_from_str > static_cast<RPCID> INT32_MAX) {
           LOG(FATAL)
               << "local id: " << id_from_str
               << " received from rpc-local-id header is not in valid range";
@@ -130,8 +127,8 @@ void gRPCMessage::add_header_field(const uint8_t *name, size_t name_len,
       }
     }
     if (std::memcmp(name, "priority", 8) == 0) {
-      priority = (Priority)std::stoll(
-          std::string(reinterpret_cast<const char *>(value), value_len));
+      priority = static_cast<Priority>(std::stoll(
+          std::string(reinterpret_cast<const char *>(value), value_len)));
       VLOG(1) << "Priority: " << priority;
     }
   }
@@ -164,9 +161,9 @@ void gRPCMessage::add_header_field(const uint8_t *name, size_t name_len,
 
 void gRPCMessage::set_local_id_header() {
   rpc_local_id_header_value.fill(0);
-  size_t len = (size_t)std::snprintf(rpc_local_id_header_value.data(),
-                                     rpc_local_id_header_value.size(), "%lld",
-                                     (long long)local_id);
+  auto len = static_cast<size_t>(std::snprintf(
+      rpc_local_id_header_value.data(), rpc_local_id_header_value.size(),
+      "%lld", static_cast<long long>(local_id)));
   add_header_field(
       RPC_LOCAL_ID_HEADER_NAME, RPC_LOCAL_ID_HEADER_NAME_LEN,
       reinterpret_cast<const uint8_t *>(rpc_local_id_header_value.data()), len,
@@ -242,8 +239,12 @@ gRPCMessage::~gRPCMessage() {
   VLOG(1) << "RPCMessage deconstructor on ds_id: " << ds_stream_id
           << " ds_fd: " << ds_fd << " us_id: " << us_stream_id
           << " us_fd: " << us_fd;
-  delete data_map.at(0);
-  delete data_map.at(1);
+  try {
+    delete data_map.at(0);
+    delete data_map.at(1);
+  } catch (std::exception &e) {
+    LOG(FATAL) << "execption raised: " << e.what();
+  }
   for (auto &header : req_headers) {
     delete header;
   }
@@ -258,10 +259,10 @@ gRPCMessage::~gRPCMessage() {
 //////// HTTPMessage Implementation
 
 HTTPMessage::HTTPMessage()
-    : RPCMessage(), error(false), req_headers(std::vector<HeaderField *>()),
-      req_header_count(0), res_headers(std::vector<HeaderField *>()),
-      res_header_count(0), res_data(new DataReadStruct()) {
-  for (int i = 0; i < (int)MAX_HEADER_FIELD_NUMBER; i++) {
+    : RPCMessage(), req_headers(std::vector<HeaderField *>()),
+      res_headers(std::vector<HeaderField *>()),
+      res_data(new DataReadStruct()) {
+  for (int i = 0; std::cmp_less(i, MAX_HEADER_FIELD_NUMBER); i++) {
     req_headers.push_back(new HeaderField());
     res_headers.push_back(new HeaderField());
   }
@@ -277,18 +278,18 @@ bool HTTPMessage::parse_service_from_request_target(const char *s, size_t s_len,
     }
   }
 
-  const char *slash =
-      static_cast<const char *>(std::memchr(p, '/', (size_t)(end - p)));
+  const char *slash = static_cast<const char *>(
+      std::memchr(p, '/', static_cast<size_t>(end - p)));
   if (!slash || slash + 1 >= end) {
     return false;
   }
 
   const char *svc_begin = slash + 1;
   const char *question = static_cast<const char *>(
-      std::memchr(svc_begin, '?', (size_t)(end - svc_begin)));
+      std::memchr(svc_begin, '?', static_cast<size_t>(end - svc_begin)));
   const char *svc_end = question ? question : end;
 
-  out->assign(svc_begin, (size_t)(svc_end - svc_begin));
+  out->assign(svc_begin, static_cast<size_t>(svc_end - svc_begin));
   return true;
 }
 
@@ -320,8 +321,8 @@ void HTTPMessage::add_header_field(const uint8_t *name, size_t name_len,
 
   if (request) {
     if (std::memcmp(name, "rpc-id", 6) == 0) {
-      global_id = (RPCID)std::stoll(
-          std::string(reinterpret_cast<const char *>(value), value_len));
+      global_id = static_cast<RPCID>(std::stoll(
+          std::string(reinterpret_cast<const char *>(value), value_len)));
       if (config.is_ingress) {
         local_id = get_new_local_id(0);
       } else {
@@ -333,15 +334,15 @@ void HTTPMessage::add_header_field(const uint8_t *name, size_t name_len,
       VLOG(1) << "RPC ID after reading global id: " << get_id_string();
     }
     if (std::memcmp(name, "rpc-local-id", 12) == 0) {
-      auto id_from_str = (RPCID)std::stoll(
-          std::string(reinterpret_cast<const char *>(value), value_len));
+      auto id_from_str = static_cast<RPCID>(std::stoll(
+          std::string(reinterpret_cast<const char *>(value), value_len)));
       if (type == ConnectionType::INGRESS) {
         if (id_from_str == -1) {
           LOG(FATAL) << "rpc-local-id is -1 on INGRESS side";
         }
         VLOG(1) << "RPC ID after reading local id: " << get_id_string();
       } else if (type == ConnectionType::EGRESS) {
-        if (id_from_str <= 0 || id_from_str > (RPCID)UINT32_MAX) {
+        if (id_from_str <= 0 || id_from_str > static_cast<RPCID> INT32_MAX) {
           LOG(FATAL)
               << "local id: " << id_from_str
               << " received from rpc-local-id header is not in valid range";
@@ -353,8 +354,8 @@ void HTTPMessage::add_header_field(const uint8_t *name, size_t name_len,
       }
     }
     if (std::memcmp(name, "priority", 8) == 0) {
-      priority = (Priority)std::stoll(
-          std::string(reinterpret_cast<const char *>(value), value_len));
+      priority = static_cast<Priority>(std::stoll(
+          std::string(reinterpret_cast<const char *>(value), value_len)));
       VLOG(1) << "Priority: " << priority;
     }
   }
@@ -376,9 +377,9 @@ void HTTPMessage::add_header_field(const uint8_t *name, size_t name_len,
 
 void HTTPMessage::set_local_id_header() {
   rpc_local_id_header_value.fill(0);
-  size_t len = (size_t)std::snprintf(rpc_local_id_header_value.data(),
-                                     rpc_local_id_header_value.size(), "%lld",
-                                     (long long)local_id);
+  auto len = static_cast<size_t>(std::snprintf(
+      rpc_local_id_header_value.data(), rpc_local_id_header_value.size(),
+      "%lld", static_cast<long long>(local_id)));
   add_header_field(
       RPC_LOCAL_ID_HEADER_NAME, RPC_LOCAL_ID_HEADER_NAME_LEN,
       reinterpret_cast<const uint8_t *>(rpc_local_id_header_value.data()), len,

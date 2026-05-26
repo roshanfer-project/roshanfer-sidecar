@@ -1,13 +1,12 @@
-#include "ingress.h"
-#include "config.h"
-#include "connection_enums.h"
+#include "ingress.hpp"
+#include "config.hpp"
+#include "connection_enums.hpp"
 #include "fast_map.hpp"
 #include "glog/logging.h"
-#include "rpc_mapper.h"
-#include "rpc_message.h"
-#include "rpc_queue.h"
-#include "stats.h"
-#include <chrono>
+#include "rpc_mapper.hpp"
+#include "rpc_message.hpp"
+#include "rpc_queue.hpp"
+#include "stats.hpp"
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -28,8 +27,8 @@ Ingress::Ingress(int index_arg, std::string &ingress_service_ref,
                  Stats &stats_ref, RPCMapper &rpc_mapper_ref,
                  RPCQueue &rpc_queue_ref)
     : stats(stats_ref), rpc_mapper(rpc_mapper_ref), rpc_queue(rpc_queue_ref),
-      queue(std::deque<std::shared_ptr<RPCMessage>>()), has_dn_on_fly(false),
-      drop_id(0), drop_fd(-index_arg), last_rpc_id((RPCID)index_arg << 48),
+      queue(std::deque<std::shared_ptr<RPCMessage>>()), drop_fd(-index_arg),
+      last_rpc_id(static_cast<RPCID>(index_arg) << 48),
       ingress_service(ingress_service_ref) {
   ingress_mean.set_description("Ingress-Mean-" + ingress_service);
   if (config.is_ingress) {
@@ -41,7 +40,7 @@ Ingress::Ingress(int index_arg, std::string &ingress_service_ref,
       LOG(FATAL) << "No priority configured for ingress service: "
                  << ingress_service_ref;
     } else {
-      priority = config.routing.at(ingress_service_ref).priority.value();
+      priority = config.routing.at(ingress_service_ref).priority.value_or(0);
       if (priority < 0 || priority > 3) {
         LOG(FATAL) << "Invalid priority configured for ingress service: "
                    << ingress_service_ref;
@@ -50,7 +49,7 @@ Ingress::Ingress(int index_arg, std::string &ingress_service_ref,
   }
 }
 
-Ingress::~Ingress() {}
+Ingress::~Ingress() = default;
 
 void Ingress::enqueue(std::shared_ptr<RPCMessage> rpc) {
   if (rpc->get_service() != ingress_service) {
@@ -67,7 +66,7 @@ void Ingress::enqueue(std::shared_ptr<RPCMessage> rpc) {
   add_rpc_id_header(rpc);
   add_priority_header(rpc);
   queue.push_back(std::move(rpc));
-  ingress_mean.update((double)queue.size());
+  ingress_mean.update(static_cast<double>(queue.size()));
   VLOG(2) << "Enqueued RPC message for service: " << ingress_service;
 
 #ifdef NANO_LOG_ENABLED
@@ -86,7 +85,7 @@ std::optional<std::shared_ptr<RPCMessage>> Ingress::dequeue() {
   queue.pop_front();
 
   has_dn_on_fly = false;
-  ingress_mean.update((double)queue.size());
+  ingress_mean.update(static_cast<double>(queue.size()));
   VLOG(2) << "Dequeued RPC message for service: " << ingress_service;
 #ifdef NANO_LOG_ENABLED
   NANO_LOG(NOTICE, "M# %s Measured QS-%s T:T %zu", config.name.c_str(),
@@ -101,22 +100,24 @@ void Ingress::update_ingress_cap() {
       (stats.tail_e2e_time_us.get(ingress_service).value() - slo_us) / slo_us;
 
   if (err > aimd_err_d) {
-    ingress_size_cap = (size_t)std::ceil((float)ingress_size_cap / aimd_adj_d);
+    ingress_size_cap = static_cast<size_t>(
+        std::ceil(static_cast<float>(ingress_size_cap) / aimd_adj_d));
   } else if (err < aimd_err_i) {
     auto ing_mean = ingress_mean.value();
     auto concurrency =
         stats.time_mean_ds_concurrency.get(ingress_service).value();
-    if (ing_mean >= (float)ingress_size_cap * aimd_queue_th) {
-      ingress_size_cap += (size_t)std::ceil((-err) * aimd_adj_i);
-    } else if ((float)ingress_size_cap > safe_multiply * concurrency) {
-      const double lowered =
-          std::ceil((double)ingress_size_cap / (double)aimd_adj_d);
-      ingress_size_cap =
-          (size_t)std::max((double)(safe_multiply * concurrency), lowered);
+    if (ing_mean >= static_cast<float>(ingress_size_cap) * aimd_queue_th) {
+      ingress_size_cap += static_cast<size_t>(std::ceil((-err) * aimd_adj_i));
+    } else if (static_cast<float>(ingress_size_cap) >
+               safe_multiply * concurrency) {
+      const double lowered = std::ceil(static_cast<double>(ingress_size_cap) /
+                                       static_cast<double>(aimd_adj_d));
+      ingress_size_cap = static_cast<size_t>(
+          std::max(static_cast<double>(safe_multiply * concurrency), lowered));
     }
   }
 
-  ingress_size_cap = std::max((size_t)1, ingress_size_cap);
+  ingress_size_cap = std::max(static_cast<size_t>(1), ingress_size_cap);
 #ifdef NANO_LOG_ENABLED
   NANO_LOG(NOTICE, "M# %s Measured QS-CAP-%s T:T %zu", config.name.c_str(),
            ingress_service.c_str(), ingress_size_cap);
@@ -133,7 +134,7 @@ void Ingress::add_rpc_id_header(std::shared_ptr<RPCMessage> &rpc) {
   last_rpc_id++;
   // convert last_rpc_id to a char array
   std::snprintf(rpc_id_header_value.data(), rpc_id_header_value.size(), "%lld",
-                (long long)last_rpc_id);
+                static_cast<long long>(last_rpc_id));
   rpc->add_header_field(
       RPC_ID_HEADER_NAME, RPC_ID_HEADER_NAME_LEN,
       reinterpret_cast<const uint8_t *>(rpc_id_header_value.data()),

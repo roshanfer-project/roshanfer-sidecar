@@ -1,21 +1,21 @@
 #pragma once
 
-#include "ingress.h"
-#include "rpc_mapper.h"
-#include "rpc_queue.h"
-#include <buffer_manager.h>
-#include <config.h>
-#include <connection.h>
-#include <listener.h>
-#include <ring_wrapper.h>
-#include <state.h>
+#include "ingress.hpp"
+#include "rpc_mapper.hpp"
+#include "rpc_queue.hpp"
+#include <buffer_manager.hpp>
+#include <config.hpp>
+#include <connection.hpp>
+#include <listener.hpp>
+#include <ring_wrapper.hpp>
+#include <state.hpp>
 #include <string>
 #include <unordered_map>
 
 class EventLoop {
 
 public:
-  EventLoop(int, std::string &, Config, SharedState &);
+  EventLoop(int, std::string &, const Config&, SharedState &);
   void run();
 
 public:

@@ -1,7 +1,8 @@
-#include "config.h"
+#include "config.hpp"
 #include "glog/logging.h"
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 #include <yaml-cpp/yaml.h>
 
 Config config;
@@ -9,7 +10,7 @@ Config config;
 Config load_config(const std::string &filename) {
   Config local_config;
 
-  std::string config_path = filename;
+  const std::string &config_path = filename;
   YAML::Node node;
   try {
     node = YAML::LoadFile(config_path);
@@ -24,7 +25,7 @@ Config load_config(const std::string &filename) {
   local_config.ring_size = node["ring_size"].as<size_t>();
   local_config.buffer_count = node["buffer_count"].as<size_t>();
   local_config.buffer_size = node["buffer_size"].as<size_t>();
-  local_config.num_threads = node["num_threads"].as<int>();
+  local_config.num_threads = node["num_threads"].as<size_t>();
   local_config.egress_listener_port =
       node["egress_listener_port"].as<uint16_t>();
   local_config.ingress_listener_port =
@@ -122,7 +123,7 @@ Config load_config(const std::string &filename) {
   if (node["routing"]) {
     if (node["routing"].IsMap()) {
       for (const auto &route_node : node["routing"]) {
-        std::string service = route_node.first.as<std::string>();
+        auto service = route_node.first.as<std::string>();
         RoutingEntry entry;
 
         const auto &route_config = route_node.second;
@@ -173,7 +174,7 @@ Config load_config(const std::string &filename) {
   if (node["mapping"]) {
     if (node["mapping"].IsMap()) {
       for (const auto &mapping_node : node["mapping"]) {
-        std::string upstream = mapping_node.first.as<std::string>();
+        auto upstream = mapping_node.first.as<std::string>();
         MappingInfo mapping_info;
 
         if (mapping_node.second["downstreams"]) {
@@ -233,8 +234,8 @@ Config load_config(const std::string &filename) {
     LOG(INFO) << "config.cpu_count: " << local_config.cpu_count.value();
   }
 
-  if (config.is_ingress &&
-      (local_config.num_threads != (int)local_config.mapping.size())) {
+  if (config.is_ingress && (std::cmp_not_equal(local_config.num_threads,
+                                               local_config.mapping.size()))) {
     LOG(FATAL) << "Number of threads (" << local_config.num_threads
                << ") does not match the number of hosted services ("
                << local_config.mapping.size() << ")";

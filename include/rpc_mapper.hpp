@@ -1,7 +1,7 @@
 #pragma once
 
-#include "connection_enums.h"
-#include "rpc_message.h"
+#include "connection_enums.hpp"
+#include "rpc_message.hpp"
 #include <cstdint>
 #include <memory>
 #include <unordered_map>

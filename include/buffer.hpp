@@ -1,6 +1,6 @@
 #pragma once
 
-// #include "listener.h"
+// #include "listener.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <netinet/in.h>
@@ -33,13 +33,13 @@ public:
 
 public:
   std::vector<char> data;
-  bool is_free;
-  bool is_provided;
-  int64_t enter_queue_ts;
+  bool is_free{true};
+  bool is_provided{false};
+  int64_t enter_queue_ts{0};
 
 private:
   size_t size;
-  size_t filled;
+  size_t filled{0};
   size_t index;
   // HTTPConnection* conn;
   // Listener* listener;

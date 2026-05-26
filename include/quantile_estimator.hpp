@@ -1,6 +1,6 @@
 #pragma once
 
-#include "config.h"
+#include "config.hpp"
 #include "glog/logging.h"
 #include <algorithm>
 #include <chrono>
@@ -39,7 +39,7 @@ inline void partial_sort_for_quantile(std::vector<double> &v, double q) {
   const int max_idx = max_quantile_sorted_index(static_cast<int>(n), q);
   const auto need = static_cast<size_t>(max_idx) + 1;
   if (need >= n)
-    std::sort(v.begin(), v.end());
+    std::ranges::sort(v);
   else
     std::partial_sort(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(need),
                       v.end());
@@ -103,14 +103,14 @@ public:
       flush_at(now);
   }
 
-  double value() const { return has_value() ? smoothed_ : 0.0; }
-  bool has_value() const { return std::isfinite(smoothed_); }
+  [[nodiscard]] double value() const { return has_value() ? smoothed_ : 0.0; }
+  [[nodiscard]] bool has_value() const { return std::isfinite(smoothed_); }
 
   /** True once per flush that updated smoothed_; clears on read (no double
    * notify). */
   bool consume_flush_updated() { return std::exchange(flush_updated_, false); }
 
-  void set_description(std::string desc) { description = desc; }
+  void set_description(std::string desc) { description = std::move(desc); }
 
 private:
   void flush_at(Clock::time_point now) {
@@ -119,7 +119,7 @@ private:
       return;
     }
     scratch_.resize(buf_.size());
-    std::copy(buf_.begin(), buf_.end(), scratch_.begin());
+    std::ranges::copy(buf_, scratch_.begin());
     buf_.clear();
     smoothed_quantile_estimator_detail::partial_sort_for_quantile(scratch_,
                                                                   target_q_);

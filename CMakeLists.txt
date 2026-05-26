@@ -13,6 +13,8 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g -gdwarf-3 -fno-omit-frame-pointer")
 # options: "-fsanitize=address": to see memory leaks, stack corruption, etc.
 
 option(SIDECAR_ENABLE_NANOLOG "Compile sidecar with NANO_LOG_ENABLED (metric export via NanoLog)" OFF)
+option(SIDECAR_CLANG_TIDY "Run clang-tidy on each C++ compile" OFF)
+option(SIDECAR_CLANG_TIDY_FIX "Run clang-tidy with -fix (auto-apply fixable checks)" OFF)
 # NABO_LOG_TRACE_ENABLED: optional trace; keep off unless needed
 
 # enable hardening
@@ -22,10 +24,16 @@ add_compile_definitions(_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++")
 
-# enable clang-tidy
-#set(CMAKE_CXX_CLANG_TIDY
-#  clang-tidy;
-#  -header-filter=.;)
+# clang-tidy on demand (config: .clang-tidy); enable via SIDECAR_CLANG_TIDY=1 ./build.sh
+if(SIDECAR_CLANG_TIDY)
+  if(SIDECAR_CLANG_TIDY_FIX)
+    set(CMAKE_CXX_CLANG_TIDY clang-tidy-22;-fix)
+  else()
+    set(CMAKE_CXX_CLANG_TIDY clang-tidy-22)
+  endif()
+else()
+  unset(CMAKE_CXX_CLANG_TIDY CACHE)
+endif()
 
 # append -Werror=format to CMAKE_CXX_FLAGS
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror=format -Wshadow -Wnull-dereference -Wuninitialized -Wconversion -Wreorder -Wsign-compare -Wnon-virtual-dtor -Woverloaded-virtual -Wall -Wextra")

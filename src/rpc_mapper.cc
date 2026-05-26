@@ -1,7 +1,7 @@
-#include "rpc_mapper.h"
-#include "connection_enums.h"
+#include "rpc_mapper.hpp"
+#include "connection_enums.hpp"
 #include "glog/logging.h"
-#include "rpc_message.h"
+#include "rpc_message.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -83,7 +83,7 @@ void RPCMapper::route(ConnectionType type, int32_t ds_stream_id, int ds_fd,
 }
 
 std::shared_ptr<RPCMessage> &RPCMapper::get_ingress_rpc(RPCID id) {
-  RPCID ingress_side_id = (uint64_t)id >> 32;
+  RPCID ingress_side_id = static_cast<RPCID>(id) >> 32;
   if (ingress_side_id == 0) {
     LOG(FATAL) << "Upper 32 bits of local id is zero. This is not a valid "
                   "local id at the EGRESS side";

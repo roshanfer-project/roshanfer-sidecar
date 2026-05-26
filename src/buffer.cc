@@ -1,4 +1,4 @@
-#include "buffer.h"
+#include "buffer.hpp"
 #include "glog/logging.h"
 #include <bits/types/struct_iovec.h>
 #include <cstddef>
@@ -6,8 +6,7 @@
 #include <netinet/in.h>
 
 Buffer::Buffer(size_t length, size_t id)
-    : data(std::vector<char>(length)), is_free(true), is_provided(false),
-      enter_queue_ts(0), size(length - 1), filled(0), index(id), msg({}),
+    : data(std::vector<char>(length)),  size(length - 1),  index(id), msg({}),
       addr({}), iov({}) {}
 
 Buffer::~Buffer() {

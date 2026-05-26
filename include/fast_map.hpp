@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 // A simple 64-bit FNV-1a + finalizer: fast for short strings
@@ -32,7 +33,7 @@ template <typename T> struct alignas(64) Slot {
   uint64_t fp = 0; // full 64-bit fingerprint
   std::atomic<T> value{};
 
-  bool occupied() const noexcept { return len != 0; }
+  [[nodiscard]] bool occupied() const noexcept { return len != 0; }
 };
 
 // Non-atomic version for thread-local use
@@ -43,7 +44,7 @@ template <typename T> struct alignas(64) LocalSlot {
   uint64_t fp = 0; // full 64-bit fingerprint
   T value{};
 
-  bool occupied() const noexcept { return len != 0; }
+  [[nodiscard]] bool occupied() const noexcept { return len != 0; }
 };
 
 template <typename T> class FastMap {
@@ -55,15 +56,15 @@ public:
       // Create empty map - all operations will LOG(FATAL) if attempted
       seed_ = 0;
       size_ = 0;
-      mask_ = size_t(-1);
+      mask_ = static_cast<size_t>(-1);
       return;
     }
     const size_t K = keys.size();
     // Verify uniqueness
     {
       std::vector<std::string> copy = keys;
-      std::sort(copy.begin(), copy.end());
-      if (std::unique(copy.begin(), copy.end()) != copy.end())
+      std::ranges::sort(copy);
+      if (std::ranges::unique(copy).end() != copy.end())
         throw std::invalid_argument("duplicate key");
     }
     // Try to find a seed that makes hash % K unique (minimal perfect)
@@ -167,7 +168,7 @@ public:
 
   // Optional: resolve once, then use index-based access in hot loops.
   // Returns npos if not found.
-  size_t index_of(std::string_view k) const noexcept {
+  [[nodiscard]] size_t index_of(std::string_view k) const noexcept {
     size_t idx;
     const Slot<T> *s = probe(k, idx);
     return (s && equals(*s, k)) ? idx : npos;
@@ -179,10 +180,10 @@ public:
   const std::atomic<T> &by_index(size_t idx) const noexcept {
     return slots_[idx].value;
   }
-  size_t size() const noexcept { return size_; }
+  [[nodiscard]] size_t size() const noexcept { return size_; }
 
   // Get reference to the stored key string. LOG(FATAL) if key is missing.
-  const std::string &get_key(std::string_view k) const noexcept {
+  [[nodiscard]] const std::string &get_key(std::string_view k) const noexcept {
     size_t idx;
     const Slot<T> *s = probe(k, idx);
     if (s && equals(*s, k))
@@ -298,7 +299,7 @@ public:
   }
 
   // Get all keys (useful for debugging or enumeration)
-  std::vector<std::string> get_all_keys() const {
+  [[nodiscard]] std::vector<std::string> get_all_keys() const {
     std::vector<std::string> result;
     result.reserve(size_);
     for (const auto &slot : slots_) {
@@ -310,7 +311,7 @@ public:
   }
 
   // Get all occupied indices
-  std::vector<size_t> get_all_indices() const {
+  [[nodiscard]] std::vector<size_t> get_all_indices() const {
     std::vector<size_t> result;
     result.reserve(size_);
     for (size_t i = 0; i < slots_.size(); ++i) {
@@ -346,7 +347,7 @@ private:
       tmp[idx].fp = h;
     }
     slots_.swap(tmp);
-    mask_ = pow2 ? (cap - 1) : size_t(-1);
+    mask_ = pow2 ? (cap - 1) : static_cast<size_t>(-1);
     size_ = K;
     return true;
   }
@@ -354,7 +355,7 @@ private:
   // Compute index and return slot pointer (may be empty).
   inline const Slot<T> *probe(std::string_view k, size_t &idx) const noexcept {
     const uint64_t h = fnv1a64(k, seed_);
-    if (mask_ != size_t(-1)) { // power-of-two capacity
+    if (std::cmp_not_equal(mask_ ,-1)) { // power-of-two capacity
       idx = h & mask_;
     } else { // perfect: cap==size_
       idx = static_cast<size_t>(h % size_);
@@ -376,7 +377,7 @@ private:
     // you prefer purely structural verification.)
     if (!s.occupied())
       return false;
-    return std::memcmp(k.data(), s.key.data(), s.len) == 0;
+    return k == s.key;
   }
 };
 
@@ -390,15 +391,15 @@ public:
       // Create empty map - all operations will LOG(FATAL) if attempted
       seed_ = 0;
       size_ = 0;
-      mask_ = size_t(-1);
+      mask_ = static_cast<size_t>(-1);
       return;
     }
     const size_t K = keys.size();
     // Verify uniqueness
     {
       std::vector<std::string> copy = keys;
-      std::sort(copy.begin(), copy.end());
-      if (std::unique(copy.begin(), copy.end()) != copy.end())
+      std::ranges::sort(copy);
+      if (std::ranges::unique(copy).end() != copy.end())
         throw std::invalid_argument("duplicate key");
     }
     // Try to find a seed that makes hash % K unique (minimal perfect)
@@ -441,7 +442,7 @@ public:
     const LocalSlot<T> *s = probe(k, idx);
     return (s && equals(*s, k)) ? &slots_[idx].value : nullptr;
   }
-  const T *find_ptr(std::string_view k) const noexcept {
+  [[nodiscard]] const T *find_ptr(std::string_view k) const noexcept {
     size_t idx;
     const LocalSlot<T> *s = probe(k, idx);
     return (s && equals(*s, k)) ? &slots_[idx].value : nullptr;
@@ -466,7 +467,7 @@ public:
 
   // Convenience: get const reference to value if present, else LOG(FATAL) with
   // all keys.
-  const T &get(std::string_view k) const noexcept {
+  [[nodiscard]] const T &get(std::string_view k) const noexcept {
     if (auto p = find_ptr(k))
       return *p;
 
@@ -519,7 +520,7 @@ public:
 
   // Optional: resolve once, then use index-based access in hot loops.
   // Returns npos if not found.
-  size_t index_of(std::string_view k) const noexcept {
+  [[nodiscard]] size_t index_of(std::string_view k) const noexcept {
     size_t idx;
     const LocalSlot<T> *s = probe(k, idx);
     return (s && equals(*s, k)) ? idx : npos;
@@ -528,11 +529,11 @@ public:
 
   // Fast index-based operations (after index_of).
   T &by_index(size_t idx) noexcept { return slots_[idx].value; }
-  const T &by_index(size_t idx) const noexcept { return slots_[idx].value; }
-  size_t size() const noexcept { return size_; }
+  [[nodiscard]] const T &by_index(size_t idx) const noexcept { return slots_[idx].value; }
+  [[nodiscard]] size_t size() const noexcept { return size_; }
 
   // Get reference to the stored key string. LOG(FATAL) if key is missing.
-  const std::string &get_key(std::string_view k) const noexcept {
+  [[nodiscard]] const std::string &get_key(std::string_view k) const noexcept {
     size_t idx;
     const LocalSlot<T> *s = probe(k, idx);
     if (s && equals(*s, k))
@@ -651,7 +652,7 @@ public:
   }
 
   // Get all keys (useful for debugging or enumeration)
-  std::vector<std::string> get_all_keys() const {
+  [[nodiscard]] std::vector<std::string> get_all_keys() const {
     std::vector<std::string> result;
     result.reserve(size_);
     for (const auto &slot : slots_) {
@@ -663,7 +664,7 @@ public:
   }
 
   // Get all occupied indices
-  std::vector<size_t> get_all_indices() const {
+  [[nodiscard]] std::vector<size_t> get_all_indices() const {
     std::vector<size_t> result;
     result.reserve(size_);
     for (size_t i = 0; i < slots_.size(); ++i) {
@@ -699,7 +700,7 @@ private:
       tmp[idx].fp = h;
     }
     slots_.swap(tmp);
-    mask_ = pow2 ? (cap - 1) : size_t(-1);
+    mask_ = pow2 ? (cap - 1) : static_cast<size_t>(-1);
     size_ = K;
     return true;
   }
@@ -708,7 +709,7 @@ private:
   inline const LocalSlot<T> *probe(std::string_view k,
                                    size_t &idx) const noexcept {
     const uint64_t h = fnv1a64(k, seed_);
-    if (mask_ != size_t(-1)) { // power-of-two capacity
+    if (std::cmp_not_equal(mask_ ,-1)) { // power-of-two capacity
       idx = h & mask_;
     } else { // perfect: cap==size_
       idx = static_cast<size_t>(h % size_);
@@ -731,7 +732,7 @@ private:
     // you prefer purely structural verification.)
     if (!s.occupied())
       return false;
-    return std::memcmp(k.data(), s.key.data(), s.len) == 0;
+    return k == s.key;
   }
 };
 

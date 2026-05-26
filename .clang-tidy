@@ -1,0 +1,15 @@
+---
+Checks: >
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  clang-analyzer-*,
+  concurrency-*,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-use-nodiscard,
+  performance-*
+WarningsAsErrors: false
+HeaderFilterRegex: '.*/sidecar/include/.*\.hpp'
+ExtraArgs:
+  - '-std=c++20'
+  - '-stdlib=libc++'

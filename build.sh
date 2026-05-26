@@ -23,9 +23,23 @@ if [ "${SIDECAR_ENABLE_NANOLOG:-}" = "1" ]; then
 else
   EXTRA_CMAKE+=(-DSIDECAR_ENABLE_NANOLOG=OFF)
 fi
-cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-  -DCMAKE_AR=/usr/bin/llvm-ar-18 -DCMAKE_RANLIB=/usr/bin/llvm-ranlib-18 "${EXTRA_CMAKE[@]}"
-cmake --build .
+if [ "${SIDECAR_CLANG_TIDY_FIX:-}" = "1" ]; then
+  EXTRA_CMAKE+=(-DSIDECAR_CLANG_TIDY=ON -DSIDECAR_CLANG_TIDY_FIX=ON)
+  echo "SIDECAR_CLANG_TIDY_FIX=1 -> clang-tidy -fix enabled"
+elif [ "${SIDECAR_CLANG_TIDY:-}" = "1" ]; then
+  EXTRA_CMAKE+=(-DSIDECAR_CLANG_TIDY=ON -DSIDECAR_CLANG_TIDY_FIX=OFF)
+  echo "SIDECAR_CLANG_TIDY=1 -> clang-tidy enabled"
+else
+  EXTRA_CMAKE+=(-DSIDECAR_CLANG_TIDY=OFF -DSIDECAR_CLANG_TIDY_FIX=OFF)
+fi
+cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 \
+  -DCMAKE_AR=/usr/bin/llvm-ar-22 -DCMAKE_RANLIB=/usr/bin/llvm-ranlib-22 "${EXTRA_CMAKE[@]}"
+JOBS="${JOBS:-$(nproc)}"
+if [ "${SIDECAR_CLANG_TIDY_FIX:-}" = "1" ] || [ "${SIDECAR_CLANG_TIDY:-}" = "1" ]; then
+  echo "clang-tidy enabled -> parallel build with -j$JOBS (set JOBS to override)"
+fi
+echo "Parallel jobs: $JOBS"
+cmake --build . -j"$JOBS"
 
 # Check if build was successful
 if [ $? -ne 0 ]; then

@@ -1,19 +1,19 @@
 #pragma once
 
-#include "buffer.h"
-#include "buffer_manager.h"
-#include "config.h"
-#include "connection.h"
-#include "connection_enums.h"
+#include "buffer.hpp"
+#include "buffer_manager.hpp"
+#include "config.hpp"
+#include "connection.hpp"
+#include "connection_enums.hpp"
 #include "credit_queue.hpp"
 #include "fast_map.hpp"
-#include "ingress.h"
-#include "ppm_queue.h"
-#include "ring_wrapper.h"
-#include "rpc_mapper.h"
-#include "rpc_message.h"
-#include "rpc_queue.h"
-#include "stats.h"
+#include "ingress.hpp"
+#include "ppm_queue.hpp"
+#include "ring_wrapper.hpp"
+#include "rpc_mapper.hpp"
+#include "rpc_message.hpp"
+#include "rpc_queue.hpp"
+#include "stats.hpp"
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -42,7 +42,7 @@ public:
 
 class SharedState {
 public:
-  SharedState(std::vector<std::string>, std::vector<std::string>);
+  SharedState(std::vector<std::string>, const std::vector<std::string>&);
 
 public:
   /*ConnectionType::INGRESS-side metrics*/
@@ -56,7 +56,7 @@ public:
 
 class LocalState {
 public:
-  LocalState(std::vector<std::string>, std::vector<std::string>, std::string &);
+  LocalState(const std::vector<std::string>&, const std::vector<std::string>&, std::string &);
 
 public:
   /*ConnectionType::INGRESS-side metrics*/
@@ -64,7 +64,7 @@ public:
   /*ConnectionType::EGRESS-side metrics*/
 
   // number of drops (updated if only config.is_ingress is true)
-  uint32_t drops;
+  uint32_t drops{0};
 
   // TODO: in the future if we have multiple connections for the same service,
   // we should do this RTT measurement per connection.
@@ -84,11 +84,11 @@ private:
 class State {
 
 public:
-  State(Config, RingWrapper &, BufferManager &, RPCMapper &, RPCQueue &,
+  State(const Config&, RingWrapper &, BufferManager &, RPCMapper &, RPCQueue &,
         std::unordered_map<ConnectionType, std::shared_ptr<Listener>> &,
         Ingress &, SharedState &, std::string &, int, Stats &);
   void forward(ConnectionType, ConnectionDirection);
-  void remove_connection(std::shared_ptr<HTTPConnection>);
+  void remove_connection(const std::shared_ptr<HTTPConnection>&);
 
   // PPM-related functions
   void dispatch_ppm_recv(const std::unique_ptr<Buffer> &);
@@ -100,9 +100,9 @@ public:
 
   /*Write request/response from connection's internal state to buffers.
   For HTTP/2 it also writes setting/ping/etc frames.*/
-  void write_http(std::shared_ptr<HTTPConnection>);
-  bool forward_request(std::shared_ptr<HTTPConnection>,
-                       std::shared_ptr<RPCMessage>);
+  void write_http(const std::shared_ptr<HTTPConnection>&);
+  bool forward_request(const std::shared_ptr<HTTPConnection>&,
+                       const std::shared_ptr<RPCMessage>&);
   std::shared_ptr<HTTPConnection> route_request(ConnectionType, int32_t, int);
   void dump_entire_state();
   int get_sockfd() { return sockfd; }
@@ -121,7 +121,7 @@ private:
   void update_limits(int32_t, std::string_view);
   void fanout_req_management(RPCID, const std::string &,
                              const std::unique_ptr<Buffer> &);
-  void send_sub_request(std::shared_ptr<RPCMessage>);
+  void send_sub_request(const std::shared_ptr<RPCMessage>&);
   float cal_local_service_time(std::string_view);
   void fanout_res_credit_management(RPCID);
 

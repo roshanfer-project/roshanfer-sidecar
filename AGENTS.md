@@ -1,3 +1,22 @@
+# Useful Commands
+
+To compile the sidecar, use:
+```bash
+./build.sh release
+```
+
+Set `SIDECAR_ENABLE_NANOLOG` to 1 to enable nanolog logging.
+
+clang-tidy is optional at compile time (see `.clang-tidy`). Requires LLVM 22 (`clang-22`, `clang++-22`, `clang-tidy-22`, `libc++-22-dev`, `llvm-ar-22`). On Ubuntu 24.04 use [apt.llvm.org](https://apt.llvm.org/) (`llvm-toolchain-noble-22`). Scope: `src/*.cc` and `include/*.hpp` only (not `.c` or C `.h` headers).
+
+C++ headers use `.hpp`; C headers remain `.h` (`tdigest.h`, `picohttpparser.h`).
+
+`SIDECAR_CLANG_TIDY=1 ./build.sh <type>` runs clang-tidy on every C++ compile.
+
+`SIDECAR_CLANG_TIDY_FIX=1 ./build.sh <type>` enables clang-tidy `-fix` (implies tidy; use version control first).
+
+Builds use `-j$(nproc)` by default (including clang-tidy check/fix); set `JOBS` to override (e.g. `JOBS=4 SIDECAR_CLANG_TIDY=1 ./build.sh release`).
+
 # Project Instructions
 
 ## Role

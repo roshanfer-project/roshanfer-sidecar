@@ -1,14 +1,15 @@
 #pragma once
 
-#include "buffer.h"
-#include "connection.h"
-#include "listener.h"
+#include "buffer.hpp"
+#include "connection.hpp"
+#include "listener.hpp"
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 
-enum class Operation {
+enum class Operation : uint8_t {
   ACCEPT,
   READ,
   WRITE,
@@ -42,7 +43,7 @@ inline std::string operation_to_str(Operation op) {
   }
 }
 
-enum class UDPType { REQUEST, RESPONSE, CLEAR };
+enum class UDPType : uint8_t { REQUEST, RESPONSE, CLEAR };
 
 inline std::string udp_type_to_str(UDPType type) {
   switch (type) {
@@ -79,12 +80,12 @@ private:
   std::unique_ptr<Buffer> buffer;
 
 public:
-  bool in_ring;
+  bool in_ring{false};
   std::shared_ptr<Listener> listener;
   std::shared_ptr<HTTPConnection> conn;
-  enum Operation op;
+  enum Operation op { Operation::ACCEPT };
   size_t index;
-  UDPType udp_type;
+  UDPType udp_type{UDPType::REQUEST};
   struct sockaddr_in accept_addr; // used for preparing accept
 
   // used for preparing sendmsg

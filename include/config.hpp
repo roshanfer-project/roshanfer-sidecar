@@ -1,6 +1,6 @@
 #pragma once
 
-#include "utils.h"
+#include "utils.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -30,7 +30,7 @@ struct Config {
   size_t ring_size;
   size_t buffer_count;
   size_t buffer_size;
-  int num_threads;
+  size_t num_threads;
   uint16_t egress_listener_port;
   uint16_t ingress_listener_port;
   std::string ingress_upstream_host;
@@ -59,6 +59,7 @@ extern Config config;
 inline std::vector<std::string>
 get_downstream_services(const Config &local_config) {
   std::vector<std::string> downstream_services;
+  downstream_services.reserve(local_config.routing.size());
   for (const auto &[route, _] : local_config.routing) {
     downstream_services.push_back(route);
   }
@@ -68,6 +69,7 @@ get_downstream_services(const Config &local_config) {
 inline std::vector<std::string>
 get_hosted_services(const Config &local_config) {
   std::vector<std::string> hosted_services;
+  hosted_services.reserve(local_config.mapping.size());
   for (const auto &mapping : local_config.mapping) {
     hosted_services.push_back(mapping.first);
   }

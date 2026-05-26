@@ -3,22 +3,21 @@
 #include "fast_map.hpp"
 #include "hdr/hdr_histogram.h"
 #include "quantile_estimator.hpp"
-#include "rpc_message.h"
-#include "tdigest.h"
+#include "rpc_message.hpp"
 #include <chrono>
-#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #ifdef NANO_LOG_ENABLED
-#include "config.h"
+#include "config.hpp"
 #endif
 
 class Utilization {
 public:
-  Utilization(uint32_t, std::vector<std::string> services);
+  Utilization(uint32_t, const std::vector<std::string> &services);
   void update(uint32_t, std::string &);
 
 private:
@@ -48,12 +47,12 @@ public:
 
   void update(int32_t);
   float get_value();
-  uint32_t get_count() const;
-  void set_description(std::string desc) { description = desc; }
+  [[nodiscard]] uint32_t get_count() const;
+  void set_description(std::string desc) { description = std::move(desc); }
 
 private:
-  uint32_t count;
-  float value;
+  uint32_t count{0};
+  float value{0.0};
   std::string description;
 };
 
@@ -74,8 +73,8 @@ public:
   void update(int32_t);
   float get_value();
   float get_value_cap(float, float);
-  uint32_t get_count() const;
-  void set_description(std::string desc) { description = desc; }
+  [[nodiscard]] uint32_t get_count() const;
+  void set_description(std::string desc) { description = std::move(desc); }
   void set_alpha(float new_alpha) { this->alpha = new_alpha; }
   void up();
   void down();
@@ -97,32 +96,7 @@ public:
   int32_t get_count();
 
 private:
-  int32_t count;
-  std::string description;
-};
-
-class TDigest {
-public:
-  TDigest() : td(td_new(200)), count(0), description("") {}
-
-  void add(int32_t);
-  double get_quantile(double q) {
-    double val = td_value_at(td, q);
-    return std::isnan(val) ? 0 : val;
-  }
-  void set_description(std::string dec) { description = dec; }
-
-  // delete copy semantics
-  TDigest(const TDigest &) = delete;
-  TDigest &operator=(const TDigest &) = delete;
-
-  // delete move semantics
-  TDigest(TDigest &&) = delete;
-  TDigest &operator=(TDigest &&) = delete;
-
-private:
-  td_histogram_t *td;
-  int64_t count;
+  int32_t count{0};
   std::string description;
 };
 
@@ -134,7 +108,7 @@ public:
   using Clock = std::chrono::steady_clock;
   static constexpr std::chrono::milliseconds kNanologSnapshotPeriod{250};
 
-  TimeWeightedMean() : area_(0.0), last_x_(0.0) {}
+  TimeWeightedMean() = default;
 
   void up() { up(Clock::now()); }
 
@@ -158,13 +132,14 @@ public:
   void update(double sample) { update(sample, Clock::now()); }
 
   void update(double sample, Clock::time_point t) {
-    if (!last_flush_.has_value()) {
+    if (!last_t_.has_value()) {
       last_flush_ = t;
       last_t_ = t;
       last_x_ = sample;
       return;
     }
-    const double dt = std::chrono::duration<double>(t - *last_t_).count();
+    const double dt =
+        std::chrono::duration<double>(t - last_t_.value()).count();
     if (dt > 0.0)
       area_ += last_x_ * dt;
     last_x_ = sample;
@@ -184,10 +159,12 @@ public:
   double value() { return value(Clock::now()); }
 
   double value(Clock::time_point now) {
-    if (!last_flush_.has_value() || !(now > *last_flush_))
+    if (!last_flush_.has_value() || !last_t_.has_value() ||
+        !(now > *last_flush_))
       return 0;
-    if (now > *last_t_)
-      area_ += last_x_ * std::chrono::duration<double>(now - *last_t_).count();
+    const Clock::time_point prev_t = last_t_.value();
+    if (now > prev_t)
+      area_ += last_x_ * std::chrono::duration<double>(now - prev_t).count();
     area_ /= std::chrono::duration<double>(now - *last_flush_).count();
     last_flush_ = now;
     last_t_ = now;
@@ -203,18 +180,20 @@ public:
     return std::exchange(area_, 0.0);
   }
 
-  void set_description(std::string desc) { description = desc; }
+  void set_description(std::string desc) { description = std::move(desc); }
 
-  bool empty() const { return !last_flush_.has_value(); }
+  [[nodiscard]] bool empty() const { return !last_flush_.has_value(); }
 
 private:
 #ifdef NANO_LOG_ENABLED
   double snapshot_mean(Clock::time_point now) const {
-    if (!last_flush_.has_value() || !(now > *last_flush_))
+    if (!last_flush_.has_value() || !last_t_.has_value() ||
+        !(now > *last_flush_))
       return 0.0;
+    const Clock::time_point prev_t = last_t_.value();
     double snap = area_;
-    if (now > *last_t_)
-      snap += last_x_ * std::chrono::duration<double>(now - *last_t_).count();
+    if (now > prev_t)
+      snap += last_x_ * std::chrono::duration<double>(now - prev_t).count();
     const double span =
         std::chrono::duration<double>(now - *last_flush_).count();
     if (span <= 0.0)
@@ -225,8 +204,8 @@ private:
 
   std::optional<Clock::time_point> last_flush_;
   std::optional<Clock::time_point> last_t_;
-  double area_;
-  double last_x_;
+  double area_{0.0};
+  double last_x_{0.0};
   std::string description;
 #ifdef NANO_LOG_ENABLED
   std::optional<Clock::time_point> last_value_call_time_;
@@ -236,7 +215,7 @@ private:
 
 class Stats {
 public:
-  Stats(std::vector<std::string>, std::vector<std::string>);
+  Stats(const std::vector<std::string> &, const std::vector<std::string> &);
 
   // delete copy semantics
   Stats(const Stats &) = delete;

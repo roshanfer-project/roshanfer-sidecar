@@ -1,14 +1,14 @@
 #include "credit_queue.hpp"
-#include "config.h"
+#include "config.hpp"
 #include "fast_map.hpp"
-#include "rpc_message.h"
+#include "rpc_message.hpp"
 #include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <utility>
 
-InnerCreditQueue::InnerCreditQueue(std::vector<std::string> endpoints)
-    : queue(endpoints), it(queue.begin()), _size(0) {}
+InnerCreditQueue::InnerCreditQueue(const std::vector<std::string>& endpoints)
+    : queue(endpoints), it(queue.begin()) {}
 
 void InnerCreditQueue::push(std::unique_ptr<Buffer> buffer,
                             std::string_view endpoint) {
@@ -24,7 +24,7 @@ std::unique_ptr<Buffer> InnerCreditQueue::pop(
   }
 
   auto &init_endpoint = it->key;
-  while (1) {
+  while (true) {
     if (it->value.size() > 0 &&
         in_flight_per_endpoint.get(it->key) < per_endpoint_limit.get(it->key) &&
         in_flight < ppm_limit) {
@@ -48,18 +48,18 @@ std::unique_ptr<Buffer> InnerCreditQueue::pop(
 
 CreditQueue::CreditQueue(std::vector<std::string> endpoints, int32_t cpu_count)
     : credit_queue{{{endpoints}, {endpoints}, {endpoints}}},
-      weights({16, 4, 1}), it(0), remaining_rounds(weights.at(it)), lock(),
-      _size(0), in_flight(0), ppm_limit(0), in_flight_per_endpoint(endpoints),
+      weights({16, 4, 1}),  remaining_rounds(weights.at(it)), lock(),
+      _size(0),  in_flight_per_endpoint(endpoints),
       per_endpoint_limit(endpoints) {
-  for (size_t i = 0; i < endpoints.size(); i++) {
-    in_flight_per_endpoint.set(endpoints.at(i), 0);
-    per_endpoint_limit.set(endpoints.at(i), cpu_count * 2 + config.extra_limit);
+  for (const auto & endpoint : endpoints) {
+    in_flight_per_endpoint.set(endpoint, 0);
+    per_endpoint_limit.set(endpoint, cpu_count * 2 + config.extra_limit);
   }
   auto max_limit = cpu_count * 2 + config.extra_limit;
-  auto sum_limit = max_limit * (int)endpoints.size();
+  auto sum_limit = max_limit * static_cast<int>(endpoints.size());
   if (config.routing.size() == 0) {
     // for leaf services
-    ppm_limit = max_limit + (int32_t)((float)(sum_limit - max_limit) *
+    ppm_limit = max_limit + static_cast<int32_t>(static_cast<float>(sum_limit - max_limit) *
                                       config.over_commitment.value_or(-1));
   } else {
     // for intermediate services
@@ -72,7 +72,7 @@ size_t CreditQueue::size() { return _size.load(); }
 void CreditQueue::push(std::unique_ptr<Buffer> buffer,
                        std::string_view endpoint, Priority priority) {
   lock.lock();
-  credit_queue.at((size_t)priority).push(std::move(buffer), endpoint);
+  credit_queue.at(static_cast<size_t>(priority)).push(std::move(buffer), endpoint);
   lock.unlock();
   _size.fetch_add(1);
 }
@@ -106,7 +106,7 @@ std::unique_ptr<Buffer> CreditQueue::pop() {
   }
 
   size_t init_index = it;
-  while (1) {
+  while (true) {
     if (auto buffer = credit_queue.at(it).pop(in_flight, in_flight_per_endpoint,
                                               ppm_limit, per_endpoint_limit);
         buffer != nullptr) {

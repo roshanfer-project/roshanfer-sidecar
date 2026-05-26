@@ -1,21 +1,22 @@
-#include "buffer.h"
-#include "connection_enums.h"
-#include "listener.h"
+#include "buffer.hpp"
+#include "connection_enums.hpp"
+#include "listener.hpp"
 #include "ring_helper.hpp"
-#include "state.h"
-#include <buffer_manager.h>
+#include "state.hpp"
+#include "utils.hpp"
+#include <buffer_manager.hpp>
 #include <cassert>
-#include <connection.h>
+#include <connection.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <event_loop.h>
+#include <event_loop.hpp>
 #include <glog/logging.h>
 #include <iostream>
 #include <memory>
-#include <ring_wrapper.h>
+#include <ring_wrapper.hpp>
 #include <string>
 #include <strings.h>
 #include <sys/socket.h>
@@ -53,14 +54,14 @@ void EventLoop::run() {
 
         if (cqe->res < 0) {
           LOG(FATAL) << "Failed to accept connection, error: "
-                     << strerror(-cqe->res);
+                     << errno_string(-cqe->res);
           // break;
         } else {
           // add the connection to the listener
           HTTP http_type;
-          if (config.is_frontend && listener->type == ConnectionType::INGRESS) {
-            http_type = HTTP::HTTP1;
-          } else if (config.is_ingress) {
+          if ((config.is_frontend &&
+               listener->type == ConnectionType::INGRESS) ||
+              config.is_ingress) {
             http_type = HTTP::HTTP1;
           } else {
             http_type = HTTP::HTTP2;
@@ -124,7 +125,7 @@ void EventLoop::run() {
             state.dump_entire_state();
             LOG(FATAL) << "Failed to read from " << orig_conn->get_host() << ":"
                        << orig_conn->get_port()
-                       << ", error: " << strerror(-cqe->res);
+                       << ", error: " << errno_string(-cqe->res);
           } else if (cqe->res == 0) {
             LOG(INFO) << "Closing connection on fd: " << orig_conn->get_fd()
                       << " of type: " << orig_conn->type_to_str()
@@ -152,7 +153,7 @@ void EventLoop::run() {
                               buffer_manager.get_user_data());
           break;
         }
-        buffer->set_filled((size_t)cqe->res);
+        buffer->set_filled(static_cast<size_t>(cqe->res));
 
         if (!orig_conn) {
           LOG(FATAL) << "orig_conn is null";
@@ -204,7 +205,7 @@ void EventLoop::run() {
         if (cqe->res < 0) {
           LOG(FATAL) << "Failed to connect to fd: " << ud->conn->get_fd()
                      << ", host:" << ud->conn->get_host()
-                     << ", error: " << strerror(-cqe->res);
+                     << ", error: " << errno_string(-cqe->res);
           break;
         }
 
@@ -241,7 +242,7 @@ void EventLoop::run() {
 
         if (cqe->res < 0) {
           LOG(FATAL) << "Failed to write to fd: " << ud->conn->get_fd()
-                     << ", error: " << strerror(-cqe->res);
+                     << ", error: " << errno_string(-cqe->res);
         }
 
         // free buffer
@@ -260,7 +261,7 @@ void EventLoop::run() {
         switch (conn->direction) {
         case ConnectionDirection::UPSTREAM:
           // for upstream connections, pools (inside state) hold the connection
-          state.remove_connection(std::move(conn));
+          state.remove_connection(conn);
           break;
         case ConnectionDirection::DOWNSTREAM:
           // also remove the corresponsing connection from state becasue,
@@ -310,7 +311,7 @@ void EventLoop::run() {
         }
         if (cqe->res <= 0) {
           LOG(FATAL) << "Failed to receive UDP message, error: "
-                     << strerror(-cqe->res);
+                     << errno_string(-cqe->res);
         }
 
         RingWrapper::handle_multishot_recv(old_buffer, cqe->res);
@@ -336,12 +337,13 @@ void EventLoop::run() {
         if (cqe->res <= 0) {
           LOG(FATAL) << "Failed to send message"
                      << " res: " << cqe->res
-                     << " error: " << strerror(-cqe->res)
+                     << " error: " << errno_string(-cqe->res)
                      << " udp_type: " << udp_type_to_str(ud->udp_type)
                      << " buffer content: "
-                     << std::string(buffer->data.begin(),
-                                    buffer->data.begin() +
-                                        (long)buffer->get_filled());
+                     << std::string(
+                            buffer->data.begin(),
+                            buffer->data.begin() +
+                                static_cast<long>(buffer->get_filled()));
         }
 
         // free the buffer
@@ -370,7 +372,7 @@ void EventLoop::run() {
 };
 
 EventLoop::EventLoop(int th_index, std::string &ingress_service_ref,
-                     Config parsed_config, SharedState &shared_state)
+                     const Config &parsed_config, SharedState &shared_state)
     : index(th_index), ingress_service(ingress_service_ref),
       config(parsed_config), ring(config.ring_size),
       buffer_manager(config.buffer_count, config.buffer_size, ring),

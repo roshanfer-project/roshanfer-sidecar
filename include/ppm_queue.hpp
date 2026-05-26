@@ -1,8 +1,8 @@
 #pragma once
 
-#include "config.h"
-#include "rpc_message.h"
-#include "utils.h"
+#include "config.hpp"
+#include "rpc_message.hpp"
+#include "utils.hpp"
 #include <cstdint>
 #include <map>
 #include <string>
@@ -12,8 +12,8 @@
 
 class PPMQueue {
 public:
-  PPMQueue(std::unordered_map<std::string, RoutingEntry, TransparentHash,
-                              TransparentEqual>
+  PPMQueue(const std::unordered_map<std::string, RoutingEntry, TransparentHash,
+                              TransparentEqual>&
                routing);
   void push(std::shared_ptr<RPCMessage> rpc);
   std::shared_ptr<RPCMessage> pop(const std::string &service, RPCID id);

@@ -1,22 +1,22 @@
 #include "ring_helper.hpp"
-#include <buffer.h>
-#include <buffer_manager.h>
+#include <buffer.hpp>
+#include <buffer_manager.hpp>
 #include <cassert>
 #include <cstddef>
 #include <glog/logging.h>
-#include <listener.h>
+#include <listener.hpp>
 #include <memory>
 #include <netinet/in.h>
 #include <sys/types.h>
 
 UserData::UserData(size_t id)
-    : buffer(), in_ring(false), listener(), conn(), op(Operation::ACCEPT),
-      index(id), udp_type(UDPType::REQUEST) {
+    : buffer(),  listener(), conn(), 
+      index(id) {
   std::memset(&accept_addr, 0, sizeof(accept_addr));
 
-  msg.msg_name = 0;
+  msg.msg_name = nullptr;
   msg.msg_namelen = sizeof(struct sockaddr_in);
-  msg.msg_iov = 0;
+  msg.msg_iov = nullptr;
   msg.msg_iovlen = 0;
 }
 
@@ -59,7 +59,7 @@ BufferManager::BufferManager(size_t len, size_t buffer_size, RingWrapper &ring)
     buffer_vector.push_back(std::make_unique<Buffer>(size, i));
     dn_buffer_vector.push_back(std::make_unique<Buffer>(256, i + count));
 
-    if ((double)i < 0.8 * (double)count) {
+    if (static_cast<double>(i) < 0.8 * static_cast<double>(count)) {
       ring.add_buffer_to_ring(buffer_vector.back(), 0);
       ring.add_buffer_to_ring(dn_buffer_vector.back(), 1);
       buffer_vector.back()->is_provided = true;

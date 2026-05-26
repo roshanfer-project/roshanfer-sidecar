@@ -23,8 +23,8 @@ cd "${BUILD_DIR}"
 
 # Configure with CMake
 cmake .. \
-    -DCMAKE_C_COMPILER=clang \
-    -DCMAKE_CXX_COMPILER=clang++ \
+    -DCMAKE_C_COMPILER=clang-22 \
+    -DCMAKE_CXX_COMPILER=clang++-22 \
     -DCMAKE_BUILD_TYPE=Release \
     -DYAML_CPP_BUILD_TESTS=OFF \
     -DYAML_CPP_BUILD_TOOLS=OFF \

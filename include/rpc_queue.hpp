@@ -1,6 +1,6 @@
 #pragma once
 
-#include "connection_enums.h"
+#include "connection_enums.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <tuple>

@@ -1,9 +1,9 @@
-#include "connection_enums.h"
-#include "stats.h"
+#include "connection_enums.hpp"
+#include "stats.hpp"
 #include <arpa/inet.h>
-#include <connection.h>
+#include <connection.hpp>
 #include <glog/logging.h>
-#include <listener.h>
+#include <listener.hpp>
 #include <memory>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -32,7 +32,7 @@ Listener::Listener(uint16_t lis_port, ConnectionType lis_type)
     LOG(FATAL) << "setsockopt(SO_REUSEPORT) failed";
   }
 
-  if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+  if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
     LOG(FATAL) << "Failed to bind socket: " << port;
   }
 

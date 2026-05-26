@@ -1,12 +1,12 @@
 #pragma once
 
-#include "buffer.h"
-#include "connection_enums.h"
-#include "ingress.h"
-#include "rpc_mapper.h"
-#include "rpc_message.h"
-#include "rpc_queue.h"
-#include "stats.h"
+#include "buffer.hpp"
+#include "connection_enums.hpp"
+#include "ingress.hpp"
+#include "rpc_mapper.hpp"
+#include "rpc_message.hpp"
+#include "rpc_queue.hpp"
+#include "stats.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -21,12 +21,12 @@
 
 class NoConnectionException : public std::runtime_error {
 public:
-  NoConnectionException(std::string msg) : std::runtime_error(msg) {}
+  NoConnectionException(const std::string& msg) : std::runtime_error(msg) {}
 };
 
 class HTTPParseException : public std::runtime_error {
 public:
-  HTTPParseException(std::string msg) : std::runtime_error(msg) {}
+  HTTPParseException(const std::string& msg) : std::runtime_error(msg) {}
 };
 
 class BufferFullException : public std::runtime_error {
@@ -39,7 +39,7 @@ public:
   ssize_t written;
 };
 
-typedef struct CallbackData {
+using CallbackData = struct CallbackData {
   ConnectionType type;
   ConnectionDirection direction;
   int fd;
@@ -47,7 +47,7 @@ typedef struct CallbackData {
   RPCMapper *mapper;
   ConnectionStatus *status;
   Stats *stats;
-} CallbackData;
+};
 
 class HTTPConnection {
 
@@ -115,7 +115,7 @@ public:
   HTTP2Connection(std::string, uint16_t, ConnectionType, RPCQueue *,
                   RPCMapper *, Stats *);
   HTTP2Connection(int, ConnectionType, RPCMapper *, RPCQueue *, Stats *);
-  ~HTTP2Connection();
+  ~HTTP2Connection() override;
 
   // delete copy semantics
   HTTP2Connection(const HTTP2Connection &) = delete;
@@ -125,15 +125,15 @@ public:
   HTTP2Connection(HTTP2Connection &&) = delete;
   HTTP2Connection &operator=(HTTP2Connection &&) = delete;
 
-  void http_read(const std::unique_ptr<Buffer> &, Ingress &);
-  bool want_write();
-  int http_write(const std::unique_ptr<Buffer> &);
-  void submit_settings();
-  int32_t submit_request(std::shared_ptr<RPCMessage>);
-  void submit_response(std::shared_ptr<RPCMessage>);
-  void submit_error_response(std::shared_ptr<RPCMessage>);
-  bool available();
-  HTTP http() { return HTTP::HTTP2; }
+  void http_read(const std::unique_ptr<Buffer> &, Ingress &) override;
+  bool want_write() override;
+  int http_write(const std::unique_ptr<Buffer> &) override;
+  void submit_settings() override;
+  int32_t submit_request(std::shared_ptr<RPCMessage>) override;
+  void submit_response(std::shared_ptr<RPCMessage>) override;
+  void submit_error_response(std::shared_ptr<RPCMessage>) override;
+  bool available() override;
+  HTTP http() override { return HTTP::HTTP2; }
 
 private:
   nghttp2_session *session;
@@ -153,7 +153,7 @@ public:
   HTTP1Connection(std::string, uint16_t, ConnectionType, RPCMapper *,
                   RPCQueue *, Stats *);
   HTTP1Connection(int, ConnectionType, RPCMapper *, RPCQueue *, Stats *);
-  ~HTTP1Connection();
+  ~HTTP1Connection() override;
 
   // delete copy semantics
   HTTP1Connection(const HTTP1Connection &) = delete;
@@ -163,15 +163,15 @@ public:
   HTTP1Connection(HTTP1Connection &&) = delete;
   HTTP1Connection &operator=(HTTP1Connection &&) = delete;
 
-  void http_read(const std::unique_ptr<Buffer> &, Ingress &);
-  bool want_write();
-  int http_write(const std::unique_ptr<Buffer> &);
-  void submit_settings();
-  int32_t submit_request(std::shared_ptr<RPCMessage>);
-  void submit_response(std::shared_ptr<RPCMessage>);
-  void submit_error_response(std::shared_ptr<RPCMessage>);
-  bool available();
-  HTTP http() { return HTTP::HTTP1; }
+  void http_read(const std::unique_ptr<Buffer> &, Ingress &) override;
+  bool want_write() override;
+  int http_write(const std::unique_ptr<Buffer> &) override;
+  void submit_settings() override;
+  int32_t submit_request(std::shared_ptr<RPCMessage>) override;
+  void submit_response(std::shared_ptr<RPCMessage>) override;
+  void submit_error_response(std::shared_ptr<RPCMessage>) override;
+  bool available() override;
+  HTTP http() override { return HTTP::HTTP1; }
 
 private:
   void set_rpc_message(std::shared_ptr<HTTPMessage> msg);
@@ -216,6 +216,6 @@ private:
       connections; // fd: connection
   ConnectionType type;
   struct sockaddr_in addr;
-  bool addr_set;
+  bool addr_set{false};
   std::unordered_map<int, std::shared_ptr<HTTPConnection>>::iterator next_conn;
 };

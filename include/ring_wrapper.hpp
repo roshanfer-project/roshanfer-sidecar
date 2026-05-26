@@ -1,10 +1,10 @@
 #pragma once
 
 #include "ring_helper.hpp"
-#include <connection.h>
+#include <connection.hpp>
 #include <cstddef>
 #include <liburing.h>
-#include <listener.h>
+#include <listener.hpp>
 #include <memory>
 
 class RingWrapper {

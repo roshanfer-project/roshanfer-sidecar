@@ -1,8 +1,8 @@
 #pragma once
 
-#include "buffer.h"
+#include "buffer.hpp"
 #include "fast_map.hpp"
-#include "rpc_message.h"
+#include "rpc_message.hpp"
 #include "spinlock.hpp"
 #include <array>
 #include <cstddef>
@@ -18,7 +18,7 @@ for endpoint belonging to that priority level.
 */
 class InnerCreditQueue {
 public:
-  InnerCreditQueue(std::vector<std::string>);
+  InnerCreditQueue(const std::vector<std::string>&);
 
   // delete copy semantics
   InnerCreditQueue(const InnerCreditQueue &) = delete;
@@ -36,7 +36,7 @@ public:
 private:
   LocalMap<std::deque<std::unique_ptr<Buffer>>> queue;
   LocalMap<std::deque<std::unique_ptr<Buffer>>>::iterator it;
-  size_t _size;
+  size_t _size{0};
 };
 
 class CreditQueue {
@@ -69,14 +69,14 @@ public:
 private:
   std::array<InnerCreditQueue, PriorityCount> credit_queue;
   std::array<size_t, PriorityCount> weights;
-  size_t it;
+  size_t it{0};
   size_t remaining_rounds;
   SpinLock lock;
   std::atomic<size_t> _size;
 
   // global limit counters
-  int32_t in_flight;
-  int32_t ppm_limit;
+  int32_t in_flight{0};
+  int32_t ppm_limit{0};
 
   // per-endpoint limit counters
   LocalMap<int32_t> in_flight_per_endpoint;

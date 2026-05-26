@@ -1,6 +1,6 @@
-#include "stats.h"
-#include "config.h"
-#include "connection_enums.h"
+#include "stats.hpp"
+#include "config.hpp"
+#include "connection_enums.hpp"
 #include "fast_map.hpp"
 #include "hdr/hdr_histogram.h"
 #include <chrono>
@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <ios>
 #include <memory>
+#include <utility>
 
 #if defined(NANO_LOG_ENABLED) || defined(NABO_LOG_TRACE_ENABLED)
 #include "NanoLog.h"
@@ -17,7 +18,7 @@ using namespace NanoLog::LogLevels;
 #endif
 
 Utilization::Utilization(uint32_t period_count,
-                         std::vector<std::string> services)
+                         const std::vector<std::string> &services)
     : total(LocalMap<double>(services)), last_in(LocalMap<uint32_t>(services)),
       count(LocalMap<uint32_t>(services)), period(period_count),
       last_update(LocalMap<std::chrono::steady_clock::time_point>(services)),
@@ -33,18 +34,18 @@ void Utilization::update(uint32_t in, std::string &service) {
   // calculate the time difference since the last report in milliseconds
   auto now = std::chrono::steady_clock::now();
   double time_diff_ms =
-      (double)std::chrono::duration_cast<std::chrono::microseconds>(
-          now - last_update.get(service))
-          .count();
+      static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(
+                              now - last_update.get(service))
+                              .count());
 
-  total.add(service, (double)last_in.get(service) * time_diff_ms);
+  total.add(service, static_cast<double>(last_in.get(service)) * time_diff_ms);
   last_in.set(service, in);
   last_update.set(service, now);
   count.add(service, 1);
-  hdr_record_value(hist, (int64_t)in);
+  hdr_record_value(hist, static_cast<int64_t>(in));
 
   VLOG(2) << "Updated utilization for service: " << service
-          << ", in: " << (double)in << ", total: " << std::fixed
+          << ", in: " << static_cast<double>(in) << ", total: " << std::fixed
           << std::setprecision(4) << total.get(service)
           << ", count: " << count.get(service)
           << ", time_diff_ms: " << time_diff_ms;
@@ -54,10 +55,10 @@ void Utilization::update(uint32_t in, std::string &service) {
 }
 
 void Utilization::report(std::string &service) {
-  double time_diff_ms =
-      (double)std::chrono::duration_cast<std::chrono::microseconds>(
+  double time_diff_ms = static_cast<double>(
+      std::chrono::duration_cast<std::chrono::microseconds>(
           std::chrono::steady_clock::now() - last_report.get(service))
-          .count();
+          .count());
   double utilization = total.get(service) / time_diff_ms;
 
   VLOG(2) << "Reported utilization for service: " << service
@@ -87,11 +88,11 @@ void Utilization::report(std::string &service) {
           << ", p90: " << p90 << ", p100: " << p100;
 }
 
-MovingAverage::MovingAverage() : count(0), value(0.0) {}
+MovingAverage::MovingAverage() = default;
 
 void MovingAverage::update(int32_t new_value) {
   count++;
-  value += ((float)new_value - value) / (float)count;
+  value += (static_cast<float>(new_value) - value) / static_cast<float>(count);
   VLOG(2) << "MovingAverage update: " << new_value << " count: " << count
           << " value: " << value;
   if (count % 1000 == 0) {
@@ -118,7 +119,7 @@ ExponentialMovingAverage::ExponentialMovingAverage(float alpha)
 void ExponentialMovingAverage::update(int32_t new_value) {
   count++;
   last_value = new_value;
-  value = alpha * (float)new_value + (1 - alpha) * value;
+  value = alpha * static_cast<float>(new_value) + (1 - alpha) * value;
   VLOG(2) << "ExponentialMovingAverage update: " << new_value
           << " count: " << count << " value: " << value;
   if (count % 1000 == 0) {
@@ -147,7 +148,7 @@ float ExponentialMovingAverage::get_value_cap(float min, float max) {
 
 uint32_t ExponentialMovingAverage::get_count() const { return count; }
 
-Counter::Counter(std::string desc) : count(0), description(desc) {}
+Counter::Counter(std::string desc) : description(std::move(std::move(desc))) {}
 
 void Counter::up(int32_t val) {
   count += val;
@@ -161,26 +162,8 @@ void Counter::down(int32_t val) { count -= val; }
 
 int32_t Counter::get_count() { return count; }
 
-void TDigest::add(int32_t val) {
-  td_add(td, val, 1);
-
-#ifdef NANO_LOG_ENABLED
-  count++;
-  if (count % 2000 == 0) {
-
-    if (description == "") {
-      LOG(FATAL) << "description is not set for TD";
-    }
-    NANO_LOG(NOTICE, "M# %s TD-95 %s T:T %f", config.name.c_str(),
-             description.c_str(), get_quantile(0.95));
-    NANO_LOG(NOTICE, "M# %s TD-99 %s T:T %f", config.name.c_str(),
-             description.c_str(), get_quantile(0.99));
-  }
-#endif
-}
-
-Stats::Stats(std::vector<std::string> ds_services,
-             std::vector<std::string> us_services)
+Stats::Stats(const std::vector<std::string> &ds_services,
+             const std::vector<std::string> &us_services)
     : mode2_credits("Mode2 Credits"), ema_ds_service_time_us(ds_services),
       ema_us_service_time_us(us_services), ema_us_sidecar_rtt_us(us_services),
       ema_ds_sidecar_rtt_us(ds_services), tail_ds_service_time_us(ds_services),
@@ -250,7 +233,8 @@ void Stats::report_latency(const std::shared_ptr<RPCMessage> &rpc) {
       auto e2e_time = std::chrono::duration_cast<std::chrono::microseconds>(
                           std::chrono::steady_clock::now() - rpc->req_rcv_time)
                           .count();
-      tail_e2e_time_us.get(rpc->get_service()).update((double)e2e_time);
+      tail_e2e_time_us.get(rpc->get_service())
+          .update(static_cast<double>(e2e_time));
     }
 
     VLOG(2) << "Stats: EGRESS Reported latency "

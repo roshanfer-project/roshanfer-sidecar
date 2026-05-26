@@ -1,8 +1,8 @@
 #pragma once
 
-#include "buffer.h"
+#include "buffer.hpp"
 #include "ring_helper.hpp"
-#include "ring_wrapper.h"
+#include "ring_wrapper.hpp"
 #include <cstddef>
 #include <memory>
 #include <queue>

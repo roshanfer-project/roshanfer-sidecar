@@ -1,7 +1,7 @@
 #pragma once
 
-#include "buffer.h"
-#include "connection_enums.h"
+#include "buffer.hpp"
+#include "connection_enums.hpp"
 #include "fast_map.hpp"
 #include <array>
 #include <chrono>
@@ -28,9 +28,9 @@ public:
 
 public:
   std::array<uint8_t, MAX_HEADER_FIELD_SIZE> name;
-  size_t name_len;
+  size_t name_len{0};
   std::array<uint8_t, MAX_HEADER_FIELD_SIZE> value;
-  size_t value_len;
+  size_t value_len{0};
 };
 
 const size_t MAX_PAYLOAD_SIZE = 20000;
@@ -42,8 +42,8 @@ public:
 
 public:
   std::array<uint8_t, MAX_PAYLOAD_SIZE> data;
-  size_t offset;
-  size_t read_offset;
+  size_t offset{0};
+  size_t read_offset{0};
 };
 
 using RPCID = int64_t;
@@ -64,22 +64,22 @@ public:
   RPCMessage &operator=(RPCMessage &&) = delete;
 
   // getter and setters
-  int32_t get_ds_stream_id() const { return ds_stream_id; }
+  [[nodiscard]] int32_t get_ds_stream_id() const { return ds_stream_id; }
   void set_ds_stream_id(int32_t ds_id) { ds_stream_id = ds_id; }
-  int get_ds_fd() const { return ds_fd; }
+  [[nodiscard]] int get_ds_fd() const { return ds_fd; }
   void set_ds_fd(int fd) { ds_fd = fd; }
-  int32_t get_us_stream_id() const { return us_stream_id; }
+  [[nodiscard]] int32_t get_us_stream_id() const { return us_stream_id; }
   void set_us_stream_id(int32_t us_id) { us_stream_id = us_id; }
-  int get_us_fd() const { return us_fd; }
+  [[nodiscard]] int get_us_fd() const { return us_fd; }
   void set_us_fd(int fd) { us_fd = fd; }
-  RPCID get_local_id() const { return local_id; }
+  [[nodiscard]] RPCID get_local_id() const { return local_id; }
   std::string get_id_string() {
     return std::format("(global: {}, local: {})", global_id, local_id);
   }
   void set_local_id(RPCID new_id) { local_id = new_id; }
-  ConnectionType get_type() const { return type; }
+  [[nodiscard]] ConnectionType get_type() const { return type; }
   void set_type(ConnectionType new_type) { type = new_type; }
-  Priority get_priority() const { return priority; }
+  [[nodiscard]] Priority get_priority() const { return priority; }
   void set_priority(Priority new_priority) { priority = new_priority; }
 
   virtual void add_header_field(const uint8_t *, size_t, const uint8_t *,
@@ -97,15 +97,15 @@ public:
 
 protected:
   // downstream identifiers
-  int32_t ds_stream_id;
-  int ds_fd;
+  int32_t ds_stream_id{0};
+  int ds_fd{-1};
 
   // upstream identifiers
-  int32_t us_stream_id;
-  int us_fd;
+  int32_t us_stream_id{0};
+  int us_fd{-1};
 
-  RPCID local_id;
-  RPCID global_id;
+  RPCID local_id{-1};
+  RPCID global_id{-1};
   Priority priority;
   ConnectionType type;
 
@@ -133,7 +133,7 @@ public:
 class gRPCMessage : public RPCMessage {
 public:
   gRPCMessage();
-  ~gRPCMessage();
+  ~gRPCMessage() override;
 
   // delete copy semantics
   gRPCMessage(const gRPCMessage &) = delete;
@@ -145,17 +145,17 @@ public:
 
   // virtual methods
   void add_header_field(const uint8_t *, size_t, const uint8_t *, size_t, bool,
-                        bool);
-  void set_local_id_header();
-  void add_data(const uint8_t *, size_t, bool);
-  void clear();
-  bool is_error() { return error; };
-  void set_error(bool err) { error = err; }
-  std::string &get_service() { return service; }
-  std::string &get_method() { return method; }
-  HTTP http() { return HTTP::HTTP2; }
-  bool is_drop() { return false; } // gRPC messages are never dropped
-  void dump_req_headers() {
+                        bool) override;
+  void set_local_id_header() override;
+  void add_data(const uint8_t *, size_t, bool) override;
+  void clear() override;
+  bool is_error() override { return error; };
+  void set_error(bool err) override { error = err; }
+  std::string &get_service() override { return service; }
+  std::string &get_method() override { return method; }
+  HTTP http() override { return HTTP::HTTP2; }
+  bool is_drop() override { return false; } // gRPC messages are never dropped
+  void dump_req_headers() override {
     for (auto &h : req_headers) {
       LOG(INFO) << "Header: " << std::string(h->name.begin(), h->name.end())
                 << " " << std::string(h->value.begin(), h->value.end());
@@ -166,11 +166,11 @@ public:
     return data_map;
   }
   std::vector<HeaderField *> &get_req_headers() { return req_headers; }
-  size_t get_req_header_count() const { return req_header_count; }
+  [[nodiscard]] size_t get_req_header_count() const { return req_header_count; }
   std::vector<HeaderField *> &get_res_headers() { return res_headers; }
-  size_t get_res_header_count() const { return res_header_count; }
+  [[nodiscard]] size_t get_res_header_count() const { return res_header_count; }
   std::vector<HeaderField *> &get_res_trailers() { return res_trailers; }
-  size_t get_res_trailer_count() const { return res_trailer_count; }
+  [[nodiscard]] size_t get_res_trailer_count() const { return res_trailer_count; }
   void set_method(const std::string &m) { method = m; }
 
 private:
@@ -178,20 +178,20 @@ private:
   std::string service;
   std::string method;
 
-  bool error;
+  bool error{false};
   std::unordered_map<uint8_t, DataReadStruct *> data_map; // 0: req, 1: res
   std::vector<HeaderField *> req_headers;
-  size_t req_header_count;
+  size_t req_header_count{0};
   std::vector<HeaderField *> res_headers;
-  size_t res_header_count;
+  size_t res_header_count{0};
   std::vector<HeaderField *> res_trailers;
-  size_t res_trailer_count;
+  size_t res_trailer_count{0};
 };
 
 class HTTPMessage : public RPCMessage {
 public:
   HTTPMessage();
-  ~HTTPMessage();
+  ~HTTPMessage() override;
 
   // delete copy semantics
   HTTPMessage(const HTTPMessage &) = delete;
@@ -203,17 +203,17 @@ public:
 
   // virtual methods
   void add_header_field(const uint8_t *, size_t, const uint8_t *, size_t, bool,
-                        bool);
-  void set_local_id_header();
-  void add_data(const uint8_t *, size_t, bool);
-  void clear();
-  bool is_error() { return error; };
-  void set_error(bool err) { error = err; }
-  std::string &get_service() { return service; }
-  std::string &get_method() { return method; }
-  HTTP http() { return HTTP::HTTP1; }
-  bool is_drop() { return error && status == 503; }
-  void dump_req_headers() {
+                        bool) override;
+  void set_local_id_header() override;
+  void add_data(const uint8_t *, size_t, bool) override;
+  void clear() override;
+  bool is_error() override { return error; };
+  void set_error(bool err) override { error = err; }
+  std::string &get_service() override { return service; }
+  std::string &get_method() override { return method; }
+  HTTP http() override { return HTTP::HTTP1; }
+  bool is_drop() override { return error && status == 503; }
+  void dump_req_headers() override {
     for (auto &h : req_headers) {
       LOG(INFO) << "Header: " << std::string(h->name.begin(), h->name.end())
                 << " " << std::string(h->value.begin(), h->value.end());
@@ -227,18 +227,18 @@ public:
   static bool parse_service_from_request_target(const char *s, size_t s_len,
                                                 std::string *out);
   void set_path(const char *p, size_t p_len) { path.assign(p, p_len); }
-  const std::string &get_path() const { return path; }
+  [[nodiscard]] const std::string &get_path() const { return path; }
   DataReadStruct &get_res_data() { return *res_data; }
   std::vector<HeaderField *> &get_req_headers() { return req_headers; }
-  size_t get_req_header_count() const { return req_header_count; }
+  [[nodiscard]] size_t get_req_header_count() const { return req_header_count; }
   std::vector<HeaderField *> &get_res_headers() { return res_headers; }
-  size_t get_res_header_count() const { return res_header_count; }
+  [[nodiscard]] size_t get_res_header_count() const { return res_header_count; }
   void set_minor(int m) { minor = m; }
-  int get_minor() const { return minor; }
+  [[nodiscard]] int get_minor() const { return minor; }
   void set_status(int s) { status = s; }
-  int get_status() const { return status; }
+  [[nodiscard]] int get_status() const { return status; }
   void set_msg(const char *m, size_t m_len) { msg.assign(m, m_len); }
-  const std::string &get_msg() const { return msg; }
+  [[nodiscard]] const std::string &get_msg() const { return msg; }
 
 private:
   std::string service;
@@ -248,12 +248,12 @@ private:
   int status;
   std::string msg;
 
-  bool error;
+  bool error{false};
 
   std::vector<HeaderField *> req_headers;
-  size_t req_header_count;
+  size_t req_header_count{0};
   std::vector<HeaderField *> res_headers;
-  size_t res_header_count;
+  size_t res_header_count{0};
 
   DataReadStruct *res_data;
 };

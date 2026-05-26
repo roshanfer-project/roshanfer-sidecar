@@ -1,9 +1,9 @@
 #pragma once
 
-#include "rpc_mapper.h"
-#include "rpc_message.h"
-#include "rpc_queue.h"
-#include "stats.h"
+#include "rpc_mapper.hpp"
+#include "rpc_message.hpp"
+#include "rpc_queue.hpp"
+#include "stats.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -45,9 +45,9 @@ private:
   RPCQueue &rpc_queue;
   std::deque<std::shared_ptr<RPCMessage>> queue;
   TimeWeightedMean ingress_mean;
-  bool has_dn_on_fly;
+  bool has_dn_on_fly{false};
   int32_t priority;
-  int32_t drop_id;
+  int32_t drop_id{0};
   int drop_fd;
   RPCID last_rpc_id;
   const uint8_t *RPC_ID_HEADER_NAME =

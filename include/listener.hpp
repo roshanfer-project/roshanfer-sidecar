@@ -1,8 +1,8 @@
 #pragma once
 
-#include "connection_enums.h"
-#include "stats.h"
-#include <connection.h>
+#include "connection_enums.hpp"
+#include "stats.hpp"
+#include <connection.hpp>
 #include <memory>
 #include <unordered_map>
 

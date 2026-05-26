@@ -1,26 +1,26 @@
-#include "state.h"
-#include "buffer.h"
-#include "buffer_manager.h"
-#include "config.h"
-#include "connection.h"
-#include "connection_enums.h"
+#include "state.hpp"
+#include "buffer.hpp"
+#include "buffer_manager.hpp"
+#include "config.hpp"
+#include "connection.hpp"
+#include "connection_enums.hpp"
 #include "fast_map.hpp"
 #include "glog/logging.h"
-#include "ppm_queue.h"
-#include "ring_wrapper.h"
-#include "rpc_mapper.h"
-#include "rpc_message.h"
-#include "rpc_queue.h"
-#include "stats.h"
+#include "ppm_queue.hpp"
+#include "ring_wrapper.hpp"
+#include "rpc_mapper.hpp"
+#include "rpc_message.hpp"
+#include "rpc_queue.hpp"
+#include "stats.hpp"
 #include <algorithm>
 #include <arpa/inet.h>
 #include <cassert>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <errno.h>
 #include <exception>
 #include <memory>
 #include <netdb.h>
@@ -65,7 +65,7 @@ ConnectionPool &UpstreamRouteMapper::get_pool(const std::string &service) {
   }
 }
 
-State::State(Config parsed_config, RingWrapper &ring_ref,
+State::State(const Config &parsed_config, RingWrapper &ring_ref,
              BufferManager &buffer_manager_ref, RPCMapper &mapper_ref,
              RPCQueue &queue_ref,
              std::unordered_map<ConnectionType, std::shared_ptr<Listener>>
@@ -92,8 +92,11 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
   for (const auto &[route, info] : config.routing) {
     upstream_route_mapper.add_route(route);
     auto &pool = upstream_route_mapper.get_pool(route);
-    int n_conn =
-        config.is_ingress ? config.ingress_pool_connections.value() : 1;
+    int n_conn = 1;
+    if (config.is_ingress) {
+      CHECK(config.ingress_pool_connections.has_value());
+      n_conn = config.ingress_pool_connections.value();
+    }
     auto http_type = config.is_ingress ? HTTP::HTTP1 : HTTP::HTTP2;
     for (int i = 0; i < n_conn; i++) {
       auto conn =
@@ -128,6 +131,7 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
   */
   int n_conn;
   if (config.is_frontend) {
+    CHECK(config.frontend_pool_connections.has_value());
     n_conn = config.frontend_pool_connections.value();
   } else if (config.is_ingress) {
     n_conn = 0;
@@ -157,8 +161,7 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
     int reuse = 1;
     if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse)) <
         0) {
-      LOG(FATAL) << "Failed to set SO_REUSEPORT on PPM socket: "
-                 << strerror(errno);
+      LOG(FATAL) << "Failed to set SO_REUSEPORT on PPM socket: " << (errno);
     }
     struct sockaddr_in ppm_addr{};
     ppm_addr.sin_family = AF_INET;
@@ -167,7 +170,7 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
     if (bind(sockfd, reinterpret_cast<struct sockaddr *>(&ppm_addr),
              sizeof(ppm_addr)) < 0) {
       LOG(FATAL) << "Failed to bind PPM UDP socket to port "
-                 << config.ingress_listener_port << ": " << strerror(errno);
+                 << config.ingress_listener_port << ": " << (errno);
     }
   }
 
@@ -178,7 +181,7 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
   }
 }
 
-void State::write_http(std::shared_ptr<HTTPConnection> conn) {
+void State::write_http(const std::shared_ptr<HTTPConnection> &conn) {
   if (conn->want_write() == 0) {
     return;
   }
@@ -201,21 +204,23 @@ void State::write_http(std::shared_ptr<HTTPConnection> conn) {
         // get a new buffer
         send_buffer = buffer_manager.get_buffer();
         // write into new one
-        if ((size_t)e.written >
+        if (static_cast<size_t>(e.written) >
             send_buffer->get_size() - send_buffer->get_filled()) {
           LOG(FATAL) << "Buffer too small for a single write, written: "
                      << e.written
                      << ", buffer size: " << send_buffer->get_size()
                      << ", filled: " << send_buffer->get_filled();
         }
-        std::copy_n(e.outbuf_ptr, (size_t)e.written,
+        std::copy_n(e.outbuf_ptr, static_cast<size_t>(e.written),
                     send_buffer->data.begin() +
-                        (long)send_buffer->get_filled());
-        send_buffer->set_filled(send_buffer->get_filled() + (size_t)e.written);
+                        static_cast<long>(send_buffer->get_filled()));
+        send_buffer->set_filled(send_buffer->get_filled() +
+                                static_cast<size_t>(e.written));
       }
 
       if (send_buffer->get_filled() == 0) {
         buffer_manager.free_buffer(std::move(send_buffer));
+        write_flag = false;
         break;
       }
       write_flag = true;
@@ -301,8 +306,8 @@ State::route_request(ConnectionType type, int32_t ds_stream_id, int ds_fd) {
   }
 }
 
-bool State::forward_request(std::shared_ptr<HTTPConnection> conn,
-                            std::shared_ptr<RPCMessage> rpc) {
+bool State::forward_request(const std::shared_ptr<HTTPConnection> &conn,
+                            const std::shared_ptr<RPCMessage> &rpc) {
   // get an upstream connection
   try {
 
@@ -381,7 +386,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
 
       if (!config.is_ingress) {
         shared_state.in_local.fetch_add(1);
-        utilization.update((uint32_t)shared_state.in_local.load(),
+        utilization.update(static_cast<uint32_t>(shared_state.in_local.load()),
                            rpc->get_service());
       }
     } else if (direction == ConnectionDirection::UPSTREAM) {
@@ -422,8 +427,9 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
 
             // update stats
             shared_state.in_local.fetch_sub(1);
-            utilization.update((uint32_t)shared_state.in_local.load(),
-                               rpc->get_service());
+            utilization.update(
+                static_cast<uint32_t>(shared_state.in_local.load()),
+                rpc->get_service());
           }
 
           if (VLOG_IS_ON(1)) {
@@ -472,7 +478,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
           << " and direction " << direction_to_str(direction);
 }
 
-void State::remove_connection(std::shared_ptr<HTTPConnection> conn) {
+void State::remove_connection(const std::shared_ptr<HTTPConnection> &conn) {
   LOG(FATAL) << "Removing connection for upstream is not implemented. host: "
              << conn->get_host();
   // pools.at(conn.type).remove_connection(conn.get_fd());
@@ -481,12 +487,12 @@ void State::remove_connection(std::shared_ptr<HTTPConnection> conn) {
 static std::string_view extract_service_from_ppm_req(const char *data) {
   size_t header_size = 26;
   if (data[1] != 0x01 && data[1] != 0x02) {
-    LOG(FATAL) << "Invalid message type: " << (int)data[1];
+    LOG(FATAL) << "Invalid message type: " << static_cast<int>(data[1]);
   }
-  if ((size_t)data[0] < header_size) {
-    LOG(FATAL) << "Invalid message length: " << (int)data[0];
+  if (static_cast<size_t>(data[0]) < header_size) {
+    LOG(FATAL) << "Invalid message length: " << static_cast<int>(data[0]);
   }
-  return std::string_view(data + header_size, (size_t)data[0] - header_size);
+  return {data + header_size, static_cast<size_t>(data[0]) - header_size};
 }
 
 std::tuple<const std::string &, bool, size_t, RPCID>
@@ -499,34 +505,43 @@ State::credit_post_process(const std::unique_ptr<Buffer> &buf) {
   const std::string &service =
       config.is_ingress ? ingress_service : ppm_queue.check(key);
   // extract the ID of the request (int64_t)
-  RPCID id = (int64_t)((uint64_t)(unsigned char)data[5] << 56 |
-                       (uint64_t)(unsigned char)data[6] << 48 |
-                       (uint64_t)(unsigned char)data[7] << 40 |
-                       (uint64_t)(unsigned char)data[8] << 32 |
-                       (uint64_t)(unsigned char)data[9] << 24 |
-                       (uint64_t)(unsigned char)data[10] << 16 |
-                       (uint64_t)(unsigned char)data[11] << 8 |
-                       (uint64_t)(unsigned char)data[12]);
+  auto id = static_cast<int64_t>(
+      static_cast<uint64_t>(static_cast<unsigned char>(data[5])) << 56 |
+      static_cast<uint64_t>(static_cast<unsigned char>(data[6])) << 48 |
+      static_cast<uint64_t>(static_cast<unsigned char>(data[7])) << 40 |
+      static_cast<uint64_t>(static_cast<unsigned char>(data[8])) << 32 |
+      static_cast<uint64_t>(static_cast<unsigned char>(data[9])) << 24 |
+      static_cast<uint64_t>(static_cast<unsigned char>(data[10])) << 16 |
+      static_cast<uint64_t>(static_cast<unsigned char>(data[11])) << 8 |
+      static_cast<uint64_t>(static_cast<unsigned char>(data[12])));
 
   // update RTT
-  int64_t timestamp =
-      (int64_t)((uint64_t)(unsigned char)buf->data.at(14) << 56 |
-                (uint64_t)(unsigned char)buf->data.at(15) << 48 |
-                (uint64_t)(unsigned char)buf->data.at(16) << 40 |
-                (uint64_t)(unsigned char)buf->data.at(17) << 32 |
-                (uint64_t)(unsigned char)buf->data.at(18) << 24 |
-                (uint64_t)(unsigned char)buf->data.at(19) << 16 |
-                (uint64_t)(unsigned char)buf->data.at(20) << 8 |
-                (uint64_t)(unsigned char)buf->data.at(21));
-  int32_t queueing_time =
-      (int32_t)((uint32_t)(unsigned char)buf->data.at(22) << 24 |
-                (uint32_t)(unsigned char)buf->data.at(23) << 16 |
-                (uint32_t)(unsigned char)buf->data.at(24) << 8 |
-                (uint32_t)(unsigned char)buf->data.at(25));
+  auto timestamp = static_cast<int64_t>(
+      static_cast<uint64_t>(static_cast<unsigned char>(buf->data.at(14)))
+          << 56 |
+      static_cast<uint64_t>(static_cast<unsigned char>(buf->data.at(15)))
+          << 48 |
+      static_cast<uint64_t>(static_cast<unsigned char>(buf->data.at(16)))
+          << 40 |
+      static_cast<uint64_t>(static_cast<unsigned char>(buf->data.at(17)))
+          << 32 |
+      static_cast<uint64_t>(static_cast<unsigned char>(buf->data.at(18)))
+          << 24 |
+      static_cast<uint64_t>(static_cast<unsigned char>(buf->data.at(19)))
+          << 16 |
+      static_cast<uint64_t>(static_cast<unsigned char>(buf->data.at(20))) << 8 |
+      static_cast<uint64_t>(static_cast<unsigned char>(buf->data.at(21))));
+  auto queueing_time = static_cast<int32_t>(
+      static_cast<uint32_t>(static_cast<unsigned char>(buf->data.at(22)))
+          << 24 |
+      static_cast<uint32_t>(static_cast<unsigned char>(buf->data.at(23)))
+          << 16 |
+      static_cast<uint32_t>(static_cast<unsigned char>(buf->data.at(24))) << 8 |
+      static_cast<uint32_t>(static_cast<unsigned char>(buf->data.at(25))));
   int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
                        std::chrono::steady_clock::now().time_since_epoch())
                        .count();
-  int32_t total = (int32_t)(now_us - timestamp);
+  auto total = static_cast<int32_t>(now_us - timestamp);
   int32_t rtt = total - queueing_time;
   if (rtt > 0) {
     local_state.last_rtt_us.set(service, rtt);
@@ -537,12 +552,13 @@ State::credit_post_process(const std::unique_ptr<Buffer> &buf) {
 
   // add the difference between requested credits and available credits to the
   // denied requests
-  int credit_diff = (int)(data[3] - data[4]);
+  int credit_diff = (data[3] - data[4]);
   if (credit_diff != 0) {
-    LOG(FATAL) << "Missmatch between credits requested: " << (int)data[3]
-               << " vs " << (int)data[4];
+    LOG(FATAL) << "Missmatch between credits requested: "
+               << static_cast<int>(data[3]) << " vs "
+               << static_cast<int>(data[4]);
   }
-  if ((int)data[4] == 0) {
+  if (static_cast<int>(data[4]) == 0) {
     LOG(FATAL) << "Receiving 0 credits is not allowed."
                << "service: " << key;
   }
@@ -554,7 +570,7 @@ State::credit_post_process(const std::unique_ptr<Buffer> &buf) {
 
   VLOG(1) << "PPMClient: Valid credit "
           << "| id: " << id << "| service: " << key
-          << "| new credits: " << (int)data[4]
+          << "| new credits: " << static_cast<int>(data[4])
           << "| ppm_queue size: " << ppm_queue.size(service);
 
   return {service, true, data[4], id};
@@ -629,7 +645,7 @@ void State::fanout_req_management(RPCID id, const std::string &service,
   if (mapping_entry.pfanout.value_or(false)) {
     ingress_rpc->pfanout_req++;
     auto rpc = ppm_queue.pop(service, id);
-    send_sub_request(std::move(rpc));
+    send_sub_request(rpc);
 
     // if we are not the last branch, do nothing
     if (ingress_rpc->pfanout_req != mapping_entry.downstreams.size()) {
@@ -649,7 +665,7 @@ void State::fanout_req_management(RPCID id, const std::string &service,
       return;
     } else {
       auto rpc = ppm_queue.pop(*ingress_rpc->dfanout_service, id);
-      send_sub_request(std::move(rpc));
+      send_sub_request(rpc);
 
       // send out queued credit returns
       while (ingress_rpc->credit_return_queue.size() > 0) {
@@ -663,7 +679,7 @@ void State::fanout_req_management(RPCID id, const std::string &service,
   } else {
     // sequential fanout
     auto rpc = ppm_queue.pop(service, id);
-    send_sub_request(std::move(rpc));
+    send_sub_request(rpc);
   }
 
   // for non pfanout or last branch in pfanout, decrement active requests
@@ -693,7 +709,7 @@ State::prepare_credit_return(const std::unique_ptr<Buffer> &dn_reply) {
   return credit_ret;
 }
 
-void inline State::send_sub_request(std::shared_ptr<RPCMessage> rpc) {
+void inline State::send_sub_request(const std::shared_ptr<RPCMessage> &rpc) {
   /* if (ppm_queue.size(service) == 0) {
     dump_entire_state();
     LOG(FATAL)
@@ -709,9 +725,10 @@ void inline State::send_sub_request(std::shared_ptr<RPCMessage> rpc) {
                       .get_connection(rpc->get_us_fd()),
                   rpc);
 
-  auto wd = (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::steady_clock::now() - rpc->req_rcv_time)
-                .count();
+  auto wd = static_cast<int32_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now() - rpc->req_rcv_time)
+          .count());
   stats.ema_wait_to_tx_us.get(service).update(wd);
   stats.time_mean_ds_concurrency.get(service).up();
 
@@ -745,43 +762,57 @@ void State::send_dn(struct sockaddr_in addr, const std::string &service,
                     size_t num_credits, RPCID id, Priority priority) {
   // send a demand notification
   ssize_t header_size = 26;
-  size_t len = (size_t)header_size + service.length();
+  size_t len = static_cast<size_t>(header_size) + service.length();
   auto buffer = buffer_manager.get_dn_buffer();
   if (buffer->data.size() < len) {
     LOG(FATAL) << "Buffer size is too small";
   }
-  buffer->data.at(0) = (char)len;
-  buffer->data.at(1) = 0x01;              // demand notification (0x01)
-  buffer->data.at(2) = 0x00;              // request (0x00), response (0x01)
-  buffer->data.at(3) = (char)num_credits; // number of requested credits
+  buffer->data.at(0) = static_cast<char>(len);
+  buffer->data.at(1) = 0x01; // demand notification (0x01)
+  buffer->data.at(2) = 0x00; // request (0x00), response (0x01)
+  buffer->data.at(3) =
+      static_cast<char>(num_credits); // number of requested credits
   // position 4 is for the received number of credits
   // position 5 is for the ID of the request (int64_t - eight bytes)
-  buffer->data.at(5) = (char)((unsigned char)(id >> 56));
-  buffer->data.at(6) = (char)((unsigned char)(id >> 48));
-  buffer->data.at(7) = (char)((unsigned char)(id >> 40));
-  buffer->data.at(8) = (char)((unsigned char)(id >> 32));
-  buffer->data.at(9) = (char)((unsigned char)(id >> 24));
-  buffer->data.at(10) = (char)((unsigned char)(id >> 16));
-  buffer->data.at(11) = (char)((unsigned char)(id >> 8));
-  buffer->data.at(12) = (char)((unsigned char)(id & 0xFF));
-  buffer->data.at(13) = (char)priority;
+  buffer->data.at(5) = static_cast<char>(static_cast<unsigned char>(id >> 56));
+  buffer->data.at(6) = static_cast<char>(static_cast<unsigned char>(id >> 48));
+  buffer->data.at(7) = static_cast<char>(static_cast<unsigned char>(id >> 40));
+  buffer->data.at(8) = static_cast<char>(static_cast<unsigned char>(id >> 32));
+  buffer->data.at(9) = static_cast<char>(static_cast<unsigned char>(id >> 24));
+  buffer->data.at(10) = static_cast<char>(static_cast<unsigned char>(id >> 16));
+  buffer->data.at(11) = static_cast<char>(static_cast<unsigned char>(id >> 8));
+  buffer->data.at(12) =
+      static_cast<char>(static_cast<unsigned char>(id & 0xFF));
+  buffer->data.at(13) = static_cast<char>(priority);
   int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
                        std::chrono::steady_clock::now().time_since_epoch())
                        .count();
-  buffer->data.at(14) = (char)((unsigned char)(now_us >> 56));
-  buffer->data.at(15) = (char)((unsigned char)(now_us >> 48));
-  buffer->data.at(16) = (char)((unsigned char)(now_us >> 40));
-  buffer->data.at(17) = (char)((unsigned char)(now_us >> 32));
-  buffer->data.at(18) = (char)((unsigned char)(now_us >> 24));
-  buffer->data.at(19) = (char)((unsigned char)(now_us >> 16));
-  buffer->data.at(20) = (char)((unsigned char)(now_us >> 8));
-  buffer->data.at(21) = (char)((unsigned char)(now_us & 0xFF));
+  buffer->data.at(14) =
+      static_cast<char>(static_cast<unsigned char>(now_us >> 56));
+  buffer->data.at(15) =
+      static_cast<char>(static_cast<unsigned char>(now_us >> 48));
+  buffer->data.at(16) =
+      static_cast<char>(static_cast<unsigned char>(now_us >> 40));
+  buffer->data.at(17) =
+      static_cast<char>(static_cast<unsigned char>(now_us >> 32));
+  buffer->data.at(18) =
+      static_cast<char>(static_cast<unsigned char>(now_us >> 24));
+  buffer->data.at(19) =
+      static_cast<char>(static_cast<unsigned char>(now_us >> 16));
+  buffer->data.at(20) =
+      static_cast<char>(static_cast<unsigned char>(now_us >> 8));
+  buffer->data.at(21) =
+      static_cast<char>(static_cast<unsigned char>(now_us & 0xFF));
 
   int32_t last_rtt = local_state.last_rtt_us.get(service);
-  buffer->data.at(22) = (char)((unsigned char)(last_rtt >> 24));
-  buffer->data.at(23) = (char)((unsigned char)(last_rtt >> 16));
-  buffer->data.at(24) = (char)((unsigned char)(last_rtt >> 8));
-  buffer->data.at(25) = (char)((unsigned char)(last_rtt & 0xFF));
+  buffer->data.at(22) =
+      static_cast<char>(static_cast<unsigned char>(last_rtt >> 24));
+  buffer->data.at(23) =
+      static_cast<char>(static_cast<unsigned char>(last_rtt >> 16));
+  buffer->data.at(24) =
+      static_cast<char>(static_cast<unsigned char>(last_rtt >> 8));
+  buffer->data.at(25) =
+      static_cast<char>(static_cast<unsigned char>(last_rtt & 0xFF));
 
   std::copy_n(service.begin(), service.length(),
               buffer->data.begin() + header_size);
@@ -849,7 +880,7 @@ void State::ingress_post_credit(const std::unique_ptr<Buffer> &buf) {
   for (size_t i = 0; i < num_credits; i++) {
     auto rpc_optional = ingress.dequeue();
     if (rpc_optional.has_value()) {
-      send_sub_request(std::move(rpc_optional.value()));
+      send_sub_request(rpc_optional.value());
     } else {
       // return the credit
       auto ret = prepare_credit_return(buf);
@@ -877,7 +908,7 @@ inline static void write_dn_response(int result,
   }
   std::copy_n(req->data.begin(), req->get_filled(), resp->data.begin());
   resp->data.at(2) = 0x01; // response
-  resp->data.at(4) = (char)result;
+  resp->data.at(4) = static_cast<char>(result);
   resp->set_filled(req->get_filled());
 }
 
@@ -898,11 +929,15 @@ void State::check_credit_transmission() {
   int64_t now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                        std::chrono::steady_clock::now().time_since_epoch())
                        .count();
-  int32_t queuing_time = (int32_t)(now_ts - buffer->enter_queue_ts);
-  buffer->data.at(22) = (char)((unsigned char)(queuing_time >> 24));
-  buffer->data.at(23) = (char)((unsigned char)(queuing_time >> 16));
-  buffer->data.at(24) = (char)((unsigned char)(queuing_time >> 8));
-  buffer->data.at(25) = (char)((unsigned char)(queuing_time & 0xFF));
+  auto queuing_time = static_cast<int32_t>(now_ts - buffer->enter_queue_ts);
+  buffer->data.at(22) =
+      static_cast<char>(static_cast<unsigned char>(queuing_time >> 24));
+  buffer->data.at(23) =
+      static_cast<char>(static_cast<unsigned char>(queuing_time >> 16));
+  buffer->data.at(24) =
+      static_cast<char>(static_cast<unsigned char>(queuing_time >> 8));
+  buffer->data.at(25) =
+      static_cast<char>(static_cast<unsigned char>(queuing_time & 0xFF));
 
   ring.prepare_sendmsg(sockfd, std::move(buffer),
                        buffer_manager.get_user_data());
@@ -976,6 +1011,8 @@ void State::update_limits(int32_t rtt, std::string_view service) {
   auto &rtt_stats = stats.ema_us_sidecar_rtt_us.get(service);
   rtt_stats.update(rtt);
   if (rtt_stats.get_count() % 2000 == 0) {
+    CHECK(config.cpu_count.has_value());
+    CHECK(config.over_commitment.has_value());
     VLOG(1) << "QM: RTT " << rtt_stats.get_value() << " for service "
             << service;
     auto local_rt = cal_local_service_time(service);
@@ -990,10 +1027,11 @@ void State::update_limits(int32_t rtt, std::string_view service) {
                       !it->second.dfanout.value_or(false);
     float theo_term = get_theo_term(service, sequential);
     int32_t new_limit =
-        (std::max((int32_t)std::ceil(theo_term / local_rt), 1) + 1) *
+        (std::max(static_cast<int32_t>(std::ceil(theo_term / local_rt)), 1) +
+         1) *
         config.cpu_count.value();
     if (!it->second.dfanout.value_or(false)) {
-      new_limit += it->second.downstreams.size();
+      new_limit += static_cast<int32_t>(it->second.downstreams.size());
     }
     new_limit += config.extra_limit;
     shared_state.credit_queue.update_endpoint_limit(new_limit, service);
@@ -1013,8 +1051,9 @@ void State::update_limits(int32_t rtt, std::string_view service) {
       }
 
       shared_state.credit_queue.update_ppm_limit(
-          max_limit + (int32_t)((float)(sum_limits - max_limit) *
-                                config.over_commitment.value()));
+          max_limit +
+          static_cast<int32_t>(static_cast<float>(sum_limits - max_limit) *
+                               config.over_commitment.value()));
     }
 
     VLOG(1) << "QM: New ppm limit is "
@@ -1039,12 +1078,12 @@ void State::dispatch_ppm_recv(const std::unique_ptr<Buffer> &buf) {
   }
   const auto &d = buf->data;
   static constexpr size_t k_ppm_header = 26;
-  size_t declared = (size_t)(unsigned char)d[0];
+  auto declared = static_cast<size_t>(static_cast<unsigned char>(d[0]));
   if (declared < k_ppm_header || declared > n) {
     LOG(FATAL) << "Invalid PPM length byte: " << declared << " filled: " << n;
   }
-  uint8_t b1 = (unsigned char)d[1];
-  uint8_t b2 = (unsigned char)d[2];
+  auto b1 = static_cast<unsigned char>(d[1]);
+  auto b2 = static_cast<unsigned char>(d[2]);
   if (b1 == 0x02) {
     queue_multiplexer(buf);
     return;
@@ -1061,8 +1100,8 @@ void State::dispatch_ppm_recv(const std::unique_ptr<Buffer> &buf) {
     }
     return;
   }
-  LOG(FATAL) << "Unknown PPM UDP message: type " << (int)b1 << " flags "
-             << (int)b2;
+  LOG(FATAL) << "Unknown PPM UDP message: type " << static_cast<int>(b1)
+             << " flags " << static_cast<int>(b2);
 }
 
 void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
@@ -1081,22 +1120,35 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
     }
 
     std::string_view service = extract_service_from_ppm_req(req->data.data());
-    RPCID rpc_id = (int64_t)((uint64_t)(unsigned char)req->data.at(5) << 56 |
-                             (uint64_t)(unsigned char)req->data.at(6) << 48 |
-                             (uint64_t)(unsigned char)req->data.at(7) << 40 |
-                             (uint64_t)(unsigned char)req->data.at(8) << 32 |
-                             (uint64_t)(unsigned char)req->data.at(9) << 24 |
-                             (uint64_t)(unsigned char)req->data.at(10) << 16 |
-                             (uint64_t)(unsigned char)req->data.at(11) << 8 |
-                             (uint64_t)(unsigned char)req->data.at(12));
-    Priority priority = (Priority)req->data.at(13);
+    auto rpc_id = static_cast<int64_t>(
+        static_cast<uint64_t>(static_cast<unsigned char>(req->data.at(5)))
+            << 56 |
+        static_cast<uint64_t>(static_cast<unsigned char>(req->data.at(6)))
+            << 48 |
+        static_cast<uint64_t>(static_cast<unsigned char>(req->data.at(7)))
+            << 40 |
+        static_cast<uint64_t>(static_cast<unsigned char>(req->data.at(8)))
+            << 32 |
+        static_cast<uint64_t>(static_cast<unsigned char>(req->data.at(9)))
+            << 24 |
+        static_cast<uint64_t>(static_cast<unsigned char>(req->data.at(10)))
+            << 16 |
+        static_cast<uint64_t>(static_cast<unsigned char>(req->data.at(11)))
+            << 8 |
+        static_cast<uint64_t>(static_cast<unsigned char>(req->data.at(12))));
+    auto priority =
+        static_cast<Priority>(static_cast<unsigned char>(req->data.at(13)));
 
-    int32_t rtt = (int32_t)((uint32_t)(unsigned char)req->data.at(22) << 24 |
-                            (uint32_t)(unsigned char)req->data.at(23) << 16 |
-                            (uint32_t)(unsigned char)req->data.at(24) << 8 |
-                            (uint32_t)(unsigned char)req->data.at(25));
+    auto rtt = static_cast<int32_t>(
+        static_cast<uint32_t>(static_cast<unsigned char>(req->data.at(22)))
+            << 24 |
+        static_cast<uint32_t>(static_cast<unsigned char>(req->data.at(23)))
+            << 16 |
+        static_cast<uint32_t>(static_cast<unsigned char>(req->data.at(24)))
+            << 8 |
+        static_cast<uint32_t>(static_cast<unsigned char>(req->data.at(25))));
     if (rtt >= 0) {
-      update_limits((int32_t)rtt, service);
+      update_limits(rtt, service);
     } else {
       LOG(FATAL) << "Invalid RTT: " << rtt;
     }
@@ -1128,11 +1180,12 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
   }
 }
 
-SharedState::SharedState(std::vector<std::string> hosted_service,
-                         std::vector<std::string> /*downstream_services*/)
-    : credit_queue(hosted_service, config.cpu_count.value_or(-1)) {}
+SharedState::SharedState(
+    std::vector<std::string> hosted_service,
+    const std::vector<std::string> & /*downstream_services*/)
+    : credit_queue(std::move(hosted_service), config.cpu_count.value_or(-1)) {}
 
-LocalState::LocalState(std::vector<std::string> /*hosted_services*/,
-                       std::vector<std::string> downstream_services,
+LocalState::LocalState(const std::vector<std::string> & /*hosted_services*/,
+                       const std::vector<std::string> &downstream_services,
                        std::string & /*ingress_service*/)
-    : drops(0), last_rtt_us(downstream_services) {}
+    : last_rtt_us(downstream_services) {}

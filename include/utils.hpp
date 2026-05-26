@@ -1,8 +1,16 @@
 #pragma once
 
-
+#include <array>
 #include <cstddef>
+#include <cstring>
+#include <string>
 #include <string_view>
+
+inline std::string errno_string(int err) {
+  std::array<char, 256> buf{};
+  strerror_r(err, buf.data(), buf.size());
+  return {buf.data()};
+}
 
 
 struct TransparentHash {

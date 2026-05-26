@@ -1,13 +1,13 @@
-#include "ppm_queue.h"
-#include "config.h"
+#include "ppm_queue.hpp"
+#include "config.hpp"
 #include "glog/logging.h"
-#include "rpc_message.h"
+#include "rpc_message.hpp"
 #include <cstdint>
 #include <string>
 #include <unordered_map>
 
-PPMQueue::PPMQueue(std::unordered_map<std::string, RoutingEntry,
-                                      TransparentHash, TransparentEqual>
+PPMQueue::PPMQueue(const std::unordered_map<std::string, RoutingEntry,
+                                      TransparentHash, TransparentEqual>&
                        routing)
     : ppm_queue(std::unordered_map<std::string,
                                    std::map<RPCID, std::shared_ptr<RPCMessage>>,
@@ -93,9 +93,9 @@ int32_t PPMQueue::get_waiting_delay_us(const std::string &service) {
       return 0;
     }
     auto first_req_for = ppm_queue.at(service).begin()->second->req_rcv_time;
-    return (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
+    return static_cast<int32_t>(std::chrono::duration_cast<std::chrono::microseconds>(
                std::chrono::steady_clock::now() - first_req_for)
-        .count();
+        .count());
   } catch (const std::out_of_range &e) {
     LOG(FATAL) << "Service not found in PPM queue: " << service;
   } catch (const std::exception &e) {
