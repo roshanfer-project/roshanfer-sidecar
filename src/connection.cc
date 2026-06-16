@@ -403,84 +403,93 @@ ssize_t data_read_callback_response(nghttp2_session *session, int32_t stream_id,
   return res_len;
 };
 
-ConnectionPool::ConnectionPool(ConnectionType conn_type)
-    : connections(std::unordered_map<int, std::shared_ptr<HTTPConnection>>()),
-      type(conn_type), addr({}), addr_set(false),
-      next_conn(
-          std::unordered_map<int,
-                             std::shared_ptr<HTTPConnection>>::iterator()) {
-  std::memset(&addr, 0, sizeof(struct sockaddr_in));
+ReplicaPool::ReplicaPool(ReplicaIndex replica_index, struct sockaddr_in addr_in,
+                         ConnectionType conn_type)
+    : addr(addr_in), type(conn_type), index(replica_index) {
   next_conn = connections.begin();
 };
 
 std::shared_ptr<HTTPConnection>
-ConnectionPool::add_connection(const std::string &host, int port,
-                               RPCMapper *mapper, RPCQueue *queue, HTTP http,
-                               Stats *stats) {
+ReplicaPool::add_connection(const std::string &host, int port,
+                            RPCMapper *mapper, RPCQueue *queue, HTTP http,
+                            Stats *stats, struct sockaddr_in *addr_in) {
   std::shared_ptr<HTTPConnection> c;
   if (http == HTTP::HTTP1) {
-    c = std::make_shared<HTTP1Connection>(host, port, type, mapper, queue,
-                                          stats);
+    if (addr_in == nullptr) {
+      c = std::make_shared<HTTP1Connection>(host, port, type, mapper, queue,
+                                            stats);
+    } else {
+      c = std::make_shared<HTTP1Connection>(host, port, *addr_in, type, mapper,
+                                            queue, stats);
+    }
+
   } else {
     c = std::make_shared<HTTP2Connection>(host, port, type, queue, mapper,
                                           stats);
   }
   int fd = c->get_fd();
-  if (!addr_set) {
-    addr = c->get_addr_in();
-    addr_set = true;
+  auto [it, ok] = connections.emplace(fd, std::move(c));
+  if (!ok) {
+    LOG(FATAL) << "Connection add failed for host: " << host
+               << " port: " << port;
   }
-  connections.emplace(fd, std::move(c));
   next_conn = connections.begin();
-  return connections.at(fd);
+  return it->second;
 };
 
-struct sockaddr_in ConnectionPool::get_addr() {
-  if (!addr_set) {
-    LOG(FATAL) << "Address not set for connection pool of type: "
-               << type_to_str(type);
-  }
-  return addr;
-}
-
-bool ConnectionPool::has_connection(int fd) {
-  return connections.find(fd) != connections.end();
-};
-
-std::shared_ptr<HTTPConnection> ConnectionPool::get_connection(int fd) {
+std::shared_ptr<HTTPConnection> ReplicaPool::get_connection(int fd) {
   try {
     return connections.at(fd);
   } catch (const std::out_of_range &e) {
     LOG(FATAL) << "Connection with fd: " << fd
-               << " not found in pool of type: " << type_to_str(type);
+               << " not found in ReplicaPool of type: " << type_to_str(type);
   }
 };
 
-void ConnectionPool::remove_connection(int fd) {
-  connections.erase(fd);
-  // reset iterator on modification
-  next_conn = connections.begin();
-}
-
-// This should return any "available" connections.
-// HTTP/1.1 connections doen't allow multiplexing.
-std::shared_ptr<HTTPConnection> ConnectionPool::get_any_connection() {
+std::shared_ptr<HTTPConnection> ReplicaPool::get_any_conn() {
   if (connections.empty()) {
-    throw NoConnectionException("Pool is empty");
+    throw NoConnectionException("ReplicaPool is empty");
   }
 
-  bool wrap = false;
-  while (1) {
+  auto start = next_conn;
+  do {
     if (next_conn->second->available()) {
       return next_conn->second;
     }
     next_conn++;
-    if (wrap && next_conn == connections.end()) {
-      throw NoConnectionException("No available connections in the pool");
-    } else if (!wrap && next_conn == connections.end()) {
-      wrap = true;
+    if (next_conn == connections.end()) {
       next_conn = connections.begin();
     }
+  } while (next_conn != start);
+
+  throw NoConnectionException("No available connections in the ReplicaPool");
+};
+
+ConnectionPool::ConnectionPool(ConnectionType conn_type)
+    : replicas(
+          std::unordered_map<ReplicaIndex, std::shared_ptr<ReplicaPool>>()),
+      type(conn_type) {};
+
+std::shared_ptr<ReplicaPool>
+ConnectionPool::lb(KeyValueMinTracker *min_tracker) {
+  if (replicas.empty()) {
+    LOG(FATAL) << "There are no replicas";
+  }
+  // Implement the load balancing
+  if (replicas.size() == 1) {
+    return replicas.at(0);
+  }
+
+  if (min_tracker == nullptr) {
+    LOG(FATAL) << "We have more than 1 replcia with no min tracker given!";
+  }
+
+  // do the load balancing!
+  auto [_, replica_index] = min_tracker->get_min();
+  if (auto it = replicas.find(replica_index); it != replicas.end()) {
+    return it->second;
+  } else {
+    LOG(FATAL) << "replica with index " << replica_index << " not found";
   }
 };
 
@@ -595,6 +604,61 @@ HTTPConnection::HTTPConnection(std::string conn_host, uint16_t conn_port,
   }
 }
 
+HTTPConnection::HTTPConnection(std::string conn_host, uint16_t conn_port,
+                               struct sockaddr_in addr_in,
+                               ConnectionType conn_type, Stats *stats)
+    : fd(0), addr(addr_in), status(ConnectionStatus::DOWN), host(conn_host),
+      port(conn_port), stats(stats), type(conn_type),
+      direction(ConnectionDirection::UPSTREAM) {
+
+  int retries = 0;
+  while (true) {
+    fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+    if (fd < 0) {
+      LOG(FATAL) << "Failed to create socket";
+    }
+
+    int error = 0;
+    socklen_t len = sizeof(error);
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
+      LOG(FATAL) << "getsockopt failed: " << strerror(errno);
+    }
+
+    if (error == EINPROGRESS || error == EALREADY) {
+      VLOG(1) << "Socket creation returned a dirty socket "
+                 "(EINPROGRESS/EALREADY), retrying...";
+      close(fd);
+      retries++;
+      if (retries > 2) {
+        LOG(FATAL) << "Failed to create a clean socket after 2 retries";
+      }
+      continue;
+    }
+    break;
+  }
+
+  VLOG(1) << "Created fd: " << fd << " for host: " << host << " port: " << port;
+
+  // Log the resolved IP address
+  char ip_str[INET_ADDRSTRLEN];
+  if (inet_ntop(AF_INET, &(addr_in.sin_addr), ip_str, sizeof(ip_str)) ==
+      nullptr) {
+    LOG(FATAL) << "Failed to convert resolved address to string";
+  } else {
+    VLOG(1) << "Resolved address for " << host << ": " << ip_str;
+  }
+
+  int flag = 1;
+  if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) == -1) {
+    LOG(FATAL) << "Failed to set TCP_NODELAY: " << strerror(errno);
+  }
+
+  int syncnt = 2;
+  if (setsockopt(fd, IPPROTO_TCP, TCP_SYNCNT, &syncnt, sizeof(syncnt)) == -1) {
+    LOG(FATAL) << "Failed to set TCP_SYNCNT: " << strerror(errno);
+  }
+}
+
 std::string HTTPConnection::type_to_str() {
   if (type == ConnectionType::INGRESS) {
     return "INGRESS";
@@ -629,6 +693,22 @@ HTTP1Connection::HTTP1Connection(std::string conn_host, uint16_t conn_port,
                                  RPCMapper *rpc_mapper, RPCQueue *rpc_queue,
                                  Stats *stats)
     : HTTPConnection(conn_host, conn_port, conn_type, stats),
+      buf(std::make_unique<std::array<char, HTTP1Connection_BUF_SIZE>>()),
+      buf_len(0), prev_buf_len(0), hdr_complete(false), content_length(-1),
+      hdr_size(0), idle(true), mapper(rpc_mapper), queue(rpc_queue), last_id(0),
+      rpc_message() {
+
+  VLOG(1) << "Created HTTP1Connection for host: " << host << " port: " << port
+          << ", fd: " << fd << ", type: " << type_to_str()
+          << ", direction: " << direction_to_str();
+}
+
+HTTP1Connection::HTTP1Connection(std::string conn_host, uint16_t conn_port,
+                                 struct sockaddr_in addr_in,
+                                 ConnectionType conn_type,
+                                 RPCMapper *rpc_mapper, RPCQueue *rpc_queue,
+                                 Stats *stats)
+    : HTTPConnection(conn_host, conn_port, addr_in, conn_type, stats),
       buf(std::make_unique<std::array<char, HTTP1Connection_BUF_SIZE>>()),
       buf_len(0), prev_buf_len(0), hdr_complete(false), content_length(-1),
       hdr_size(0), idle(true), mapper(rpc_mapper), queue(rpc_queue), last_id(0),
@@ -1191,6 +1271,28 @@ HTTP2Connection::HTTP2Connection(std::string conn_host, uint16_t conn_port,
                                  RPCMapper *rpc_mapper, Stats *stats)
     : HTTPConnection(conn_host, conn_port, conn_type, stats), session(nullptr),
       callbacks(nullptr) {
+  callback_data = std::make_unique<CallbackData>(
+      CallbackData{type, direction, fd, rpc_queue, rpc_mapper, &status, stats});
+
+  nghttp2_session_callbacks_new(&callbacks);
+  set_callbacks(callbacks);
+  if (nghttp2_session_client_new(
+          &session, callbacks, reinterpret_cast<void *>(callback_data.get())) !=
+      0) {
+    LOG(FATAL) << "nghttp2_session_client_new failed";
+  }
+
+  VLOG(1) << "Created HTTP2Connection for host: " << host << " port: " << port
+          << ", fd: " << fd << ", type: " << type_to_str()
+          << ", direction: " << direction_to_str();
+}
+
+HTTP2Connection::HTTP2Connection(std::string conn_host, uint16_t conn_port,
+                                 struct sockaddr_in addr_in,
+                                 ConnectionType conn_type, RPCQueue *rpc_queue,
+                                 RPCMapper *rpc_mapper, Stats *stats)
+    : HTTPConnection(conn_host, conn_port, addr_in, conn_type, stats),
+      session(nullptr), callbacks(nullptr) {
   callback_data = std::make_unique<CallbackData>(
       CallbackData{type, direction, fd, rpc_queue, rpc_mapper, &status, stats});
 

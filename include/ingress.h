@@ -4,6 +4,7 @@
 #include "rpc_message.h"
 #include "rpc_queue.h"
 #include "stats.h"
+#include "utils.h"
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -25,6 +26,10 @@ public:
   bool send_dn_checker();
   RPCID get_tail_id();
   Priority get_tail_priority();
+
+public:
+  ReplicaIndex lb_replica_index = -1;
+  int lb_fd = -1;
 
 private:
   void drop_rpc(std::shared_ptr<RPCMessage>);

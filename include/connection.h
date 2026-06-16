@@ -2,11 +2,15 @@
 
 #include "buffer.h"
 #include "connection_enums.h"
+#include "fast_map.hpp"
 #include "ingress.h"
+#include "netdb.h"
+#include "ppm_queue.h"
 #include "rpc_mapper.h"
 #include "rpc_message.h"
 #include "rpc_queue.h"
 #include "stats.h"
+#include <arpa/inet.h>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -18,6 +22,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unordered_map>
+#include <vector>
 
 class NoConnectionException : public std::runtime_error {
 public:
@@ -57,6 +62,8 @@ public:
    * @note This is used by state
    */
   HTTPConnection(std::string, uint16_t, ConnectionType, Stats *);
+  HTTPConnection(std::string, uint16_t, struct sockaddr_in, ConnectionType,
+                 Stats *);
 
   /*
    * @brief Construct an downstream connection
@@ -114,6 +121,8 @@ class HTTP2Connection : public HTTPConnection {
 public:
   HTTP2Connection(std::string, uint16_t, ConnectionType, RPCQueue *,
                   RPCMapper *, Stats *);
+  HTTP2Connection(std::string, uint16_t, struct sockaddr_in, ConnectionType,
+                  RPCQueue *, RPCMapper *, Stats *);
   HTTP2Connection(int, ConnectionType, RPCMapper *, RPCQueue *, Stats *);
   ~HTTP2Connection();
 
@@ -152,6 +161,8 @@ class HTTP1Connection : public HTTPConnection {
 public:
   HTTP1Connection(std::string, uint16_t, ConnectionType, RPCMapper *,
                   RPCQueue *, Stats *);
+  HTTP1Connection(std::string, uint16_t, struct sockaddr_in, ConnectionType,
+                  RPCMapper *, RPCQueue *, Stats *);
   HTTP1Connection(int, ConnectionType, RPCMapper *, RPCQueue *, Stats *);
   ~HTTP1Connection();
 
@@ -194,6 +205,36 @@ private:
   std::shared_ptr<HTTPMessage> rpc_message;
 };
 
+class ReplicaPool {
+public:
+  ReplicaPool(ReplicaIndex, struct sockaddr_in, ConnectionType);
+
+  // delete copy semantics
+  ReplicaPool(const ReplicaPool &) = delete;
+  ReplicaPool &operator=(const ReplicaPool &) = delete;
+
+  // delete move semantics
+  ReplicaPool(ReplicaPool &&) = delete;
+  ReplicaPool &operator=(ReplicaPool &&) = delete;
+
+  std::shared_ptr<HTTPConnection>
+  add_connection(const std::string &, int, RPCMapper *, RPCQueue *, HTTP,
+                 Stats *, struct sockaddr_in * = nullptr);
+  std::shared_ptr<HTTPConnection> get_any_conn();
+  std::shared_ptr<HTTPConnection> get_connection(int fd);
+  struct sockaddr_in get_addr() { return addr; }
+  ReplicaIndex get_index() { return index; }
+
+private:
+  std::unordered_map<int, std::shared_ptr<HTTPConnection>>
+      connections; // fd: connection
+  std::unordered_map<int, std::shared_ptr<HTTPConnection>>::iterator
+      next_conn{};
+  struct sockaddr_in addr;
+  ConnectionType type;
+  ReplicaIndex index;
+};
+
 class ConnectionPool {
 
 public:
@@ -202,20 +243,108 @@ public:
   /**
    * @brief Add a connection to the pool
    */
-  std::shared_ptr<HTTPConnection> add_connection(const std::string &, int,
-                                                 RPCMapper *, RPCQueue *, HTTP,
-                                                 Stats *);
-  std::shared_ptr<HTTPConnection> get_connection(int fd);
-  std::shared_ptr<HTTPConnection> get_any_connection();
-  bool has_connection(int fd);
-  void remove_connection(int fd);
-  struct sockaddr_in get_addr();
+  // std::shared_ptr<HTTPConnection>
+  //  add_connection(const std::string &, int, RPCMapper *, RPCQueue *, HTTP,
+  //                 Stats *, struct sockaddr_in * = nullptr);
+  // std::shared_ptr<HTTPConnection> get_connection(int fd);
+  std::shared_ptr<ReplicaPool> lb(KeyValueMinTracker * = nullptr);
+  // bool has_connection(int fd);
+  // void remove_connection(int fd);
+  std::shared_ptr<ReplicaPool> &add_replica(struct sockaddr_in addr_in) {
+    auto [it, ok] = replicas.emplace(
+        max_replica_index,
+        std::make_shared<ReplicaPool>(max_replica_index, addr_in, type));
+    if (!ok) {
+      LOG(FATAL) << "Could not insert new ReplicaPool";
+    }
+    max_replica_index++;
+    return it->second;
+  }
+  std::shared_ptr<ReplicaPool> get_replica_pool(ReplicaIndex index) {
+    auto it = replicas.find(index);
+    if (it == replicas.end()) {
+      LOG(FATAL) << "replica with index " << index << " not found";
+    }
+    return it->second;
+  }
+  size_t get_num_replicas() { return replicas.size(); }
+  // struct sockaddr_in get_addr();
+
+  /* // delete copy semantics
+  ConnectionPool(const ConnectionPool &) = delete;
+  ConnectionPool &operator=(const ConnectionPool &) = delete;
+
+  // delete move semantics
+  ConnectionPool(ConnectionPool &&) = delete;
+  ConnectionPool &operator=(ConnectionPool &&) = delete; */
 
 private:
-  std::unordered_map<int, std::shared_ptr<HTTPConnection>>
-      connections; // fd: connection
+  std::unordered_map<ReplicaIndex, std::shared_ptr<ReplicaPool>> replicas;
+  ReplicaIndex max_replica_index = 0;
   ConnectionType type;
-  struct sockaddr_in addr;
-  bool addr_set;
-  std::unordered_map<int, std::shared_ptr<HTTPConnection>>::iterator next_conn;
+  // struct sockaddr_in addr;
+  // bool addr_set;
+  // std::unordered_map<int, std::shared_ptr<HTTPConnection>>::iterator
+  // next_conn;
 };
+
+inline bool same_sockaddr_in(const struct sockaddr_in &a,
+                             const struct sockaddr_in &b) {
+  return a.sin_addr.s_addr == b.sin_addr.s_addr && a.sin_port == b.sin_port;
+}
+
+inline std::vector<struct sockaddr_in> name_resolver(std::string host,
+                                                     int port) {
+  LOG(INFO) << "resolving Ip addresses for host: " << host;
+  struct addrinfo hints, *result;
+  std::memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_INET; // IPv4
+  hints.ai_socktype = SOCK_STREAM;
+
+  int rv =
+      getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &result);
+  if (rv != 0) {
+    LOG(FATAL) << "DNS resolution failed for " << host << ": "
+               << gai_strerror(rv);
+  }
+
+  std::vector<struct sockaddr_in> output_list;
+
+  auto orig = result;
+  while (result != nullptr) {
+    output_list.push_back(
+        *reinterpret_cast<struct sockaddr_in *>(result->ai_addr));
+    result = result->ai_next;
+  }
+
+  freeaddrinfo(orig);
+
+  std::vector<struct sockaddr_in> deduped;
+  for (const auto &addr : output_list) {
+    bool seen = false;
+    for (const auto &existing : deduped) {
+      if (same_sockaddr_in(existing, addr)) {
+        seen = true;
+        break;
+      }
+    }
+    if (!seen) {
+      deduped.push_back(addr);
+    }
+  }
+  output_list = std::move(deduped);
+
+  LOG(INFO) << "List (length " << output_list.size() << ") of resolved IPs for "
+            << host;
+  for (auto addr : output_list) {
+    std::array<char, INET_ADDRSTRLEN> ip_str{};
+    if (inet_ntop(AF_INET, &addr.sin_addr, ip_str.data(), ip_str.size()) ==
+        nullptr) {
+      LOG(FATAL) << "Failed to covert resolved address to binary";
+    } else {
+      LOG(INFO) << ip_str.data();
+    }
+  }
+
+  return output_list;
+}

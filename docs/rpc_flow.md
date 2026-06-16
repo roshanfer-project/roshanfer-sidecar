@@ -80,7 +80,7 @@ Direction `DOWNSTREAM`.
 
 ### `ConnectionType::EGRESS` requests
 
-3. Same PPM client pattern as other mesh nodes: **`ppm_client(false)`** drains **`rpc_queue` → `PPMQueue` → `send_dn`**; **`ppm_client(true)`** on grant pops **`PPMQueue`** and forwards. **Unlike ingress**, the frontend keeps admitted mesh RPCs in **`PPMQueue`** until credited.
+3. Same PPM client pattern as other mesh nodes: **`ppm_client(false)`** drains **`rpc_queue` → `PPMQueue` → `send_dn`**; **`ppm_client(true)`** on grant pops **`PPMQueue`** and forwards. **Unlike ingress**, the frontend keeps admitted mesh RPCs in **`PPMQueue`** until credited. Replica and connection selection: see **`load_balancing.md`**.
 
 ## Response
 
@@ -99,4 +99,4 @@ gRPC on both sides; same idea as frontend EGRESS path. See **`HTTP2Connection::h
 3. `on_header_callback` fills headers.
 4. `on_data_chunk_recv_callback` for DATA.
 5. `frame_recv_callback` detects RPC completion → **`RPCQueue`**.
-6. Same **`forward` / `ppm_client`** flow as frontend EGRESS.
+6. Same **`forward` / `ppm_client`** flow as frontend EGRESS. Replica and connection selection: see **`load_balancing.md`**.

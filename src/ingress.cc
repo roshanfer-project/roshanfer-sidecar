@@ -7,7 +7,6 @@
 #include "rpc_message.h"
 #include "rpc_queue.h"
 #include "stats.h"
-#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>

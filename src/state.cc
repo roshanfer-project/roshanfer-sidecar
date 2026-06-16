@@ -12,6 +12,7 @@
 #include "rpc_message.h"
 #include "rpc_queue.h"
 #include "stats.h"
+#include "utils.h"
 #include <algorithm>
 #include <arpa/inet.h>
 #include <cassert>
@@ -25,6 +26,7 @@
 #include <memory>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <random>
 #include <string>
 #include <string_view>
 #include <sys/socket.h>
@@ -95,13 +97,23 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
     int n_conn =
         config.is_ingress ? config.ingress_pool_connections.value() : 1;
     auto http_type = config.is_ingress ? HTTP::HTTP1 : HTTP::HTTP2;
-    for (int i = 0; i < n_conn; i++) {
-      auto conn =
-          pool.add_connection(info.upstream.host, info.upstream.port,
-                              &rpc_mapper, &rpc_queue, http_type, &stats);
+    auto addr_list = name_resolver(info.upstream.host, info.upstream.port);
 
-      // prepare connect
-      ring.prepare_connect(std::move(conn), buffer_manager.get_user_data());
+    // randomly shuffling the lift (avoid the thundering herd)
+    auto rng = std::default_random_engine{};
+    std::ranges::shuffle(addr_list, rng);
+
+    for (auto &addr : addr_list) {
+      auto &replica_pool = pool.add_replica(addr);
+      ppm_queue.replica_waiting_count.at(route).init(replica_pool->get_index());
+      for (int i = 0; i < n_conn; i++) {
+        auto conn = replica_pool->add_connection(
+            info.upstream.host, info.upstream.port, &rpc_mapper, &rpc_queue,
+            http_type, &stats, &addr);
+
+        // prepare connect
+        ring.prepare_connect(std::move(conn), buffer_manager.get_user_data());
+      }
     }
   }
 
@@ -129,22 +141,29 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
   int n_conn;
   if (config.is_frontend) {
     n_conn = config.frontend_pool_connections.value();
-  } else if (config.is_ingress) {
-    n_conn = 0;
-  } else {
+  } else if (!config.is_ingress) {
     n_conn = 1; // HTTP/2 connections can multiplex multiple streams
   }
 
-  VLOG(2) << "Creating " << n_conn << " connections for ingress requests";
-  for (int i = 0; i < n_conn; i++) {
-    auto conn = ingress_pool.add_connection(
-        config.ingress_upstream_host, config.ingress_upstream_port, &rpc_mapper,
-        &rpc_queue,
-        (config.is_ingress || config.is_frontend) ? HTTP::HTTP1 : HTTP::HTTP2,
-        &stats);
+  if (!config.is_ingress) {
+    VLOG(2) << "Creating " << n_conn << " connections for INGRESS requests";
+    auto ingress_host_list = name_resolver(config.ingress_upstream_host,
+                                           config.ingress_upstream_port);
+    if (ingress_host_list.size() != 1) {
+      LOG(FATAL) << "got more than one address for INGRESS UPSREAM host";
+    }
+    auto ingress_replica_pool =
+        ingress_pool.add_replica(ingress_host_list.at(0));
+    for (int i = 0; i < n_conn; i++) {
+      auto conn = ingress_replica_pool->add_connection(
+          config.ingress_upstream_host, config.ingress_upstream_port,
+          &rpc_mapper, &rpc_queue,
+          (config.is_ingress || config.is_frontend) ? HTTP::HTTP1 : HTTP::HTTP2,
+          &stats, &ingress_host_list.at(0));
 
-    // prepare connect
-    ring.prepare_connect(std::move(conn), buffer_manager.get_user_data());
+      // prepare connect
+      ring.prepare_connect(std::move(conn), buffer_manager.get_user_data());
+    }
   }
 
   // PPM UDP: mesh binds well-known port + SO_REUSEPORT; ingress stays unbound
@@ -264,10 +283,26 @@ State::route_request(ConnectionType type, int32_t ds_stream_id, int ds_fd) {
     std::shared_ptr<HTTPConnection> conn;
     // TODO: implement load balancing within each connection pool
     if (type == ConnectionType::INGRESS) {
-      conn = ingress_pool.get_any_connection();
+      conn = ingress_pool.lb()->get_any_conn();
     } else {
+      ReplicaIndex replica_index = -1;
+      int fd = -1;
+      if (config.is_ingress) {
+        if (ingress.lb_fd == -1 || ingress.lb_replica_index == -1) {
+          LOG(FATAL)
+              << "Either fd or replica index in Ingress is not initialized";
+        }
+        fd = ingress.lb_fd;
+        ingress.lb_fd = -1;
+        replica_index = ingress.lb_replica_index;
+        ingress.lb_replica_index = -1;
+      } else {
+        replica_index = rpc->lb_replica_index;
+        fd = rpc->lb_fd;
+      }
       conn = upstream_route_mapper.get_pool(rpc->get_service())
-                 .get_any_connection();
+                 .get_replica_pool(replica_index)
+                 ->get_connection(fd);
     }
 
     if (conn->get_status() == ConnectionStatus::TEARDOWN) {
@@ -589,12 +624,11 @@ void State::ppm_client(bool dn_resp,
           ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM);
       auto rpc =
           rpc_mapper.get_ds_rpc(ConnectionType::EGRESS, ds_stream_id, ds_fd);
-      ppm_queue.push(rpc);
 
       // send out DNs
       if (config.is_ingress) {
-        send_dn(upstream_route_mapper.get_pool(rpc->get_service()).get_addr(),
-                rpc->get_service(), 1, rpc->get_local_id(),
+        auto addr = do_lb(rpc->get_service(), rpc);
+        send_dn(addr, rpc->get_service(), 1, rpc->get_local_id(),
                 rpc->get_priority());
       } else {
         auto &ingress_rpc = rpc_mapper.get_ingress_rpc(rpc->get_local_id());
@@ -604,17 +638,50 @@ void State::ppm_client(bool dn_resp,
         if (mapping_entry.dfanout.value_or(false)) {
           ingress_rpc->dfanout_service = &rpc->get_service();
           for (auto &ds_service : mapping_entry.downstreams) {
-            send_dn(upstream_route_mapper.get_pool(ds_service).get_addr(),
-                    ds_service, 1, rpc->get_local_id(), rpc->get_priority());
+            struct sockaddr_in addr;
+            if (ds_service == rpc->get_service()) {
+              addr = do_lb(rpc->get_service(), rpc);
+            } else {
+              addr = upstream_route_mapper.get_pool(ds_service)
+                         .lb(&ppm_queue.replica_waiting_count.at(ds_service))
+                         ->get_addr();
+            }
+            send_dn(addr, ds_service, 1, rpc->get_local_id(),
+                    rpc->get_priority());
           }
         } else {
-          send_dn(upstream_route_mapper.get_pool(rpc->get_service()).get_addr(),
-                  rpc->get_service(), 1, rpc->get_local_id(),
+          auto addr = do_lb(rpc->get_service(), rpc);
+          send_dn(addr, rpc->get_service(), 1, rpc->get_local_id(),
                   rpc->get_priority());
         }
       }
+
+      // we need to have the replica index before pushing
+      ppm_queue.push(rpc);
     }
   }
+}
+
+struct sockaddr_in State::do_lb(std::string &service,
+                                std::shared_ptr<RPCMessage> rpc) {
+  auto replica = upstream_route_mapper.get_pool(service).lb(
+      &ppm_queue.replica_waiting_count.at(service));
+  auto conn = replica->get_any_conn();
+  if (rpc != nullptr) {
+    // we have an RPC, attach the connection to the RPC
+    rpc->lb_fd = conn->get_fd();
+    rpc->lb_replica_index = replica->get_index();
+  } else {
+    if (!config.is_ingress) {
+      LOG(FATAL)
+          << "Only Ingress is allowed to call do_lb without provided RPC "
+             "(because we want to do late binding of connection to RPC)";
+    }
+    ingress.lb_replica_index = replica->get_index();
+    ingress.lb_fd = conn->get_fd();
+  }
+
+  return conn->get_addr_in();
 }
 
 /*
@@ -703,11 +770,9 @@ void inline State::send_sub_request(std::shared_ptr<RPCMessage> rpc) {
   }
   auto rpc = ppm_queue.pop(service, id); */
   auto &service = rpc->get_service();
-  route_request(ConnectionType::EGRESS, rpc->get_ds_stream_id(),
-                rpc->get_ds_fd());
-  forward_request(upstream_route_mapper.get_pool(rpc->get_service())
-                      .get_connection(rpc->get_us_fd()),
-                  rpc);
+  auto conn = route_request(ConnectionType::EGRESS, rpc->get_ds_stream_id(),
+                            rpc->get_ds_fd());
+  forward_request(conn, rpc);
 
   auto wd = (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::steady_clock::now() - rpc->req_rcv_time)
@@ -831,8 +896,7 @@ void State::ingress_pre_credit() {
   // we should send a DN
   auto id = ingress.get_tail_id();
   auto priority = ingress.get_tail_priority();
-  send_dn(upstream_route_mapper.get_pool(ingress_service).get_addr(),
-          ingress_service, 1, id, priority);
+  send_dn(do_lb(ingress_service), ingress_service, 1, id, priority);
 }
 
 void State::ingress_post_credit(const std::unique_ptr<Buffer> &buf) {

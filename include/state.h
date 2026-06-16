@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <netinet/in.h>
 #include <string>
 #include <string_view>
 #include <sys/types.h>
@@ -109,6 +110,8 @@ public:
 
 private:
   // PPM-related functions
+  struct sockaddr_in do_lb(std::string &,
+                           std::shared_ptr<RPCMessage> = nullptr);
   void send_dn(struct sockaddr_in, const std::string &, size_t, RPCID,
                Priority);
   std::unique_ptr<Buffer>

@@ -2,6 +2,7 @@
 #include "config.h"
 #include "glog/logging.h"
 #include "rpc_message.h"
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -14,11 +15,19 @@ PPMQueue::PPMQueue(std::unordered_map<std::string, RoutingEntry,
                                    TransparentHash, TransparentEqual>()) {
   for (const auto &[route, _] : routing) {
     ppm_queue.emplace(route, std::map<RPCID, std::shared_ptr<RPCMessage>>());
+    replica_waiting_count.emplace(route, KeyValueMinTracker());
   }
 }
 
 void PPMQueue::push(std::shared_ptr<RPCMessage> rpc) {
   try {
+    if (rpc->lb_replica_index == -1) {
+      LOG(FATAL) << "Replica index of RPCMessage is not initialized";
+    }
+    int new_count = replica_waiting_count.at(rpc->get_service())
+                        .increase(rpc->lb_replica_index);
+    VLOG(1) << "LB: update count. key=" << rpc->lb_replica_index
+            << ", count=" << new_count;
     auto [_, check] =
         ppm_queue.at(rpc->get_service()).emplace(rpc->get_local_id(), rpc);
     if (!check) {
@@ -50,6 +59,10 @@ std::shared_ptr<RPCMessage> PPMQueue::pop(const std::string &service,
                  << "| id: " << id << "| service: " << service;
     }
     auto rpc = it->second;
+    int new_count =
+        replica_waiting_count.at(service).decrease(rpc->lb_replica_index);
+    VLOG(1) << "LB: update count. key=" << rpc->lb_replica_index
+            << ", count=" << new_count;
     ppm_queue.at(service).erase(id);
     VLOG(1) << "PPMQueue: Popped RPC message "
             << "| service: " << service << "| id: " << id
