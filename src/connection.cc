@@ -424,8 +424,13 @@ ReplicaPool::add_connection(const std::string &host, int port,
     }
 
   } else {
-    c = std::make_shared<HTTP2Connection>(host, port, type, queue, mapper,
-                                          stats);
+    if (addr_in == nullptr) {
+      c = std::make_shared<HTTP2Connection>(host, port, type, queue, mapper,
+                                            stats);
+    } else {
+      c = std::make_shared<HTTP2Connection>(host, port, *addr_in, type, queue,
+                                            mapper, stats);
+    }
   }
   int fd = c->get_fd();
   auto [it, ok] = connections.emplace(fd, std::move(c));
