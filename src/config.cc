@@ -45,6 +45,14 @@ Config load_config(const std::string &filename) {
   }
   LOG(INFO) << "config.is_ingress: " << local_config.is_ingress;
 
+  // optional lb_mode
+  if (node["lb_mode"]) {
+    local_config.lb_mode = node["lb_mode"].as<bool>();
+  } else {
+    local_config.lb_mode = false;
+  }
+  LOG(INFO) << "config.lb_mode: " << local_config.lb_mode;
+
   if (node["is_plain_frontend"]) {
     local_config.is_plain_frontend = node["is_plain_frontend"].as<bool>();
   } else {

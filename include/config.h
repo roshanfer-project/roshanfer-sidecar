@@ -50,6 +50,7 @@ struct Config {
   std::optional<int> cpu_count;
   std::optional<float> over_commitment;
   int extra_limit;
+  bool lb_mode;
 };
 
 Config load_config(const std::string &filename);

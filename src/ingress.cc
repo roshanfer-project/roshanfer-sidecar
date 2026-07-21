@@ -59,7 +59,7 @@ void Ingress::enqueue(std::shared_ptr<RPCMessage> rpc) {
   }
 
   // run the head-drop hook, if applicable
-  if (queue.size() >= ingress_size_cap) {
+  if (!config.lb_mode && queue.size() >= ingress_size_cap) {
     drop_rpc(std::move(rpc));
     return;
   }
