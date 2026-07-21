@@ -1,7 +1,6 @@
 #include "rpc_message.h"
 #include "config.h"
 #include "connection_enums.h"
-#include "fast_map.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -236,8 +235,6 @@ void gRPCMessage::clear() {
     LOG(FATAL) << "credit_return queue is not empty";
   }
   dfanout_service = nullptr;
-  lb_replica_index = -1;
-  lb_fd = -1;
 }
 
 gRPCMessage::~gRPCMessage() {
@@ -440,8 +437,6 @@ void HTTPMessage::clear() {
     LOG(FATAL) << "credit_return queue is not empty";
   }
   dfanout_service = nullptr;
-  lb_replica_index = -1;
-  lb_fd = -1;
 }
 
 HTTPMessage::~HTTPMessage() {

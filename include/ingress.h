@@ -4,13 +4,13 @@
 #include "rpc_message.h"
 #include "rpc_queue.h"
 #include "stats.h"
-#include "utils.h"
 #include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 
 class Ingress {
 public:
@@ -23,13 +23,7 @@ public:
   const std::string &expected_service() const { return ingress_service; }
   void update_ingress_cap();
   void dump_state();
-  bool send_dn_checker();
-  RPCID get_tail_id();
-  Priority get_tail_priority();
-
-public:
-  ReplicaIndex lb_replica_index = -1;
-  int lb_fd = -1;
+  std::optional<std::tuple<RPCID, Priority>> send_dn_checker();
 
 private:
   void drop_rpc(std::shared_ptr<RPCMessage>);
@@ -50,7 +44,7 @@ private:
   RPCQueue &rpc_queue;
   std::deque<std::shared_ptr<RPCMessage>> queue;
   TimeWeightedMean ingress_mean;
-  bool has_dn_on_fly;
+  size_t dn_on_fly = 0;
   int32_t priority;
   int32_t drop_id;
   int drop_fd;

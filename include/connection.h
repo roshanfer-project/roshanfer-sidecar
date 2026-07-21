@@ -2,10 +2,8 @@
 
 #include "buffer.h"
 #include "connection_enums.h"
-#include "fast_map.hpp"
 #include "ingress.h"
 #include "netdb.h"
-#include "ppm_queue.h"
 #include "rpc_mapper.h"
 #include "rpc_message.h"
 #include "rpc_queue.h"
@@ -22,6 +20,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 class NoConnectionException : public std::runtime_error {
@@ -43,6 +42,8 @@ public:
   const uint8_t *outbuf_ptr;
   ssize_t written;
 };
+
+using FD = int;
 
 typedef struct CallbackData {
   ConnectionType type;
@@ -205,6 +206,11 @@ private:
   std::shared_ptr<HTTPMessage> rpc_message;
 };
 
+typedef struct LBBind {
+  FD lb_fd;
+  ReplicaIndex replica_index;
+} LBBind;
+
 class ReplicaPool {
 public:
   ReplicaPool(ReplicaIndex, struct sockaddr_in, ConnectionType);
@@ -220,7 +226,8 @@ public:
   std::shared_ptr<HTTPConnection>
   add_connection(const std::string &, int, RPCMapper *, RPCQueue *, HTTP,
                  Stats *, struct sockaddr_in * = nullptr);
-  std::shared_ptr<HTTPConnection> get_any_conn();
+  std::shared_ptr<HTTPConnection>
+  get_any_conn(const std::unordered_set<FD> * = nullptr);
   std::shared_ptr<HTTPConnection> get_connection(int fd);
   struct sockaddr_in get_addr() { return addr; }
   ReplicaIndex get_index() { return index; }
@@ -240,16 +247,11 @@ class ConnectionPool {
 public:
   ConnectionPool(ConnectionType);
 
-  /**
-   * @brief Add a connection to the pool
-   */
-  // std::shared_ptr<HTTPConnection>
-  //  add_connection(const std::string &, int, RPCMapper *, RPCQueue *, HTTP,
-  //                 Stats *, struct sockaddr_in * = nullptr);
-  // std::shared_ptr<HTTPConnection> get_connection(int fd);
-  std::shared_ptr<ReplicaPool> lb(KeyValueMinTracker * = nullptr);
-  // bool has_connection(int fd);
-  // void remove_connection(int fd);
+  std::shared_ptr<ReplicaPool> lb();
+  struct sockaddr_in acquire(RPCID);
+  std::shared_ptr<HTTPConnection> peek(RPCID);
+  void release(RPCID);
+
   std::shared_ptr<ReplicaPool> &add_replica(struct sockaddr_in addr_in) {
     auto [it, ok] = replicas.emplace(
         max_replica_index,
@@ -257,6 +259,7 @@ public:
     if (!ok) {
       LOG(FATAL) << "Could not insert new ReplicaPool";
     }
+    waitings.init(max_replica_index);
     max_replica_index++;
     return it->second;
   }
@@ -268,24 +271,14 @@ public:
     return it->second;
   }
   size_t get_num_replicas() { return replicas.size(); }
-  // struct sockaddr_in get_addr();
-
-  /* // delete copy semantics
-  ConnectionPool(const ConnectionPool &) = delete;
-  ConnectionPool &operator=(const ConnectionPool &) = delete;
-
-  // delete move semantics
-  ConnectionPool(ConnectionPool &&) = delete;
-  ConnectionPool &operator=(ConnectionPool &&) = delete; */
 
 private:
   std::unordered_map<ReplicaIndex, std::shared_ptr<ReplicaPool>> replicas;
   ReplicaIndex max_replica_index = 0;
   ConnectionType type;
-  // struct sockaddr_in addr;
-  // bool addr_set;
-  // std::unordered_map<int, std::shared_ptr<HTTPConnection>>::iterator
-  // next_conn;
+  KeyValueMinTracker waitings{};
+  std::unordered_map<RPCID, LBBind> bindings{};
+  std::unordered_set<FD> binded_fds{};
 };
 
 inline bool same_sockaddr_in(const struct sockaddr_in &a,

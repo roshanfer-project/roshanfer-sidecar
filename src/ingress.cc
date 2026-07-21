@@ -14,6 +14,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 
 #if defined(NANO_LOG_ENABLED) || defined(NABO_LOG_TRACE_ENABLED)
@@ -27,8 +28,8 @@ Ingress::Ingress(int index_arg, std::string &ingress_service_ref,
                  Stats &stats_ref, RPCMapper &rpc_mapper_ref,
                  RPCQueue &rpc_queue_ref)
     : stats(stats_ref), rpc_mapper(rpc_mapper_ref), rpc_queue(rpc_queue_ref),
-      queue(std::deque<std::shared_ptr<RPCMessage>>()), has_dn_on_fly(false),
-      drop_id(0), drop_fd(-index_arg), last_rpc_id((RPCID)index_arg << 48),
+      queue(std::deque<std::shared_ptr<RPCMessage>>()), drop_id(0),
+      drop_fd(-index_arg), last_rpc_id((RPCID)index_arg << 48),
       ingress_service(ingress_service_ref) {
   ingress_mean.set_description("Ingress-Mean-" + ingress_service);
   if (config.is_ingress) {
@@ -84,7 +85,7 @@ std::optional<std::shared_ptr<RPCMessage>> Ingress::dequeue() {
   auto rpc = std::move(queue.front());
   queue.pop_front();
 
-  has_dn_on_fly = false;
+  dn_on_fly -= 1;
   ingress_mean.update((double)queue.size());
   VLOG(2) << "Dequeued RPC message for service: " << ingress_service;
 #ifdef NANO_LOG_ENABLED
@@ -180,15 +181,18 @@ void Ingress::drop_rpc(std::shared_ptr<RPCMessage> rpc) {
           << "| id: " << drop_rpc->get_id_string();
 }
 
-bool Ingress::send_dn_checker() {
-  bool check = (queue.size() > 0 && !has_dn_on_fly);
-  has_dn_on_fly = check ? true : has_dn_on_fly;
-  return check;
+std::optional<std::tuple<RPCID, Priority>> Ingress::send_dn_checker() {
+  if (queue.size() <= dn_on_fly) {
+    return std::nullopt;
+  }
+
+  auto rpc = queue.at(dn_on_fly);
+  if (rpc == nullptr) {
+    LOG(FATAL) << "queue is empty";
+  }
+  dn_on_fly += 1;
+  return std::make_tuple(rpc->get_local_id(), rpc->get_priority());
 }
-
-RPCID Ingress::get_tail_id() { return queue.front()->get_local_id(); }
-
-Priority Ingress::get_tail_priority() { return queue.front()->get_priority(); }
 
 size_t Ingress::size() { return queue.size(); }
 

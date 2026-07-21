@@ -1,6 +1,7 @@
 #pragma once
 
 // #include "listener.h"
+#include "utils.h"
 #include <cstddef>
 #include <cstdint>
 #include <netinet/in.h>
@@ -36,6 +37,8 @@ public:
   bool is_free;
   bool is_provided;
   int64_t enter_queue_ts;
+  const std::string *ret_service = nullptr;
+  RPCID ret_id = -1;
 
 private:
   size_t size;

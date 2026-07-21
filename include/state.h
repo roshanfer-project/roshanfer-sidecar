@@ -104,14 +104,13 @@ public:
   void write_http(std::shared_ptr<HTTPConnection>);
   bool forward_request(std::shared_ptr<HTTPConnection>,
                        std::shared_ptr<RPCMessage>);
-  std::shared_ptr<HTTPConnection> route_request(ConnectionType, int32_t, int);
+  std::shared_ptr<HTTPConnection> route_request(ConnectionType, int32_t, int,
+                                                RPCID);
   void dump_entire_state();
   int get_sockfd() { return sockfd; }
 
 private:
   // PPM-related functions
-  struct sockaddr_in do_lb(std::string &,
-                           std::shared_ptr<RPCMessage> = nullptr);
   void send_dn(struct sockaddr_in, const std::string &, size_t, RPCID,
                Priority);
   std::unique_ptr<Buffer>
@@ -124,7 +123,7 @@ private:
   void update_limits(int32_t, std::string_view);
   void fanout_req_management(RPCID, const std::string &,
                              const std::unique_ptr<Buffer> &);
-  void send_sub_request(std::shared_ptr<RPCMessage>);
+  void send_sub_request(std::shared_ptr<RPCMessage>, RPCID);
   float cal_local_service_time(std::string_view);
   void fanout_res_credit_management(RPCID);
 

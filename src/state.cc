@@ -12,7 +12,6 @@
 #include "rpc_message.h"
 #include "rpc_queue.h"
 #include "stats.h"
-#include "utils.h"
 #include <algorithm>
 #include <arpa/inet.h>
 #include <cassert>
@@ -26,6 +25,7 @@
 #include <memory>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <optional>
 #include <random>
 #include <string>
 #include <string_view>
@@ -104,10 +104,9 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
     std::ranges::shuffle(addr_list, rng);
 
     for (auto &addr : addr_list) {
-      auto &replica_pool = pool.add_replica(addr);
-      ppm_queue.replica_waiting_count.at(route).init(replica_pool->get_index());
+      auto &replica = pool.add_replica(addr);
       for (int i = 0; i < n_conn; i++) {
-        auto conn = replica_pool->add_connection(
+        auto conn = replica->add_connection(
             info.upstream.host, info.upstream.port, &rpc_mapper, &rpc_queue,
             http_type, &stats, &addr);
 
@@ -274,35 +273,22 @@ void State::write_http(std::shared_ptr<HTTPConnection> conn) {
           << conn->get_fd();
 }
 
-std::shared_ptr<HTTPConnection>
-State::route_request(ConnectionType type, int32_t ds_stream_id, int ds_fd) {
+std::shared_ptr<HTTPConnection> State::route_request(ConnectionType type,
+                                                     int32_t ds_stream_id,
+                                                     int ds_fd,
+                                                     RPCID credit_id) {
   // get the RPC message
   auto rpc = rpc_mapper.get_ds_rpc(type, ds_stream_id, ds_fd);
-
+  std::optional<ConnectionPool *> pool;
   try {
     std::shared_ptr<HTTPConnection> conn;
     // TODO: implement load balancing within each connection pool
     if (type == ConnectionType::INGRESS) {
       conn = ingress_pool.lb()->get_any_conn();
+      pool = std::nullopt;
     } else {
-      ReplicaIndex replica_index = -1;
-      int fd = -1;
-      if (config.is_ingress) {
-        if (ingress.lb_fd == -1 || ingress.lb_replica_index == -1) {
-          LOG(FATAL)
-              << "Either fd or replica index in Ingress is not initialized";
-        }
-        fd = ingress.lb_fd;
-        ingress.lb_fd = -1;
-        replica_index = ingress.lb_replica_index;
-        ingress.lb_replica_index = -1;
-      } else {
-        replica_index = rpc->lb_replica_index;
-        fd = rpc->lb_fd;
-      }
-      conn = upstream_route_mapper.get_pool(rpc->get_service())
-                 .get_replica_pool(replica_index)
-                 ->get_connection(fd);
+      pool.emplace(&upstream_route_mapper.get_pool(rpc->get_service()));
+      conn = pool.value()->peek(credit_id);
     }
 
     if (conn->get_status() == ConnectionStatus::TEARDOWN) {
@@ -319,6 +305,11 @@ State::route_request(ConnectionType type, int32_t ds_stream_id, int ds_fd) {
 
     // update RPC message metadata
     rpc->set_us_fd(conn->get_fd());
+
+    // release the bind
+    if (pool.has_value()) {
+      pool.value()->release(credit_id);
+    }
 
     VLOG(3) << "Routing request"
             << " of type: " << type_to_str(type)
@@ -404,7 +395,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
     if (direction == ConnectionDirection::DOWNSTREAM) {
       // we are dealing with a request (INGRESS-DOWNSTREAM)
 
-      auto conn = route_request(type, src_stream_id, src_fd);
+      auto conn = route_request(type, src_stream_id, src_fd, 0 /*placeholder*/);
       auto rpc = rpc_mapper.get_ds_rpc(type, src_stream_id, src_fd);
 
       if (!forward_request(conn, rpc)) {
@@ -599,7 +590,8 @@ void State::ppm_client(bool dn_resp,
                        const std::unique_ptr<Buffer> &dn_resp_buffer) {
   if (dn_resp) {
     // we have received a demand notification response
-    auto [service, ok, num_credits, id] = credit_post_process(dn_resp_buffer);
+    auto [service, ok, num_credits, credit_id] =
+        credit_post_process(dn_resp_buffer);
 
     if (!ok) {
       return;
@@ -607,7 +599,7 @@ void State::ppm_client(bool dn_resp,
 
     for (size_t i = 0; i < num_credits; i++) {
       if (!config.is_ingress) {
-        fanout_req_management(id, service, dn_resp_buffer);
+        fanout_req_management(credit_id, service, dn_resp_buffer);
       } else {
         LOG(FATAL) << "Ingress should not use ppm_client for sending requests "
                       "post credit";
@@ -627,7 +619,8 @@ void State::ppm_client(bool dn_resp,
 
       // send out DNs
       if (config.is_ingress) {
-        auto addr = do_lb(rpc->get_service(), rpc);
+        auto addr = upstream_route_mapper.get_pool(rpc->get_service())
+                        .acquire(rpc->get_local_id());
         send_dn(addr, rpc->get_service(), 1, rpc->get_local_id(),
                 rpc->get_priority());
       } else {
@@ -638,19 +631,14 @@ void State::ppm_client(bool dn_resp,
         if (mapping_entry.dfanout.value_or(false)) {
           ingress_rpc->dfanout_service = &rpc->get_service();
           for (auto &ds_service : mapping_entry.downstreams) {
-            struct sockaddr_in addr;
-            if (ds_service == rpc->get_service()) {
-              addr = do_lb(rpc->get_service(), rpc);
-            } else {
-              addr = upstream_route_mapper.get_pool(ds_service)
-                         .lb(&ppm_queue.replica_waiting_count.at(ds_service))
-                         ->get_addr();
-            }
+            auto addr = upstream_route_mapper.get_pool(ds_service)
+                            .acquire(rpc->get_local_id());
             send_dn(addr, ds_service, 1, rpc->get_local_id(),
                     rpc->get_priority());
           }
         } else {
-          auto addr = do_lb(rpc->get_service(), rpc);
+          auto addr = upstream_route_mapper.get_pool(rpc->get_service())
+                          .acquire(rpc->get_local_id());
           send_dn(addr, rpc->get_service(), 1, rpc->get_local_id(),
                   rpc->get_priority());
         }
@@ -662,41 +650,21 @@ void State::ppm_client(bool dn_resp,
   }
 }
 
-struct sockaddr_in State::do_lb(std::string &service,
-                                std::shared_ptr<RPCMessage> rpc) {
-  auto replica = upstream_route_mapper.get_pool(service).lb(
-      &ppm_queue.replica_waiting_count.at(service));
-  auto conn = replica->get_any_conn();
-  if (rpc != nullptr) {
-    // we have an RPC, attach the connection to the RPC
-    rpc->lb_fd = conn->get_fd();
-    rpc->lb_replica_index = replica->get_index();
-  } else {
-    if (!config.is_ingress) {
-      LOG(FATAL)
-          << "Only Ingress is allowed to call do_lb without provided RPC "
-             "(because we want to do late binding of connection to RPC)";
-    }
-    ingress.lb_replica_index = replica->get_index();
-    ingress.lb_fd = conn->get_fd();
-  }
-
-  return conn->get_addr_in();
-}
-
 /*
   This method is resonsible for credit management (sub request out event) and
   RPC transmission (for non-ingress) when downstream pattern is fanout
 */
-void State::fanout_req_management(RPCID id, const std::string &service,
+void State::fanout_req_management(RPCID credit_id, const std::string &service,
                                   const std::unique_ptr<Buffer> &dn_reply) {
   // credit management and transmission
-  auto &ingress_rpc = rpc_mapper.get_ingress_rpc(id);
+  // IMPORTANT: for mesh sidecars we use early-binding, so credit_id is the same
+  // as rpc_id
+  auto &ingress_rpc = rpc_mapper.get_ingress_rpc(credit_id);
   auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
   if (mapping_entry.pfanout.value_or(false)) {
     ingress_rpc->pfanout_req++;
-    auto rpc = ppm_queue.pop(service, id);
-    send_sub_request(std::move(rpc));
+    auto rpc = ppm_queue.pop(service, credit_id);
+    send_sub_request(std::move(rpc), credit_id);
 
     // if we are not the last branch, do nothing
     if (ingress_rpc->pfanout_req != mapping_entry.downstreams.size()) {
@@ -707,30 +675,37 @@ void State::fanout_req_management(RPCID id, const std::string &service,
     // fill dfanout queue
     if (*ingress_rpc->dfanout_service != service) {
       auto credit_return = prepare_credit_return(dn_reply);
+      credit_return->ret_service = &service;
+      credit_return->ret_id = credit_id;
       ingress_rpc->credit_return_queue.push(std::move(credit_return));
       VLOG(2) << "PPMClient: Add credit for service: " << service
-              << " id: " << id << " to Credit Return Queue";
+              << " credit_id: " << credit_id << " to Credit Return Queue";
     }
 
     if (ingress_rpc->pfanout_req != mapping_entry.downstreams.size()) {
       return;
     } else {
-      auto rpc = ppm_queue.pop(*ingress_rpc->dfanout_service, id);
-      send_sub_request(std::move(rpc));
+      auto rpc = ppm_queue.pop(*ingress_rpc->dfanout_service, credit_id);
+      send_sub_request(std::move(rpc), credit_id);
 
       // send out queued credit returns
       while (ingress_rpc->credit_return_queue.size() > 0) {
         auto ret = std::move(ingress_rpc->credit_return_queue.front());
         ingress_rpc->credit_return_queue.pop();
+
+        // release bindings and stats
+        upstream_route_mapper.get_pool(*ret->ret_service).release(ret->ret_id);
+
         ring.prepare_sendmsg(sockfd, std::move(ret),
                              buffer_manager.get_user_data());
       }
-      VLOG(2) << "PPMClient: Flush Credit Return Queue for id: " << id;
+      VLOG(2) << "PPMClient: Flush Credit Return Queue for credit_id: "
+              << credit_id;
     }
   } else {
     // sequential fanout
-    auto rpc = ppm_queue.pop(service, id);
-    send_sub_request(std::move(rpc));
+    auto rpc = ppm_queue.pop(service, credit_id);
+    send_sub_request(std::move(rpc), credit_id);
   }
 
   // for non pfanout or last branch in pfanout, decrement active requests
@@ -760,7 +735,8 @@ State::prepare_credit_return(const std::unique_ptr<Buffer> &dn_reply) {
   return credit_ret;
 }
 
-void inline State::send_sub_request(std::shared_ptr<RPCMessage> rpc) {
+void inline State::send_sub_request(std::shared_ptr<RPCMessage> rpc,
+                                    RPCID credit_id) {
   /* if (ppm_queue.size(service) == 0) {
     dump_entire_state();
     LOG(FATAL)
@@ -771,7 +747,7 @@ void inline State::send_sub_request(std::shared_ptr<RPCMessage> rpc) {
   auto rpc = ppm_queue.pop(service, id); */
   auto &service = rpc->get_service();
   auto conn = route_request(ConnectionType::EGRESS, rpc->get_ds_stream_id(),
-                            rpc->get_ds_fd());
+                            rpc->get_ds_fd(), credit_id);
   forward_request(conn, rpc);
 
   auto wd = (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
@@ -888,19 +864,17 @@ void State::ingress_pre_credit() {
   if (stats.tail_e2e_time_us.get(ingress_service).consume_flush_updated()) {
     ingress.update_ingress_cap();
   }
-
-  if (!ingress.send_dn_checker()) {
-    return;
+  std::optional<std::tuple<RPCID, Priority>> potential;
+  while ((potential = ingress.send_dn_checker()).has_value()) {
+    // we should send a DN
+    auto [id, priority] = potential.value();
+    auto addr = upstream_route_mapper.get_pool(ingress_service).acquire(id);
+    send_dn(addr, ingress_service, 1, id, priority);
   }
-
-  // we should send a DN
-  auto id = ingress.get_tail_id();
-  auto priority = ingress.get_tail_priority();
-  send_dn(do_lb(ingress_service), ingress_service, 1, id, priority);
 }
 
 void State::ingress_post_credit(const std::unique_ptr<Buffer> &buf) {
-  auto [_, ok, num_credits, id] = credit_post_process(buf);
+  auto [service, ok, num_credits, credit_id] = credit_post_process(buf);
 
   if (!ok) {
     return;
@@ -911,14 +885,17 @@ void State::ingress_post_credit(const std::unique_ptr<Buffer> &buf) {
   }
 
   for (size_t i = 0; i < num_credits; i++) {
+    // Ingress uses late-binding of credits to RPCs: Queue's head is used for
+    // the new credit regardless of the credit_id
     auto rpc_optional = ingress.dequeue();
     if (rpc_optional.has_value()) {
-      send_sub_request(std::move(rpc_optional.value()));
+      send_sub_request(std::move(rpc_optional.value()), credit_id);
     } else {
       // return the credit
       auto ret = prepare_credit_return(buf);
       ring.prepare_sendmsg(sockfd, std::move(ret),
                            buffer_manager.get_user_data());
+      upstream_route_mapper.get_pool(service).release(credit_id);
       VLOG(1) << "Returned a credit due to lack of requests in Ingress queue";
     }
   }

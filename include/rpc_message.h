@@ -2,7 +2,6 @@
 
 #include "buffer.h"
 #include "connection_enums.h"
-#include "fast_map.hpp"
 #include "utils.h"
 #include <array>
 #include <chrono>
@@ -46,9 +45,6 @@ public:
   size_t offset;
   size_t read_offset;
 };
-
-using RPCID = int64_t;
-using Priority = int32_t;
 
 class RPCMessage {
 
@@ -122,10 +118,6 @@ public:
   // dynamic fan-out credit return queue
   std::queue<std::unique_ptr<Buffer>> credit_return_queue;
   std::string *dfanout_service;
-
-  // load balancing related
-  ReplicaIndex lb_replica_index = -1;
-  int lb_fd = -1;
 
   const uint8_t *RPC_LOCAL_ID_HEADER_NAME =
       reinterpret_cast<const uint8_t *>("rpc-local-id");

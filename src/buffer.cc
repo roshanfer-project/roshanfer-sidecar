@@ -21,6 +21,8 @@ void Buffer::clear() {
   filled = 0;
   is_free = true;
   enter_queue_ts = 0;
+  ret_service = nullptr;
+  ret_id = -1;
 }
 
 void Buffer::set_filled(size_t f) {

@@ -29,6 +29,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <unordered_map>
+#include <unordered_set>
 
 std::string type_to_str(ConnectionType type) {
   if (type == ConnectionType::INGRESS) {
@@ -451,15 +452,24 @@ std::shared_ptr<HTTPConnection> ReplicaPool::get_connection(int fd) {
   }
 };
 
-std::shared_ptr<HTTPConnection> ReplicaPool::get_any_conn() {
+std::shared_ptr<HTTPConnection>
+ReplicaPool::get_any_conn(const std::unordered_set<FD> *exclude) {
   if (connections.empty()) {
     throw NoConnectionException("ReplicaPool is empty");
   }
 
   auto start = next_conn;
   do {
-    if (next_conn->second->available()) {
-      return next_conn->second;
+    auto &c = next_conn->second;
+    const bool excluded =
+        exclude && exclude->find(c->get_fd()) != exclude->end();
+    if (c->available() && !excluded) {
+      auto out = c;
+      next_conn++;
+      if (next_conn == connections.end()) {
+        next_conn = connections.begin();
+      }
+      return out;
     }
     next_conn++;
     if (next_conn == connections.end()) {
@@ -475,8 +485,7 @@ ConnectionPool::ConnectionPool(ConnectionType conn_type)
           std::unordered_map<ReplicaIndex, std::shared_ptr<ReplicaPool>>()),
       type(conn_type) {};
 
-std::shared_ptr<ReplicaPool>
-ConnectionPool::lb(KeyValueMinTracker *min_tracker) {
+std::shared_ptr<ReplicaPool> ConnectionPool::lb() {
   if (replicas.empty()) {
     LOG(FATAL) << "There are no replicas";
   }
@@ -485,18 +494,61 @@ ConnectionPool::lb(KeyValueMinTracker *min_tracker) {
     return replicas.at(0);
   }
 
-  if (min_tracker == nullptr) {
-    LOG(FATAL) << "We have more than 1 replcia with no min tracker given!";
-  }
-
   // do the load balancing!
-  auto [_, replica_index] = min_tracker->get_min();
+  auto [_, replica_index] = waitings.get_min();
   if (auto it = replicas.find(replica_index); it != replicas.end()) {
     return it->second;
   } else {
     LOG(FATAL) << "replica with index " << replica_index << " not found";
   }
 };
+
+struct sockaddr_in ConnectionPool::acquire(RPCID id) {
+  auto replica = lb();
+  std::shared_ptr<HTTPConnection> conn;
+  try {
+    conn = replica->get_any_conn(&binded_fds);
+  } catch (NoConnectionException &e) {
+    LOG(FATAL) << "No conn available to acquire. id: " << id;
+  }
+
+  // update bindings
+  auto [_, ok] =
+      bindings.emplace(id, LBBind{.lb_fd = conn->get_fd(),
+                                  .replica_index = replica->get_index()});
+  if (!ok) {
+    LOG(FATAL) << "cannot bind to id: " << id;
+  }
+  if (conn->http() == HTTP::HTTP1) {
+    if (!binded_fds.emplace(conn->get_fd()).second) {
+      LOG(FATAL) << "cannot bind to fd: " << conn->get_fd();
+    }
+  }
+
+  // update waitings
+  waitings.increase(replica->get_index());
+
+  return conn->get_addr_in();
+}
+
+std::shared_ptr<HTTPConnection> ConnectionPool::peek(RPCID id) {
+  if (auto it = bindings.find(id); it != bindings.end()) {
+    return replicas.at(it->second.replica_index)
+        ->get_connection(it->second.lb_fd);
+  } else {
+    LOG(FATAL) << "id: " << id << " not found in bindings";
+  }
+}
+
+void ConnectionPool::release(RPCID id) {
+  if (auto it = bindings.find(id); it != bindings.end()) {
+    waitings.decrease(it->second.replica_index);
+    binded_fds.erase(it->second.lb_fd);
+    bindings.erase(it);
+  } else {
+    LOG(FATAL) << "id: " << id << " not found in bindings";
+  }
+}
 
 ///// HTTPConnection implementation
 
