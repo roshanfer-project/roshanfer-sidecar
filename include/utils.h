@@ -2,6 +2,8 @@
 
 #include "glog/logging.h"
 #include <cstddef>
+#include <iterator>
+#include <random>
 #include <set>
 #include <string_view>
 #include <unordered_map>
@@ -40,8 +42,19 @@ public:
     valueToKey.insert({newValue, key});
   }
 
-  // Get the item with the minimum value: O(1)
-  std::pair<int, ReplicaIndex> get_min() { return *valueToKey.begin(); }
+  // Min value; ties broken uniformly at random: O(t) where t = # at min
+  std::pair<int, ReplicaIndex> get_min() {
+    auto first = valueToKey.begin();
+    int min_val = first->first;
+    std::ptrdiff_t n = 0;
+    for (auto it = first; it != valueToKey.end() && it->first == min_val;
+         ++it) {
+      ++n;
+    }
+    thread_local std::mt19937 rng{std::random_device{}()};
+    std::uniform_int_distribution<std::ptrdiff_t> dist(0, n - 1);
+    return *std::next(first, dist(rng));
+  }
 
   int increase(ReplicaIndex key) {
     auto it = keyToValue.find(key);

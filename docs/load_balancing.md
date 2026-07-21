@@ -54,7 +54,7 @@ It does `peek` → status check → `release` (EGRESS/committed path only), so a
 
 ### Tie-breaking
 
-When multiple replicas have the same waiting count, the one with the **lowest replica index** is chosen (`std::set` ordering). Deterministic, but not round-robin among ties.
+When multiple replicas have the same waiting count, one is chosen **uniformly at random** among those ties (`KeyValueMinTracker::get_min`).
 
 ### dfanout
 
@@ -70,7 +70,7 @@ When multiple replicas have the same waiting count, the one with the **lowest re
 
 ### Performance
 
-- `KeyValueMinTracker` does O(log R) per update and O(1) min lookup (R = replica count, typically small).
+- `KeyValueMinTracker` does O(log R) per update and O(t) min lookup over the tie group (t ≤ R, R typically small).
 - `bindings` is O(1) per `acquire`/`peek`/`release`. No heap allocations on the LB hot path.
 
 ## Call path
