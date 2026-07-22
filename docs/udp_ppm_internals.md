@@ -43,7 +43,7 @@ Unknown combinations `LOG(FATAL)`.
 
 **Pool behaviour**: For both TCP and DN pools, roughly the first 80% of buffers are marked `is_provided` and returned to the io_uring buffer ring on `free_*`; the rest are pushed onto a free queue and only registered when allocated (`buffer_manager.cc`).
 
-**UDP-specific `Buffer` fields**: `Buffer::prepare_sendmsg` sets `iov` and `msg` for `sendmsg`. `enter_queue_ts` is set when a credit response buffer is queued in `CreditQueue` and later used in `check_credit_transmission` to overwrite bytes 22–25 (queue dwell), as in [rtt.md](rtt.md).
+**UDP-specific `Buffer` fields**: `Buffer::prepare_sendmsg` sets `iov` and `msg` for `sendmsg`. `enter_queue_ts` is set when a credit response buffer is queued in `CreditQueue` and later used in `check_credit_transmission` to overwrite bytes 23–26 (queue dwell), as in [rtt.md](rtt.md).
 
 ## `UserData` (per-SQE metadata)
 
@@ -89,8 +89,8 @@ flowchart LR
 
 ## Queue multiplexer and credit queue
 
-- `queue_multiplexer` handles DN **requests** (`data[1] == 0x01`, `data[2] == 0x00`) and **credit returns** (`data[1] == 0x02`). For DN requests it reads service name, RPC id, priority, and piggyback RTT (bytes 22–25), calls `update_limits`, allocates a DN buffer, and builds the wire response with `write_failed_dn_response`. That helper copies the request, sets the response bit (`data[2]`), and sets **granted credits** in `data[4]` when a full credit is represented—so `valid_credit` sees `data[3] - data[4] == 0` when the client receives that reply (`state.cc`).
-- The response buffer gets `enter_queue_ts` and is pushed into the shared `CreditQueue` (priority-aware). `check_credit_transmission` calls `CreditQueue::pop`, which enforces global and per-endpoint limits and **increments `in_flight`** when it hands out a buffer to send (`credit_queue.cc`). Before `sendmsg`, bytes 22–25 are replaced with credit-queue dwell time (`state.cc`).
+- `queue_multiplexer` handles DN **requests** (`data[1] == 0x01`, `data[2] == 0x00`) and **credit returns** (`data[1] == 0x02`). For DN requests it reads service name, RPC id, priority, and piggyback RTT (bytes 23–26), calls `update_limits`, allocates a DN buffer, and builds the wire response with `write_failed_dn_response`. That helper copies the request, sets the response bit (`data[2]`), and sets **granted credits** in `data[4]` when a full credit is represented—so `valid_credit` sees `data[3] - data[4] == 0` when the client receives that reply (`state.cc`).
+- The response buffer gets `enter_queue_ts` and is pushed into the shared `CreditQueue` (priority-aware). `check_credit_transmission` calls `CreditQueue::pop`, which enforces global and per-endpoint limits and **increments `in_flight`** when it hands out a buffer to send (`credit_queue.cc`). Before `sendmsg`, bytes 23–26 are replaced with credit-queue dwell time (`state.cc`).
 
 ## Related symbols (quick map)
 

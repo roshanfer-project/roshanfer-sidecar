@@ -5,7 +5,8 @@
 #include "utils.h"
 #include <cstddef>
 #include <cstdint>
-#include <map>
+#include <deque>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <sys/socket.h>
@@ -32,13 +33,14 @@ public:
                routing);
   void push(std::shared_ptr<RPCMessage> rpc);
   std::shared_ptr<RPCMessage> pop(const std::string &service, RPCID id);
+  std::shared_ptr<RPCMessage> pop(const std::string &);
   // checks if the service exists and the queue is not empty
   const std::string &check(std::string_view &);
   size_t size(const std::string &);
   int32_t get_waiting_delay_us(const std::string &service);
 
 private:
-  std::unordered_map<std::string, std::map<RPCID, std::shared_ptr<RPCMessage>>,
+  std::unordered_map<std::string, std::deque<std::shared_ptr<RPCMessage>>,
                      TransparentHash, TransparentEqual>
-      ppm_queue;
+      ppm_queue{};
 };

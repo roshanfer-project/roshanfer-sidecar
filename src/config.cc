@@ -53,6 +53,14 @@ Config load_config(const std::string &filename) {
   }
   LOG(INFO) << "config.lb_mode: " << local_config.lb_mode;
 
+  // optional mesh_late_binding
+  if (node["mesh_late_binding"]) {
+    local_config.mesh_late_binding = node["mesh_late_binding"].as<bool>();
+  } else {
+    local_config.mesh_late_binding = true;
+  }
+  LOG(INFO) << "config.mesh_late_binding: " << local_config.mesh_late_binding;
+
   if (node["is_plain_frontend"]) {
     local_config.is_plain_frontend = node["is_plain_frontend"].as<bool>();
   } else {

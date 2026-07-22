@@ -505,7 +505,7 @@ void State::remove_connection(std::shared_ptr<HTTPConnection> conn) {
 }
 
 static std::string_view extract_service_from_ppm_req(const char *data) {
-  size_t header_size = 26;
+  size_t header_size = 27;
   if (data[1] != 0x01 && data[1] != 0x02) {
     LOG(FATAL) << "Invalid message type: " << (int)data[1];
   }
@@ -515,7 +515,7 @@ static std::string_view extract_service_from_ppm_req(const char *data) {
   return std::string_view(data + header_size, (size_t)data[0] - header_size);
 }
 
-std::tuple<const std::string &, bool, size_t, RPCID>
+std::tuple<const std::string &, bool, size_t, RPCID, FanOutType>
 State::credit_post_process(const std::unique_ptr<Buffer> &buf) {
 
   const char *data = buf->data.data();
@@ -536,19 +536,19 @@ State::credit_post_process(const std::unique_ptr<Buffer> &buf) {
 
   // update RTT
   int64_t timestamp =
-      (int64_t)((uint64_t)(unsigned char)buf->data.at(14) << 56 |
-                (uint64_t)(unsigned char)buf->data.at(15) << 48 |
-                (uint64_t)(unsigned char)buf->data.at(16) << 40 |
-                (uint64_t)(unsigned char)buf->data.at(17) << 32 |
-                (uint64_t)(unsigned char)buf->data.at(18) << 24 |
-                (uint64_t)(unsigned char)buf->data.at(19) << 16 |
-                (uint64_t)(unsigned char)buf->data.at(20) << 8 |
-                (uint64_t)(unsigned char)buf->data.at(21));
+      (int64_t)((uint64_t)(unsigned char)buf->data.at(15) << 56 |
+                (uint64_t)(unsigned char)buf->data.at(16) << 48 |
+                (uint64_t)(unsigned char)buf->data.at(17) << 40 |
+                (uint64_t)(unsigned char)buf->data.at(18) << 32 |
+                (uint64_t)(unsigned char)buf->data.at(19) << 24 |
+                (uint64_t)(unsigned char)buf->data.at(20) << 16 |
+                (uint64_t)(unsigned char)buf->data.at(21) << 8 |
+                (uint64_t)(unsigned char)buf->data.at(22));
   int32_t queueing_time =
-      (int32_t)((uint32_t)(unsigned char)buf->data.at(22) << 24 |
-                (uint32_t)(unsigned char)buf->data.at(23) << 16 |
-                (uint32_t)(unsigned char)buf->data.at(24) << 8 |
-                (uint32_t)(unsigned char)buf->data.at(25));
+      (int32_t)((uint32_t)(unsigned char)buf->data.at(23) << 24 |
+                (uint32_t)(unsigned char)buf->data.at(24) << 16 |
+                (uint32_t)(unsigned char)buf->data.at(25) << 8 |
+                (uint32_t)(unsigned char)buf->data.at(26));
   int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
                        std::chrono::steady_clock::now().time_since_epoch())
                        .count();
@@ -583,14 +583,14 @@ State::credit_post_process(const std::unique_ptr<Buffer> &buf) {
           << "| new credits: " << (int)data[4]
           << "| ppm_queue size: " << ppm_queue.size(service);
 
-  return {service, true, data[4], id};
+  return {service, true, data[4], id, value_to_fanout_type(buf->data.at(14))};
 }
 
 void State::ppm_client(bool dn_resp,
                        const std::unique_ptr<Buffer> &dn_resp_buffer) {
   if (dn_resp) {
     // we have received a demand notification response
-    auto [service, ok, num_credits, credit_id] =
+    auto [service, ok, num_credits, credit_id, fanout_type] =
         credit_post_process(dn_resp_buffer);
 
     if (!ok) {
@@ -599,7 +599,7 @@ void State::ppm_client(bool dn_resp,
 
     for (size_t i = 0; i < num_credits; i++) {
       if (!config.is_ingress) {
-        fanout_req_management(credit_id, service, dn_resp_buffer);
+        fanout_req_management(credit_id, service, fanout_type, dn_resp_buffer);
       } else {
         LOG(FATAL) << "Ingress should not use ppm_client for sending requests "
                       "post credit";
@@ -622,10 +622,18 @@ void State::ppm_client(bool dn_resp,
         auto addr = upstream_route_mapper.get_pool(rpc->get_service())
                         .acquire(rpc->get_local_id());
         send_dn(addr, rpc->get_service(), 1, rpc->get_local_id(),
-                rpc->get_priority());
+                rpc->get_priority(), FanOutType::SEQUENTIAL);
       } else {
         auto &ingress_rpc = rpc_mapper.get_ingress_rpc(rpc->get_local_id());
         auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
+        FanOutType fanout_type;
+        if (mapping_entry.dfanout.value_or(false)) {
+          fanout_type = FanOutType::DYNAMIC;
+        } else if (mapping_entry.pfanout.value_or(false)) {
+          fanout_type = FanOutType::PARALELL;
+        } else {
+          fanout_type = FanOutType::SEQUENTIAL;
+        }
 
         // for dynamic fan-out, send DN to all downstreams
         if (mapping_entry.dfanout.value_or(false)) {
@@ -634,13 +642,13 @@ void State::ppm_client(bool dn_resp,
             auto addr = upstream_route_mapper.get_pool(ds_service)
                             .acquire(rpc->get_local_id());
             send_dn(addr, ds_service, 1, rpc->get_local_id(),
-                    rpc->get_priority());
+                    rpc->get_priority(), fanout_type);
           }
         } else {
           auto addr = upstream_route_mapper.get_pool(rpc->get_service())
                           .acquire(rpc->get_local_id());
           send_dn(addr, rpc->get_service(), 1, rpc->get_local_id(),
-                  rpc->get_priority());
+                  rpc->get_priority(), fanout_type);
         }
       }
 
@@ -655,13 +663,13 @@ void State::ppm_client(bool dn_resp,
   RPC transmission (for non-ingress) when downstream pattern is fanout
 */
 void State::fanout_req_management(RPCID credit_id, const std::string &service,
+                                  FanOutType fanout_type,
                                   const std::unique_ptr<Buffer> &dn_reply) {
   // credit management and transmission
-  // IMPORTANT: for mesh sidecars we use early-binding, so credit_id is the same
-  // as rpc_id
-  auto &ingress_rpc = rpc_mapper.get_ingress_rpc(credit_id);
-  auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
-  if (mapping_entry.pfanout.value_or(false)) {
+  // Paralell and Dynamic only support early-binding
+  if (fanout_type == FanOutType::PARALELL) {
+    auto &ingress_rpc = rpc_mapper.get_ingress_rpc(credit_id);
+    auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
     ingress_rpc->pfanout_req++;
     auto rpc = ppm_queue.pop(service, credit_id);
     send_sub_request(std::move(rpc), credit_id);
@@ -670,7 +678,13 @@ void State::fanout_req_management(RPCID credit_id, const std::string &service,
     if (ingress_rpc->pfanout_req != mapping_entry.downstreams.size()) {
       return;
     }
-  } else if (mapping_entry.dfanout.value_or(false)) {
+
+    // for non pfanout or last branch in pfanout, decrement active requests
+    shared_state.credit_queue.decrement_in_flight(ingress_rpc->get_service());
+    check_credit_transmission();
+  } else if (fanout_type == FanOutType::DYNAMIC) {
+    auto &ingress_rpc = rpc_mapper.get_ingress_rpc(credit_id);
+    auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
     ingress_rpc->pfanout_req++;
     // fill dfanout queue
     if (*ingress_rpc->dfanout_service != service) {
@@ -702,15 +716,22 @@ void State::fanout_req_management(RPCID credit_id, const std::string &service,
       VLOG(2) << "PPMClient: Flush Credit Return Queue for credit_id: "
               << credit_id;
     }
+
+    // for non pfanout or last branch in pfanout, decrement active requests
+    shared_state.credit_queue.decrement_in_flight(ingress_rpc->get_service());
+    check_credit_transmission();
   } else {
     // sequential fanout
-    auto rpc = ppm_queue.pop(service, credit_id);
-    send_sub_request(std::move(rpc), credit_id);
-  }
+    auto rpc = config.mesh_late_binding ? ppm_queue.pop(service)
+                                        : ppm_queue.pop(service, credit_id);
+    auto ingress_rpc = rpc_mapper.get_ingress_rpc(rpc->get_local_id());
 
-  // for non pfanout or last branch in pfanout, decrement active requests
-  shared_state.credit_queue.decrement_in_flight(ingress_rpc->get_service());
-  check_credit_transmission();
+    send_sub_request(std::move(rpc), credit_id);
+
+    // for non pfanout or last branch in pfanout, decrement active requests
+    shared_state.credit_queue.decrement_in_flight(ingress_rpc->get_service());
+    check_credit_transmission();
+  }
 }
 
 std::unique_ptr<Buffer>
@@ -783,9 +804,10 @@ void State::fanout_res_credit_management(RPCID id) {
 }
 
 void State::send_dn(struct sockaddr_in addr, const std::string &service,
-                    size_t num_credits, RPCID id, Priority priority) {
+                    size_t num_credits, RPCID id, Priority priority,
+                    FanOutType fanout_type) {
   // send a demand notification
-  ssize_t header_size = 26;
+  ssize_t header_size = 27;
   size_t len = (size_t)header_size + service.length();
   auto buffer = buffer_manager.get_dn_buffer();
   if (buffer->data.size() < len) {
@@ -806,23 +828,24 @@ void State::send_dn(struct sockaddr_in addr, const std::string &service,
   buffer->data.at(11) = (char)((unsigned char)(id >> 8));
   buffer->data.at(12) = (char)((unsigned char)(id & 0xFF));
   buffer->data.at(13) = (char)priority;
+  buffer->data.at(14) = (char)fanout_type;
   int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
                        std::chrono::steady_clock::now().time_since_epoch())
                        .count();
-  buffer->data.at(14) = (char)((unsigned char)(now_us >> 56));
-  buffer->data.at(15) = (char)((unsigned char)(now_us >> 48));
-  buffer->data.at(16) = (char)((unsigned char)(now_us >> 40));
-  buffer->data.at(17) = (char)((unsigned char)(now_us >> 32));
-  buffer->data.at(18) = (char)((unsigned char)(now_us >> 24));
-  buffer->data.at(19) = (char)((unsigned char)(now_us >> 16));
-  buffer->data.at(20) = (char)((unsigned char)(now_us >> 8));
-  buffer->data.at(21) = (char)((unsigned char)(now_us & 0xFF));
+  buffer->data.at(15) = (char)((unsigned char)(now_us >> 56));
+  buffer->data.at(16) = (char)((unsigned char)(now_us >> 48));
+  buffer->data.at(17) = (char)((unsigned char)(now_us >> 40));
+  buffer->data.at(18) = (char)((unsigned char)(now_us >> 32));
+  buffer->data.at(19) = (char)((unsigned char)(now_us >> 24));
+  buffer->data.at(20) = (char)((unsigned char)(now_us >> 16));
+  buffer->data.at(21) = (char)((unsigned char)(now_us >> 8));
+  buffer->data.at(22) = (char)((unsigned char)(now_us & 0xFF));
 
   int32_t last_rtt = local_state.last_rtt_us.get(service);
-  buffer->data.at(22) = (char)((unsigned char)(last_rtt >> 24));
-  buffer->data.at(23) = (char)((unsigned char)(last_rtt >> 16));
-  buffer->data.at(24) = (char)((unsigned char)(last_rtt >> 8));
-  buffer->data.at(25) = (char)((unsigned char)(last_rtt & 0xFF));
+  buffer->data.at(23) = (char)((unsigned char)(last_rtt >> 24));
+  buffer->data.at(24) = (char)((unsigned char)(last_rtt >> 16));
+  buffer->data.at(25) = (char)((unsigned char)(last_rtt >> 8));
+  buffer->data.at(26) = (char)((unsigned char)(last_rtt & 0xFF));
 
   std::copy_n(service.begin(), service.length(),
               buffer->data.begin() + header_size);
@@ -869,12 +892,12 @@ void State::ingress_pre_credit() {
     // we should send a DN
     auto [id, priority] = potential.value();
     auto addr = upstream_route_mapper.get_pool(ingress_service).acquire(id);
-    send_dn(addr, ingress_service, 1, id, priority);
+    send_dn(addr, ingress_service, 1, id, priority, FanOutType::SEQUENTIAL);
   }
 }
 
 void State::ingress_post_credit(const std::unique_ptr<Buffer> &buf) {
-  auto [service, ok, num_credits, credit_id] = credit_post_process(buf);
+  auto [service, ok, num_credits, credit_id, _] = credit_post_process(buf);
 
   if (!ok) {
     return;
@@ -940,10 +963,10 @@ void State::check_credit_transmission() {
                        std::chrono::steady_clock::now().time_since_epoch())
                        .count();
   int32_t queuing_time = (int32_t)(now_ts - buffer->enter_queue_ts);
-  buffer->data.at(22) = (char)((unsigned char)(queuing_time >> 24));
-  buffer->data.at(23) = (char)((unsigned char)(queuing_time >> 16));
-  buffer->data.at(24) = (char)((unsigned char)(queuing_time >> 8));
-  buffer->data.at(25) = (char)((unsigned char)(queuing_time & 0xFF));
+  buffer->data.at(23) = (char)((unsigned char)(queuing_time >> 24));
+  buffer->data.at(24) = (char)((unsigned char)(queuing_time >> 16));
+  buffer->data.at(25) = (char)((unsigned char)(queuing_time >> 8));
+  buffer->data.at(26) = (char)((unsigned char)(queuing_time & 0xFF));
 
   ring.prepare_sendmsg(sockfd, std::move(buffer),
                        buffer_manager.get_user_data());
@@ -1079,7 +1102,7 @@ void State::dispatch_ppm_recv(const std::unique_ptr<Buffer> &buf) {
     LOG(FATAL) << "PPM UDP payload too short: " << n;
   }
   const auto &d = buf->data;
-  static constexpr size_t k_ppm_header = 26;
+  static constexpr size_t k_ppm_header = 27;
   size_t declared = (size_t)(unsigned char)d[0];
   if (declared < k_ppm_header || declared > n) {
     LOG(FATAL) << "Invalid PPM length byte: " << declared << " filled: " << n;
@@ -1132,10 +1155,10 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
                              (uint64_t)(unsigned char)req->data.at(12));
     Priority priority = (Priority)req->data.at(13);
 
-    int32_t rtt = (int32_t)((uint32_t)(unsigned char)req->data.at(22) << 24 |
-                            (uint32_t)(unsigned char)req->data.at(23) << 16 |
-                            (uint32_t)(unsigned char)req->data.at(24) << 8 |
-                            (uint32_t)(unsigned char)req->data.at(25));
+    int32_t rtt = (int32_t)((uint32_t)(unsigned char)req->data.at(23) << 24 |
+                            (uint32_t)(unsigned char)req->data.at(24) << 16 |
+                            (uint32_t)(unsigned char)req->data.at(25) << 8 |
+                            (uint32_t)(unsigned char)req->data.at(26));
     if (rtt >= 0) {
       update_limits((int32_t)rtt, service);
     } else {

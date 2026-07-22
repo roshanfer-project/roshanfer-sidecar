@@ -4,28 +4,22 @@
 #include "rpc_message.h"
 #include <cstddef>
 #include <cstdint>
+#include <deque>
+#include <memory>
 #include <string>
 #include <unordered_map>
 
 PPMQueue::PPMQueue(std::unordered_map<std::string, RoutingEntry,
                                       TransparentHash, TransparentEqual>
-                       routing)
-    : ppm_queue(std::unordered_map<std::string,
-                                   std::map<RPCID, std::shared_ptr<RPCMessage>>,
-                                   TransparentHash, TransparentEqual>()) {
+                       routing) {
   for (const auto &[route, _] : routing) {
-    ppm_queue.emplace(route, std::map<RPCID, std::shared_ptr<RPCMessage>>());
+    ppm_queue.emplace(route, std::deque<std::shared_ptr<RPCMessage>>());
   }
 }
 
 void PPMQueue::push(std::shared_ptr<RPCMessage> rpc) {
   try {
-    auto [_, check] =
-        ppm_queue.at(rpc->get_service()).emplace(rpc->get_local_id(), rpc);
-    if (!check) {
-      LOG(FATAL) << "Insertion of id: " << rpc->get_id_string()
-                 << " into ppm_queue did not take place";
-    }
+    ppm_queue.at(rpc->get_service()).push_back(rpc);
   } catch (const std::out_of_range &e) {
     LOG(FATAL) << "Error in pushing RPC message: " << e.what()
                << " service: " << rpc->get_service();
@@ -45,17 +39,44 @@ std::shared_ptr<RPCMessage> PPMQueue::pop(const std::string &service,
       LOG(FATAL) << "Trying to pop from an empty queue for service: "
                  << service;
     }
-    auto it = ppm_queue.at(service).find(id);
-    if (it == ppm_queue.at(service).end()) {
-      LOG(FATAL) << "Trying to pop from a queue with an invalid id. "
-                 << "| id: " << id << "| service: " << service;
+    auto &queue = ppm_queue.at(service);
+    auto it = queue.begin();
+    while (it != queue.end()) {
+      if ((*it)->get_local_id() == id) {
+        auto rpc = *it;
+        queue.erase(it);
+        VLOG(1) << "PPMQueue: Popped RPC message "
+                << "| service: " << service << "| id: " << id
+                << "| ppm_queue size: " << queue.size();
+        return rpc;
+      }
+      it++;
     }
-    auto rpc = it->second;
-    ppm_queue.at(service).erase(id);
+    LOG(FATAL) << "Trying to pop from a queue with an invalid id. "
+               << "| id: " << id << "| service: " << service;
+
+  } catch (const std::out_of_range &) {
+    LOG(FATAL) << "Service not found in PPM queue: " << service;
+  } catch (const std::exception &e) {
+    LOG(FATAL) << "Error in dequeueing RPC message: " << e.what()
+               << " service: " << service;
+  }
+}
+
+std::shared_ptr<RPCMessage> PPMQueue::pop(const std::string &service) {
+  try {
+    auto &queue = ppm_queue.at(service);
+    if (queue.empty()) {
+      LOG(FATAL) << "Trying to pop from an empty queue for service: "
+                 << service;
+    }
+    auto rpc = queue.front();
+    queue.pop_front();
     VLOG(1) << "PPMQueue: Popped RPC message "
-            << "| service: " << service << "| id: " << id
-            << "| ppm_queue size: " << ppm_queue.at(service).size();
+            << "| service: " << service << "| id: " << rpc->get_local_id()
+            << "| ppm_queue size: " << queue.size();
     return rpc;
+
   } catch (const std::out_of_range &) {
     LOG(FATAL) << "Service not found in PPM queue: " << service;
   } catch (const std::exception &e) {
@@ -93,7 +114,7 @@ int32_t PPMQueue::get_waiting_delay_us(const std::string &service) {
     if (ppm_queue.at(service).empty()) {
       return 0;
     }
-    auto first_req_for = ppm_queue.at(service).begin()->second->req_rcv_time;
+    auto first_req_for = ppm_queue.at(service).front()->req_rcv_time;
     return (int32_t)std::chrono::duration_cast<std::chrono::microseconds>(
                std::chrono::steady_clock::now() - first_req_for)
         .count();

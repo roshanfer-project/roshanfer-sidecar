@@ -82,6 +82,30 @@ private:
   std::unordered_map<std::string, ConnectionPool> map;
 };
 
+enum class FanOutType : char {
+  SEQUENTIAL = 0x01,
+  PARALELL = 0x02,
+  DYNAMIC = 0x03
+};
+
+static inline FanOutType value_to_fanout_type(const char value) {
+  FanOutType fanout_type;
+  switch (value) {
+  case 0x01:
+    fanout_type = FanOutType::SEQUENTIAL;
+    break;
+  case 0x02:
+    fanout_type = FanOutType::PARALELL;
+    break;
+  case 0x03:
+    fanout_type = FanOutType::DYNAMIC;
+    break;
+  default:
+    LOG(FATAL) << "Wrong value for fanout type";
+  }
+  return fanout_type;
+}
+
 class State {
 
 public:
@@ -111,17 +135,17 @@ public:
 
 private:
   // PPM-related functions
-  void send_dn(struct sockaddr_in, const std::string &, size_t, RPCID,
-               Priority);
+  void send_dn(struct sockaddr_in, const std::string &, size_t, RPCID, Priority,
+               FanOutType);
   std::unique_ptr<Buffer>
   prepare_credit_return(const std::unique_ptr<Buffer> &);
-  std::tuple<const std::string &, bool, size_t, RPCID>
+  std::tuple<const std::string &, bool, size_t, RPCID, FanOutType>
   credit_post_process(const std::unique_ptr<Buffer> &);
   bool check_credit_available(std::string_view);
   void check_credit_transmission();
   float get_theo_term(std::string_view, bool);
   void update_limits(int32_t, std::string_view);
-  void fanout_req_management(RPCID, const std::string &,
+  void fanout_req_management(RPCID, const std::string &, FanOutType,
                              const std::unique_ptr<Buffer> &);
   void send_sub_request(std::shared_ptr<RPCMessage>, RPCID);
   float cal_local_service_time(std::string_view);

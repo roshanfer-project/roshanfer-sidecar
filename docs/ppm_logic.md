@@ -61,7 +61,7 @@ PPM is a stateful protocol, so both client and server rely on some state variabl
 ### On every credit reply (non-ingress clients)
 
 1. `State::ppm_client(true, …)` runs.
-2. Pop **`PPMQueue`** by id / fan-out rules and **`send_sub_request`**.
+2. Pop **`PPMQueue`** and **`send_sub_request`**: fan-out / early-bind by `credit_id`; sequential late-bind (`mesh_late_binding`) pops queue head (FCFS).
 3. Decrement **`in_flight`** where applicable (fan-out nuances unchanged).
 
 > Parallel fan-out (`pfanout`): credit **`in_flight`** decrement only on the **last** branch (existing behavior).

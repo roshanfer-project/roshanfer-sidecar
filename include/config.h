@@ -51,6 +51,7 @@ struct Config {
   std::optional<float> over_commitment;
   int extra_limit;
   bool lb_mode;
+  bool mesh_late_binding;
 };
 
 Config load_config(const std::string &filename);

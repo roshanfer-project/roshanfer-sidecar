@@ -17,7 +17,7 @@
 
 - Two-level selection: To get a connection, we must first **load balance** between replicas (to get a `ReplicaPool`) and then choose a connection available for that replica.
 - The load balancing policy is based on least-loaded policy with load being the number of RPCs awaiting for credit.
-- Ingress uses late-binding, but mesh is currently early-binding
+- Ingress uses late-binding. Mesh sequential RPCs use late-binding when `mesh_late_binding` is true (default); pfanout/dfanout stay early-binding
 - Ingress issues one DN per request in its queue **concurrently**
 
 ## Details
@@ -47,8 +47,8 @@ A binding is created per DN and destroyed once its credit is resolved. Everythin
 
 `route_request(type, ds_stream_id, ds_fd, credit_id)` looks up the binding by `credit_id`:
 
-- **Early-binding (mesh):** `credit_id == rpc->get_local_id()` — the credit is spent on its own RPC.
-- **Late-binding (ingress):** `credit_id` is the arriving credit's id, but the RPC served is the ingress queue head. Switching mesh to late-binding later is just passing a different `credit_id`.
+- **Early-binding:** `credit_id == rpc->get_local_id()` — the credit is spent on its own RPC (`PPMQueue::pop(service, id)`; also mesh fan-out).
+- **Late-binding:** `credit_id` selects the LB binding; the RPC served is queue head — ingress `dequeue`, or mesh sequential `PPMQueue::pop(service)` when `mesh_late_binding` is set.
 
 It does `peek` → status check → `release` (EGRESS/committed path only), so a DOWN/TEARDOWN early-out leaves `waitings`/`bindings` intact for a retry.
 
@@ -77,7 +77,7 @@ When multiple replicas have the same waiting count, one is chosen **uniformly at
 
 **Ingress:** `ingress_pre_credit` → `ConnectionPool::acquire(id)` (bind + waiting++) → `send_dn` → *(credit reply)* → `ingress_post_credit` → `Ingress::dequeue` (head) → `send_sub_request(head, credit_id)` → `route_request` (`peek`→`release`) → `forward_request`. Empty queue → return credit (`0x02`) + `release(credit_id)`.
 
-**Mesh:** `ppm_client(false)` → `acquire(id)` per downstream → `send_dn` → *(credit reply)* → `ppm_client(true)` → `fanout_req_management` → served downstream forwarded via `send_sub_request` → `route_request` (`peek`→`release`); returned credits `release`d on flush.
+**Mesh:** `ppm_client(false)` → `acquire(id)` per downstream → `send_dn` → *(credit reply)* → `ppm_client(true)` → `fanout_req_management` (sequential: FCFS pop if `mesh_late_binding`, else pop by `credit_id`; fan-out: pop by `credit_id`) → `send_sub_request` → `route_request` (`peek`→`release`); returned credits `release`d on flush.
 
 ## Key code
 
