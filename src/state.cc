@@ -611,49 +611,64 @@ void State::ppm_client(bool dn_resp,
     // first admit all requests to ppm queue
     size_t size =
         rpc_queue.size(ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM);
+
+    if (size > 0 && config.is_ingress) {
+      LOG(FATAL) << "EGRESS-side requests in Ingress sidecar should go through "
+                    "Ingress queue";
+    }
     for (size_t i = 0; i < size; i++) {
       auto [ds_fd, ds_stream_id] = rpc_queue.dequeue(
           ConnectionType::EGRESS, ConnectionDirection::DOWNSTREAM);
       auto rpc =
           rpc_mapper.get_ds_rpc(ConnectionType::EGRESS, ds_stream_id, ds_fd);
+      rpc_mapper.register_id_map(rpc, ConnectionType::EGRESS);
 
       // send out DNs
-      if (config.is_ingress) {
+      auto &ingress_rpc = rpc_mapper.get_ingress_rpc(rpc->get_local_id());
+      auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
+      FanOutType fanout_type;
+      if (mapping_entry.dfanout.value_or(false)) {
+        fanout_type = FanOutType::DYNAMIC;
+      } else if (mapping_entry.pfanout.value_or(false)) {
+        fanout_type = FanOutType::PARALELL;
+      } else {
+        fanout_type = FanOutType::SEQUENTIAL;
+      }
+
+      // for dynamic fan-out, send DN to all downstreams
+      if (mapping_entry.dfanout.value_or(false)) {
+        ingress_rpc->dfanout_service = &rpc->get_service();
+        for (auto &ds_service : mapping_entry.downstreams) {
+          auto addr = upstream_route_mapper.get_pool(ds_service)
+                          .acquire(rpc->get_local_id());
+          send_dn(addr, ds_service, 1, rpc->get_local_id(), rpc->get_priority(),
+                  fanout_type);
+        }
+      } else {
         auto addr = upstream_route_mapper.get_pool(rpc->get_service())
                         .acquire(rpc->get_local_id());
         send_dn(addr, rpc->get_service(), 1, rpc->get_local_id(),
-                rpc->get_priority(), FanOutType::SEQUENTIAL);
-      } else {
-        auto &ingress_rpc = rpc_mapper.get_ingress_rpc(rpc->get_local_id());
-        auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
-        FanOutType fanout_type;
-        if (mapping_entry.dfanout.value_or(false)) {
-          fanout_type = FanOutType::DYNAMIC;
-        } else if (mapping_entry.pfanout.value_or(false)) {
-          fanout_type = FanOutType::PARALELL;
-        } else {
-          fanout_type = FanOutType::SEQUENTIAL;
-        }
-
-        // for dynamic fan-out, send DN to all downstreams
-        if (mapping_entry.dfanout.value_or(false)) {
-          ingress_rpc->dfanout_service = &rpc->get_service();
-          for (auto &ds_service : mapping_entry.downstreams) {
-            auto addr = upstream_route_mapper.get_pool(ds_service)
-                            .acquire(rpc->get_local_id());
-            send_dn(addr, ds_service, 1, rpc->get_local_id(),
-                    rpc->get_priority(), fanout_type);
-          }
-        } else {
-          auto addr = upstream_route_mapper.get_pool(rpc->get_service())
-                          .acquire(rpc->get_local_id());
-          send_dn(addr, rpc->get_service(), 1, rpc->get_local_id(),
-                  rpc->get_priority(), fanout_type);
-        }
+                rpc->get_priority(), fanout_type);
       }
 
       // we need to have the replica index before pushing
-      ppm_queue.push(rpc);
+      int64_t queue_priority;
+      if (config.mesh_late_binding &&
+          config.late_binding_type == LateBindingType::EDF) {
+        // Using EDF queue scheduling
+        if (rpc->deadline == 0) {
+          rpc->dump_req_headers();
+          LOG(FATAL)
+              << "Request has no deadline (probably service does not provide "
+                 "priorities or perhanps you should set is_plain_frontend "
+                 "to true)";
+        }
+        queue_priority = rpc->deadline;
+      } else {
+        // Using FCFS queue scheduling
+        queue_priority = rpc->req_rcv_time.time_since_epoch().count();
+      }
+      ppm_queue.push(rpc->get_service(), rpc->get_local_id(), queue_priority);
     }
   }
 }
@@ -671,7 +686,8 @@ void State::fanout_req_management(RPCID credit_id, const std::string &service,
     auto &ingress_rpc = rpc_mapper.get_ingress_rpc(credit_id);
     auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
     ingress_rpc->pfanout_req++;
-    auto rpc = ppm_queue.pop(service, credit_id);
+    auto rpc_id = ppm_queue.pop(service, credit_id);
+    auto rpc = rpc_mapper.get_egress_rpc(rpc_id);
     send_sub_request(std::move(rpc), credit_id);
 
     // if we are not the last branch, do nothing
@@ -699,7 +715,8 @@ void State::fanout_req_management(RPCID credit_id, const std::string &service,
     if (ingress_rpc->pfanout_req != mapping_entry.downstreams.size()) {
       return;
     } else {
-      auto rpc = ppm_queue.pop(*ingress_rpc->dfanout_service, credit_id);
+      auto rpc_id = ppm_queue.pop(*ingress_rpc->dfanout_service, credit_id);
+      auto rpc = rpc_mapper.get_egress_rpc(rpc_id);
       send_sub_request(std::move(rpc), credit_id);
 
       // send out queued credit returns
@@ -722,8 +739,9 @@ void State::fanout_req_management(RPCID credit_id, const std::string &service,
     check_credit_transmission();
   } else {
     // sequential fanout
-    auto rpc = config.mesh_late_binding ? ppm_queue.pop(service)
-                                        : ppm_queue.pop(service, credit_id);
+    auto rpc_id = config.mesh_late_binding ? ppm_queue.pop(service)
+                                           : ppm_queue.pop(service, credit_id);
+    auto rpc = rpc_mapper.get_egress_rpc(rpc_id);
     auto ingress_rpc = rpc_mapper.get_ingress_rpc(rpc->get_local_id());
 
     send_sub_request(std::move(rpc), credit_id);

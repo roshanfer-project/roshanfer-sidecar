@@ -2,6 +2,7 @@
 
 #include "connection_enums.h"
 #include "rpc_message.h"
+#include "utils.h"
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -14,12 +15,14 @@ public:
   RPCMapper();
   void allocate_rpc(ConnectionType, int32_t, int, HTTP);
   void route(ConnectionType, int32_t, int, int32_t, int);
+  void register_id_map(std::shared_ptr<RPCMessage>, ConnectionType);
   std::shared_ptr<RPCMessage> get_us_rpc(ConnectionType, int32_t, int);
   std::shared_ptr<RPCMessage> get_ds_rpc(ConnectionType, int32_t, int);
   void remove_rpc(ConnectionType, std::shared_ptr<RPCMessage>);
   bool check_fd_exists(ConnectionType, int, bool);
   size_t get_fd_concurrency(int, ConnectionType, bool);
   std::shared_ptr<RPCMessage> &get_ingress_rpc(RPCID);
+  std::shared_ptr<RPCMessage> get_egress_rpc(RPCID);
 
 private:
   std::unordered_map<

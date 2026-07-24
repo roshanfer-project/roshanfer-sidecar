@@ -26,6 +26,8 @@ struct MappingInfo {
   std::optional<bool> dfanout;
 };
 
+enum class LateBindingType { FCFS, EDF };
+
 struct Config {
   size_t ring_size;
   size_t buffer_count;
@@ -52,6 +54,7 @@ struct Config {
   int extra_limit;
   bool lb_mode;
   bool mesh_late_binding;
+  LateBindingType late_binding_type;
 };
 
 Config load_config(const std::string &filename);

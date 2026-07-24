@@ -4,6 +4,7 @@
 #include "rpc_message.h"
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <memory>
 
 RPCMapper::RPCMapper()
@@ -73,13 +74,25 @@ void RPCMapper::route(ConnectionType type, int32_t ds_stream_id, int ds_fd,
   auto rpc = ds_map.at(type).at(ds_fd).at(ds_stream_id);
   VLOG(1) << "RPCMapper: insering id: " << rpc->get_local_id()
           << " into id_map";
-  auto [_, check] = id_map.at(type).emplace(rpc->get_local_id(), rpc);
-  if (!check) {
-    LOG(FATAL) << "id: " << rpc->get_local_id() << " already existed in id_map";
-  }
+  id_map.at(type).try_emplace(rpc->get_local_id(), rpc);
   us_map.at(type).at(us_fd).emplace(us_stream_id, std::move(rpc));
   VLOG(1) << "Mapping DS stream id: " << ds_stream_id << " and fd: " << ds_fd
           << " to US stream id: " << us_stream_id << " and fd: " << us_fd;
+}
+
+void RPCMapper::register_id_map(std::shared_ptr<RPCMessage> rpc,
+                                ConnectionType type) {
+  try {
+    auto &map = id_map.at(type);
+    if (auto it = map.find(rpc->get_local_id()); it == map.end()) {
+      auto [_, ok] = map.emplace(rpc->get_local_id(), rpc);
+      if (!ok) {
+        LOG(FATAL) << "Unable to insetit into id_map";
+      }
+    }
+  } catch (std::exception &e) {
+    LOG(FATAL) << "error at register_id_map: " << e.what();
+  }
 }
 
 std::shared_ptr<RPCMessage> &RPCMapper::get_ingress_rpc(RPCID id) {
@@ -92,6 +105,14 @@ std::shared_ptr<RPCMessage> &RPCMapper::get_ingress_rpc(RPCID id) {
     return id_map.at(ConnectionType::INGRESS).at(ingress_side_id);
   } catch (const std::out_of_range &e) {
     LOG(FATAL) << "No INGRESS RPC found for id: " << ingress_side_id;
+  }
+}
+
+std::shared_ptr<RPCMessage> RPCMapper::get_egress_rpc(RPCID id) {
+  try {
+    return id_map.at(ConnectionType::EGRESS).at(id);
+  } catch (std::exception &e) {
+    LOG(FATAL) << "No EGRESS RPC found for id: " << id;
   }
 }
 

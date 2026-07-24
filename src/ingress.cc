@@ -7,6 +7,7 @@
 #include "rpc_message.h"
 #include "rpc_queue.h"
 #include "stats.h"
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -66,6 +67,7 @@ void Ingress::enqueue(std::shared_ptr<RPCMessage> rpc) {
 
   add_rpc_id_header(rpc);
   add_priority_header(rpc);
+  add_deadline_header(rpc);
   queue.push_back(std::move(rpc));
   ingress_mean.update((double)queue.size());
   VLOG(2) << "Enqueued RPC message for service: " << ingress_service;
@@ -148,6 +150,20 @@ void Ingress::add_priority_header(std::shared_ptr<RPCMessage> &rpc) {
       PRIORITY_HEADER_NAME, PRIORITY_HEADER_NAME_LEN,
       reinterpret_cast<const uint8_t *>(priority_header_value.data()),
       priority_header_value.size(), true, false);
+}
+
+void Ingress::add_deadline_header(std::shared_ptr<RPCMessage> &rpc) {
+  deadline_header_value.fill(0);
+  auto deadline = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now().time_since_epoch())
+                      .count() +
+                  config.routing.at(ingress_service).slo.value_or(0);
+  std::snprintf(deadline_header_value.data(), deadline_header_value.size(),
+                "%lld", (long long)deadline);
+  rpc->add_header_field(
+      DEADLINE_HEADER_NAME, DEADLINE_HEADER_NAME_LEN,
+      reinterpret_cast<const uint8_t *>(deadline_header_value.data()),
+      deadline_header_value.size(), true, false);
 }
 
 void Ingress::drop_rpc(std::shared_ptr<RPCMessage> rpc) {

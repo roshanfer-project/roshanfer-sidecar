@@ -34,6 +34,34 @@ else
     echo "glog already built. Skipping."
 fi
 
+# --- googletest ---
+if [ ! -f "${SCRIPT_DIR}/googletest_install/lib/libgtest.a" ]; then
+    if [ ! -d "${SCRIPT_DIR}/googletest" ]; then
+        echo "Downloading googletest..."
+        wget -q https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz -O googletest.tar.gz
+        tar -xf googletest.tar.gz
+        mv googletest-1.14.0 "${SCRIPT_DIR}/googletest"
+        rm googletest.tar.gz
+    fi
+
+    echo "Building googletest..."
+    cd "${SCRIPT_DIR}/googletest"
+    cmake -S . -B build \
+        -DCMAKE_C_COMPILER=clang \
+        -DCMAKE_CXX_COMPILER=clang++ \
+        -DCMAKE_CXX_FLAGS="-stdlib=libc++ -fPIC" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DBUILD_GMOCK=OFF \
+        -DINSTALL_GTEST=ON \
+        -DCMAKE_INSTALL_LIBDIR=lib \
+        -DCMAKE_INSTALL_PREFIX="${SCRIPT_DIR}/googletest_install"
+    cmake --build build -j$(nproc)
+    cmake --install build
+else
+    echo "googletest already built. Skipping."
+fi
+
 # --- NanoLog ---
 if [ ! -f "${SCRIPT_DIR}/NanoLog/runtime/libNanoLog.a" ]; then
     echo "Building NanoLog..."

@@ -37,7 +37,7 @@ add_link_options(-L"${LIBCXX_ROOT}/lib" -Wl,-rpath,"${LIBCXX_ROOT}/lib")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror=format -Wshadow -Wnull-dereference -Wuninitialized -Wconversion -Wreorder -Wsign-compare -Wnon-virtual-dtor -Woverloaded-virtual -Wall -Wextra")
 # -Wrange-loop-analysis
 
-# Build dependencies (glog, NanoLog, yaml-cpp)
+# Build dependencies (glog, googletest, NanoLog, yaml-cpp)
 execute_process(COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/setup_deps.sh WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} RESULT_VARIABLE DEPS_RESULT)
 if(NOT DEPS_RESULT EQUAL 0)
   message(FATAL_ERROR "Failed to build dependencies")
@@ -46,6 +46,10 @@ endif()
 # glog
 set(glog_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/glog_install/lib/cmake/glog)
 find_package(glog REQUIRED)
+
+# googletest
+set(GTest_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/googletest_install/lib/cmake/GTest)
+find_package(GTest REQUIRED)
 
 # find liburing
 find_package(PkgConfig REQUIRED)
@@ -91,3 +95,10 @@ target_link_libraries(sidecar pthread)
 target_link_libraries(sidecar rt)
 # link HdrHistogram
 target_link_libraries(sidecar hdr_histogram_static)
+
+# unit tests
+enable_testing()
+include(GoogleTest)
+add_executable(flexible_priority_queue_test tests/flexible_priority_queue_test.cc)
+target_link_libraries(flexible_priority_queue_test GTest::gtest_main glog::glog)
+gtest_discover_tests(flexible_priority_queue_test)

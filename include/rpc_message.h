@@ -119,6 +119,9 @@ public:
   std::queue<std::unique_ptr<Buffer>> credit_return_queue;
   std::string *dfanout_service;
 
+  // load balancing related
+  int64_t deadline = 0;
+
   const uint8_t *RPC_LOCAL_ID_HEADER_NAME =
       reinterpret_cast<const uint8_t *>("rpc-local-id");
   const size_t RPC_LOCAL_ID_HEADER_NAME_LEN = 12;

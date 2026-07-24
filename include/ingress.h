@@ -29,6 +29,7 @@ private:
   void drop_rpc(std::shared_ptr<RPCMessage>);
   void add_rpc_id_header(std::shared_ptr<RPCMessage> &);
   void add_priority_header(std::shared_ptr<RPCMessage> &);
+  void add_deadline_header(std::shared_ptr<RPCMessage> &);
 
   // AIMD members
   size_t ingress_size_cap = 10;
@@ -53,9 +54,13 @@ private:
       reinterpret_cast<const uint8_t *>("rpc-id");
   const uint8_t *PRIORITY_HEADER_NAME =
       reinterpret_cast<const uint8_t *>("priority");
+  const uint8_t *DEADLINE_HEADER_NAME =
+      reinterpret_cast<const uint8_t *>("deadline");
   const size_t RPC_ID_HEADER_NAME_LEN = 7;
   const size_t PRIORITY_HEADER_NAME_LEN = 9;
+  const size_t DEADLINE_HEADER_NAME_LEN = 9;
   std::array<char, 32> rpc_id_header_value;
   std::array<char, 32> priority_header_value;
+  std::array<char, 32> deadline_header_value;
   std::string &ingress_service;
 };

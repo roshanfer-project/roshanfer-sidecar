@@ -16,7 +16,7 @@ Requests are received on `ConnectionDirection::DOWNSTREAM` on the EGRESS listene
 
 4. **`Ingress::enqueue`** (`ingress.cc`):
    - **Admission:** if **`queue.size() >= ingress_size_cap`**, **`drop_rpc`** (503 on **`rpc_queue` EGRESS UPSTREAM**) and return—strict cap (**admit only when `size < ingress_size_cap`**).
-   - Otherwise adds **`rpc-id`** and **`priority`** headers (`add_rpc_id_header` / `add_priority_header`), bumps **`ingress_mean.up()`** (time-weighted occupancy tracker), **`push_back`** onto the deque.
+   - Otherwise adds **`rpc-id`**, **`priority`**, and **`deadline`** headers (`add_rpc_id_header` / `add_priority_header` / `add_deadline_header`), bumps **`ingress_mean.up()`** (time-weighted occupancy tracker), **`push_back`** onto the deque.
    - Ingress requires **`routing.slo`** and **`routing.priority`** for the service (validated in ctor).
 
 5. Event loop calls **`State::forward`** (drops/responses only on usual queues).

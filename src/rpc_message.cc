@@ -133,6 +133,10 @@ void gRPCMessage::add_header_field(const uint8_t *name, size_t name_len,
           std::string(reinterpret_cast<const char *>(value), value_len));
       VLOG(1) << "Priority: " << priority;
     }
+    if (std::memcmp(name, "deadline", 8) == 0) {
+      deadline = (int64_t)std::stoll(
+          std::string(reinterpret_cast<const char *>(value), value_len));
+    }
   }
 
   if (tailer) {
@@ -235,6 +239,7 @@ void gRPCMessage::clear() {
     LOG(FATAL) << "credit_return queue is not empty";
   }
   dfanout_service = nullptr;
+  deadline = 0;
 }
 
 gRPCMessage::~gRPCMessage() {
@@ -356,6 +361,10 @@ void HTTPMessage::add_header_field(const uint8_t *name, size_t name_len,
           std::string(reinterpret_cast<const char *>(value), value_len));
       VLOG(1) << "Priority: " << priority;
     }
+    if (std::memcmp(name, "deadline", 8) == 0) {
+      deadline = (int64_t)std::stoll(
+          std::string(reinterpret_cast<const char *>(value), value_len));
+    }
   }
 
   if (request) {
@@ -437,6 +446,7 @@ void HTTPMessage::clear() {
     LOG(FATAL) << "credit_return queue is not empty";
   }
   dfanout_service = nullptr;
+  deadline = 0;
 }
 
 HTTPMessage::~HTTPMessage() {

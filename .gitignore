@@ -2,6 +2,8 @@
 /.cache
 glog
 glog_install
+googletest
+googletest_install
 *.log
 *.pcap
 *.out

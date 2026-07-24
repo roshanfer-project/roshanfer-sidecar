@@ -2,6 +2,7 @@
 #include "glog/logging.h"
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <yaml-cpp/yaml.h>
 
 Config config;
@@ -60,6 +61,22 @@ Config load_config(const std::string &filename) {
     local_config.mesh_late_binding = true;
   }
   LOG(INFO) << "config.mesh_late_binding: " << local_config.mesh_late_binding;
+
+  std::string type_string;
+  if (node["late_binding_type"]) {
+    type_string = node["late_binding_type"].as<std::string>();
+    if (type_string == "fcfs") {
+      local_config.late_binding_type = LateBindingType::FCFS;
+    } else if (type_string == "edf") {
+      local_config.late_binding_type = LateBindingType::EDF;
+    } else {
+      LOG(FATAL) << "Invalid late_binding_type: " << type_string;
+    }
+  } else {
+    local_config.late_binding_type = LateBindingType::FCFS;
+    type_string = "fcfs";
+  }
+  LOG(INFO) << "config.late_binding_type: " << type_string;
 
   if (node["is_plain_frontend"]) {
     local_config.is_plain_frontend = node["is_plain_frontend"].as<bool>();
