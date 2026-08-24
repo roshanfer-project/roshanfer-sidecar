@@ -18,8 +18,8 @@ if [ ! -f "${SCRIPT_DIR}/glog_install/lib/libglog.a" ]; then
     cd "${SCRIPT_DIR}/glog"
     # We need -fPIC because it will be linked into a position-independent executable (usually) or just good practice
     cmake -S . -B build \
-        -DCMAKE_C_COMPILER=clang \
-        -DCMAKE_CXX_COMPILER=clang++ \
+        -DCMAKE_C_COMPILER=clang-18 \
+        -DCMAKE_CXX_COMPILER=clang++-18 \
         -DCMAKE_CXX_FLAGS="-stdlib=libc++ -fPIC" \
         -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_SHARED_LIBS=OFF \
@@ -41,8 +41,8 @@ if [ ! -f "${SCRIPT_DIR}/NanoLog/runtime/libNanoLog.a" ]; then
     make clean
     # NanoLog Makefile uses CXX_ARGS. We need to inject -stdlib=libc++ there.
     # Also need -fPIC.
-    CXX=clang++ make libNanoLog.a CXX_ARGS="-std=c++17 -stdlib=libc++ -O3 -fPIC" -j$(nproc)
-    CXX=clang++ make decompressor CXX_ARGS="-std=c++17 -stdlib=libc++ -O3 -fPIC" -j$(nproc)
+    CXX=clang++-18 make libNanoLog.a CXX_ARGS="-std=c++17 -stdlib=libc++ -O3 -fPIC" -j$(nproc)
+    CXX=clang++-18 make decompressor CXX_ARGS="-std=c++17 -stdlib=libc++ -O3 -fPIC" -j$(nproc)
 else
     echo "NanoLog already built. Skipping."
 fi
