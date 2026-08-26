@@ -6,7 +6,7 @@ This document describes how Credit Requests and credit messages are sent and rec
 
 | Socket | File / symbol | Role |
 |--------|---------------|------|
-| RLP | `State::sockfd` | Created in `State` ctor (`state.cc`) as `AF_INET` / `SOCK_DGRAM`. **Non-ingress** mesh sidecars **`bind`** to `ingress_listener_port` with **`SO_REUSEPORT`**. **Ingress** leaves the socket **unbound** so replies match the ephemeral source of each Credit Request. **Sends** Credit Requests (`send_credit_request`), credit replies from `check_credit_transmission`, and **credit returns** (`0x02`): dfanout path and **ingress** when **all** ingress deque RPCs miss deadline after a grant. **Receives** inbound RLP datagrams on multishot `recvmsg` where configured.
+| RLP | `State::sockfd` | Created in `State` ctor (`state.cc`) as `AF_INET` / `SOCK_DGRAM`. **Non-ingress** mesh sidecars **`bind`** to `ingress_listener_port` with **`SO_REUSEPORT`**. **Ingress** leaves the socket **unbound** so replies match the ephemeral source of each Credit Request. **Sends** Credit Requests (`send_credit_request`), Credit Grants from `check_credit_transmission`, and **credit returns** (`0x02`): dfanout path and **ingress** when **all** ingress deque RPCs miss deadline after a grant. **Receives** inbound RLP datagrams on multishot `recvmsg` where configured.
 
 TCP ingress and UDP RLP may share the same port number (`ingress_listener_port`) on mesh nodes; the kernel distinguishes them by protocol.
 
@@ -18,7 +18,7 @@ After `handle_multishot_recv`, the event loop calls `State::dispatch_rlp_recv` (
 |-----------|---------|
 | `data[1] == 0x02` | `queue_multiplexer` — credit return (`decrement_in_flight`) |
 | `data[1] == 0x01` && `data[2] == 0x00` | `queue_multiplexer` — Credit Request |
-| `data[1] == 0x01` && `data[2] == 0x01` | **Ingress:** `ingress_post_credit` — single credit, `Ingress::dequeue` (optional → else `prepare_credit_return` `0x02`), `forward` EGRESS UPSTREAM for 503s, `ingress_pre_credit`. **Others:** `ppm_client(true, buffer)` — credit grant |
+| `data[1] == 0x01` && `data[2] == 0x01` | **Ingress:** `ingress_post_credit` — single credit, `Ingress::dequeue` (optional → else `prepare_credit_return` `0x02`), `forward` EGRESS UPSTREAM for 503s, `ingress_pre_credit`. **Others:** `ppm_client(true, buffer)` — Credit Grant |
 
 Unknown combinations `LOG(FATAL)`.
 
@@ -32,7 +32,7 @@ Unknown combinations `LOG(FATAL)`.
 **Send**
 
 - Outgoing Credit Request: `RingWrapper::prepare_sendmsg_with_serveraddr` — `Buffer::prepare_sendmsg(servaddr)`, then `io_uring_prep_sendmsg` (`ring_wrapper.cc`, `buffer.cc`).
-- Credit reply to a peer that sent a Credit Request: `Buffer::prepare_sendmsg(req->get_addr())` in `write_failed_dn_response` before the response is queued; later `check_credit_transmission` calls `RingWrapper::prepare_sendmsg(sockfd, ...)`.
+- Credit Grant to a peer that sent a Credit Request: `Buffer::prepare_sendmsg(req->get_addr())` in `write_failed_dn_response` (builds the grant via `write_credit_grant`) before the Credit Grant is queued; later `check_credit_transmission` calls `RingWrapper::prepare_sendmsg(sockfd, ...)`.
 - Credit return: same `sockfd` + `prepare_sendmsg` with peer address from the template datagram (dfanout / **ingress** grant buffer).
 
 ## Buffer management
@@ -43,7 +43,7 @@ Unknown combinations `LOG(FATAL)`.
 
 **Pool behaviour**: For both TCP and UDP pools, roughly the first 80% of buffers are marked `is_provided` and returned to the io_uring buffer ring on `free_*`; the rest are pushed onto a free queue and only registered when allocated (`buffer_manager.cc`).
 
-**UDP-specific `Buffer` fields**: `Buffer::prepare_sendmsg` sets `iov` and `msg` for `sendmsg`. `enter_queue_ts` is set when a credit response buffer is queued in `CreditQueue` and later used in `check_credit_transmission` to overwrite bytes 22–25 (queue dwell), as in [rtt.md](rtt.md).
+**UDP-specific `Buffer` fields**: `Buffer::prepare_sendmsg` sets `iov` and `msg` for `sendmsg`. `enter_queue_ts` is set when a Credit Grant buffer is queued in `CreditQueue` and later used in `check_credit_transmission` to overwrite bytes 22–25 (queue dwell), as in [rtt.md](rtt.md).
 
 ## `UserData` (per-SQE metadata)
 
@@ -60,7 +60,7 @@ Instances come from `BufferManager::get_user_data()` and are returned with `free
 | Outbound Credit Request | After TCP READ handling | **Ingress:** `ingress_pre_credit` → `send_credit_request` → `prepare_sendmsg_with_serveraddr`. **Other clients:** `ppm_client(false, nullptr)` drains `rpc_queue` / `PPMQueue` then `send_credit_request` |
 | Inbound RLP | `RCVMSG` on `sockfd` | `handle_multishot_recv` → `dispatch_rlp_recv` → `queue_multiplexer` and/or grant handler below |
 | Credit Request accepted (server) | `dispatch_rlp_recv` → QM | `shared_state.credit_queue.push` → `check_credit_transmission` → may `ring.prepare_sendmsg(sockfd, ...)` |
-| Credit grant | `dispatch_rlp_recv` | **Ingress:** `ingress_post_credit`. **Others:** `ppm_client(true, buf)` → `fanout_req_management` / `PPMQueue::pop` / `send_sub_request` |
+| Credit Grant | `dispatch_rlp_recv` | **Ingress:** `ingress_post_credit`. **Others:** `ppm_client(true, buf)` → `fanout_req_management` / `PPMQueue::pop` / `send_sub_request` |
 | Credit return | `dispatch_rlp_recv` → QM `0x02` branch | `decrement_in_flight` → `check_credit_transmission` |
 | Slot freed (ingress path) | Response forwarded on ingress side | `credit_queue.decrement_in_flight` → `check_credit_transmission` (`state.cc`) |
 
@@ -82,15 +82,15 @@ flowchart LR
   sockIO -->|"UDP Credit Request"| sockIO2
   sockIO2 --> dispatch
   dispatch --> qm --> cq --> checkTx
-  checkTx -->|UDP credit grant| sockIO
-  dispatch -->|credit grant| ppmTrue[ppm_client true]
+  checkTx -->|UDP Credit Grant| sockIO
+  dispatch -->|Credit Grant| ppmTrue[ppm_client true]
   ppmTrue --> sockIO
 ```
 
 ## Queue multiplexer and credit queue
 
-- `queue_multiplexer` handles Credit **Requests** (`data[1] == 0x01`, `data[2] == 0x00`) and **credit returns** (`data[1] == 0x02`). For Credit Requests it reads service name, RPC id, priority, and piggyback RTT (bytes 22–25), calls `update_limits`, allocates a UDP buffer, and builds the wire response with `write_failed_dn_response`. That helper copies the request, sets the response bit (`data[2]`), and sets **granted credits** in `data[4]` when a full credit is represented—so `valid_credit` sees `data[3] - data[4] == 0` when the client receives that reply (`state.cc`).
-- The response buffer gets `enter_queue_ts` and is pushed into the shared `CreditQueue` (priority-aware). `check_credit_transmission` calls `CreditQueue::pop`, which enforces global and per-endpoint limits and **increments `in_flight`** when it hands out a buffer to send (`credit_queue.cc`). Before `sendmsg`, bytes 22–25 are replaced with credit-queue dwell time (`state.cc`).
+- `queue_multiplexer` handles Credit **Requests** (`data[1] == 0x01`, `data[2] == 0x00`) and **credit returns** (`data[1] == 0x02`). For Credit Requests it reads service name, RPC id, priority, and piggyback RTT (bytes 22–25), calls `update_limits`, allocates a UDP buffer, and builds the Credit Grant with `write_failed_dn_response` (via `write_credit_grant`). That helper copies the request, sets the Credit Grant bit (`data[2]`), and sets **granted credits** in `data[4]` when a full credit is represented—so `valid_credit` sees `data[3] - data[4] == 0` when the client receives that Credit Grant (`state.cc`).
+- The Credit Grant buffer gets `enter_queue_ts` and is pushed into the shared `CreditQueue` (priority-aware). `check_credit_transmission` calls `CreditQueue::pop`, which enforces global and per-endpoint limits and **increments `in_flight`** when it hands out a buffer to send (`credit_queue.cc`). Before `sendmsg`, bytes 22–25 are replaced with credit-queue dwell time (`state.cc`).
 
 ## Related symbols (quick map)
 

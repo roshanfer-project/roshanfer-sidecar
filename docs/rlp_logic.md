@@ -3,7 +3,7 @@ Request Limit Protocol (RLP) is a protocol that ensures services only receive re
 # Message Types
 
 1. Credit Request: Used to inform a server that the client has a number of requests to send. An important field is "requested credits". Note that this is only sent for new arriving requests to the client (for now it's always 1). There are no retries in the protocol. No timeouts are required (in fact not implemented in the current version) if we assume servers don't crash, which is out of our scope.
-2. Credit response: It uses a the same header and structure as Credit Request. It is distinguished from Credit Request by setting a field. An important field is "granted credits". This type is the explciit response to a Credit Request. In other words, there is a 1-to-1 mapping between Credit Request and credit response. **NOTE: In the new version of the protocol, we do not send back credit responses with no granted credits.** This message only goes back when there is a credit.
+2. Credit Grant: It uses a the same header and structure as Credit Request. It is distinguished from Credit Request by setting a field. An important field is "granted credits". This type is the explciit response to a Credit Request. In other words, there is a 1-to-1 mapping between Credit Request and Credit Grant. **NOTE: In the new version of the protocol, we do not send back Credit Grants with no granted credits.** This message only goes back when there is a credit.
 3. Credit return (`data[1] == 0x02`): Sent by a **client** to release a granted slot without forwarding an HTTP request (e.g. dfanout unused branches, or **ingress** when **`ingress_post_credit`** has no RPC to forward—**`0x02`** path—or legacy/defensive empty-dequeue handling). Handled by **`queue_multiplexer`** → **`decrement_in_flight(service)`**.
 
 # Parameters
@@ -50,7 +50,7 @@ RLP is a stateful protocol, so both client and server rely on some state variabl
 
 1. After TCP READ handling, **`ingress_pre_credit`** may **`send_credit_request`** once per “credit cycle” when backlog exists and no Credit Request is in flight.
 2. **`Ingress::enqueue`**: **Admission** is gated by **`ingress_size_cap`** ( **`drop_rpc` / 503** when the deque would exceed the cap). Adds **`rpc-id`** and **`priority`** headers. Tracks occupancy via **`ingress_mean`** (**`up`** on admit, **`down`** on **`dequeue`**) for AIMD (see **`rpc_flow.md`**, subsection **AIMD cap**).
-3. On UDP credit grant, **`ingress_post_credit`** (exactly **one** credit): **`Ingress::dequeue`** pops the head RPC ( **`ingress_mean.down()`** ) → **`send_sub_request`** when present; otherwise **`prepare_credit_return`** / **`0x02`**. Then **`forward` EGRESS UPSTREAM** flushes 503s; then **`ingress_pre_credit`** (no **`PPMQueue`**).
+3. On UDP Credit Grant, **`ingress_post_credit`** (exactly **one** credit): **`Ingress::dequeue`** pops the head RPC ( **`ingress_mean.down()`** ) → **`send_sub_request`** when present; otherwise **`prepare_credit_return`** / **`0x02`**. Then **`forward` EGRESS UPSTREAM** flushes 503s; then **`ingress_pre_credit`** (no **`PPMQueue`**).
 
 ### Every request (non-ingress clients)
 
@@ -58,7 +58,7 @@ RLP is a stateful protocol, so both client and server rely on some state variabl
 2. New RPCs are taken from **`rpc_queue`** EGRESS downstream and pushed to **`PPMQueue`**.
 3. A **Credit Request is sent per RPC** admitted that way (no batching).
 
-### On every credit reply (non-ingress clients)
+### On every Credit Grant (non-ingress clients)
 
 1. `State::ppm_client(true, …)` runs.
 2. Pop **`PPMQueue`** by id / fan-out rules and **`send_sub_request`**.
@@ -83,7 +83,7 @@ Clients receive responses on their **EGRESS** side and bump **`in_flight`** / ac
 ### When a credit becomes available
 
 1. Increment in_flight and in_flight_per_endpoint by 1.
-2. We pop from the credit queue and send a credit response.
+2. We pop from the credit queue and send a Credit Grant.
 
 # Note about sidecar roles
 

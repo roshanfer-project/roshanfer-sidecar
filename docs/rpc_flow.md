@@ -28,9 +28,9 @@ Requests are received on `ConnectionDirection::DOWNSTREAM` on the EGRESS listene
 
 7. **`State::ppm_client(false, nullptr)`** runs afterward; for ingress it only drains **`rpc_queue` EGRESS downstream** if anything was queued there (ingress mesh requests **do not** go through that queue). Frontend/backend still use this path.
 
-### Credit grant → forward
+### Credit Grant → forward
 
-8. On UDP **credit grant** (`dispatch_rlp_recv`, response to our Credit Request), ingress calls **`State::ingress_post_credit`** (not `ppm_client(true, …)`).
+8. On UDP **Credit Grant** (`dispatch_rlp_recv`, the Credit Grant for our Credit Request), ingress calls **`State::ingress_post_credit`** (not `ppm_client(true, …)`).
 
 9. **`ingress_post_credit`**: **`credit_post_process`**, then asserts **`num_credits == 1`** (batched grants are fatal on ingress).
 
@@ -80,7 +80,7 @@ Direction `DOWNSTREAM`.
 
 ### `ConnectionType::EGRESS` requests
 
-3. Same RLP client pattern as other mesh nodes: **`ppm_client(false)`** drains **`rpc_queue` → `PPMQueue` → `send_credit_request`**; **`ppm_client(true)`** on grant pops **`PPMQueue`** and forwards. **Unlike ingress**, the frontend keeps admitted mesh RPCs in **`PPMQueue`** until credited.
+3. Same RLP client pattern as other mesh nodes: **`ppm_client(false)`** drains **`rpc_queue` → `PPMQueue` → `send_credit_request`**; **`ppm_client(true)`** on Credit Grant pops **`PPMQueue`** and forwards. **Unlike ingress**, the frontend keeps admitted mesh RPCs in **`PPMQueue`** until credited.
 
 ## Response
 

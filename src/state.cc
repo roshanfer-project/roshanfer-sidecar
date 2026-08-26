@@ -560,11 +560,11 @@ State::credit_post_process(const std::unique_ptr<Buffer> &buf) {
   return {service, true, data[4], id};
 }
 
-void State::ppm_client(bool dn_resp,
-                       const std::unique_ptr<Buffer> &dn_resp_buffer) {
-  if (dn_resp) {
-    // we have received a credit request response
-    auto [service, ok, num_credits, id] = credit_post_process(dn_resp_buffer);
+void State::ppm_client(bool is_credit_grant,
+                       const std::unique_ptr<Buffer> &credit_grant) {
+  if (is_credit_grant) {
+    // we have received a Credit Grant
+    auto [service, ok, num_credits, id] = credit_post_process(credit_grant);
 
     if (!ok) {
       return;
@@ -572,7 +572,7 @@ void State::ppm_client(bool dn_resp,
 
     for (size_t i = 0; i < num_credits; i++) {
       if (!config.is_ingress) {
-        fanout_req_management(id, service, dn_resp_buffer);
+        fanout_req_management(id, service, credit_grant);
       } else {
         LOG(FATAL) << "Ingress should not use ppm_client for sending requests "
                       "post credit";
@@ -622,7 +622,7 @@ void State::ppm_client(bool dn_resp,
   RPC transmission (for non-ingress) when downstream pattern is fanout
 */
 void State::fanout_req_management(RPCID id, const std::string &service,
-                                  const std::unique_ptr<Buffer> &dn_reply) {
+                                  const std::unique_ptr<Buffer> &credit_grant) {
   // credit management and transmission
   auto &ingress_rpc = rpc_mapper.get_ingress_rpc(id);
   auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
@@ -639,7 +639,7 @@ void State::fanout_req_management(RPCID id, const std::string &service,
     ingress_rpc->pfanout_req++;
     // fill dfanout queue
     if (*ingress_rpc->dfanout_service != service) {
-      auto credit_return = prepare_credit_return(dn_reply);
+      auto credit_return = prepare_credit_return(credit_grant);
       ingress_rpc->credit_return_queue.push(std::move(credit_return));
       VLOG(2) << "PPMClient: Add credit for service: " << service
               << " id: " << id << " to Credit Return Queue";
@@ -672,23 +672,23 @@ void State::fanout_req_management(RPCID id, const std::string &service,
 }
 
 std::unique_ptr<Buffer>
-State::prepare_credit_return(const std::unique_ptr<Buffer> &dn_reply) {
+State::prepare_credit_return(const std::unique_ptr<Buffer> &credit_grant) {
   auto credit_ret = buffer_manager.get_udp_buffer();
 
   // copy the content
   if (credit_ret->get_size() - credit_ret->get_filled() <
-      dn_reply->get_filled()) {
+      credit_grant->get_filled()) {
     LOG(FATAL) << "buffer overflow";
   }
-  std::copy_n(dn_reply->data.begin(), dn_reply->get_filled(),
+  std::copy_n(credit_grant->data.begin(), credit_grant->get_filled(),
               credit_ret->data.begin());
-  credit_ret->set_filled(dn_reply->get_filled());
+  credit_ret->set_filled(credit_grant->get_filled());
 
   // set the command code
   credit_ret->data.at(1) = 0x02; // credit return (0x02)
 
   // set the detination
-  credit_ret->prepare_sendmsg(dn_reply->get_addr());
+  credit_ret->prepare_sendmsg(credit_grant->get_addr());
 
   return credit_ret;
 }
@@ -752,7 +752,7 @@ void State::send_credit_request(struct sockaddr_in addr, const std::string &serv
   }
   buffer->data.at(0) = (char)len;
   buffer->data.at(1) = 0x01;              // credit request (0x01)
-  buffer->data.at(2) = 0x00;              // request (0x00), response (0x01)
+  buffer->data.at(2) = 0x00;              // Credit Request (0x00), Credit Grant (0x01)
   buffer->data.at(3) = (char)num_credits; // number of requested credits
   // position 4 is for the received number of credits
   // position 5 is for the ID of the request (int64_t - eight bytes)
@@ -865,26 +865,26 @@ void State::ingress_post_credit(const std::unique_ptr<Buffer> &buf) {
   ingress_pre_credit();
 }
 
-inline static void write_dn_response(int result,
-                                     const std::unique_ptr<Buffer> &req,
-                                     const std::unique_ptr<Buffer> &resp) {
-  // copy request to response
-  if (resp->data.size() - resp->get_filled() < req->get_filled()) {
+inline static void write_credit_grant(int granted_credits,
+                                      const std::unique_ptr<Buffer> &req,
+                                      const std::unique_ptr<Buffer> &grant) {
+  // copy Credit Request to Credit Grant
+  if (grant->data.size() - grant->get_filled() < req->get_filled()) {
     LOG(FATAL) << "Buffer overflow"
-               << " , resp size: " << resp->data.size()
-               << " , filled: " << resp->get_filled()
+               << " , grant size: " << grant->data.size()
+               << " , filled: " << grant->get_filled()
                << " , req size: " << req->get_filled();
   }
-  std::copy_n(req->data.begin(), req->get_filled(), resp->data.begin());
-  resp->data.at(2) = 0x01; // response
-  resp->data.at(4) = (char)result;
-  resp->set_filled(req->get_filled());
+  std::copy_n(req->data.begin(), req->get_filled(), grant->data.begin());
+  grant->data.at(2) = 0x01; // Credit Grant
+  grant->data.at(4) = (char)granted_credits;
+  grant->set_filled(req->get_filled());
 }
 
 inline static void
 write_failed_dn_response(const std::unique_ptr<Buffer> &req,
                          const std::unique_ptr<Buffer> &resp) {
-  write_dn_response(1, req, resp);
+  write_credit_grant(1, req, resp);
   resp->prepare_sendmsg(req->get_addr());
 }
 
@@ -894,7 +894,7 @@ void State::check_credit_transmission() {
     return;
   }
 
-  // calculate the queuing time in credit_queue and set it to response
+  // calculate the queuing time in credit_queue and set it on the Credit Grant
   int64_t now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                        std::chrono::steady_clock::now().time_since_epoch())
                        .count();
