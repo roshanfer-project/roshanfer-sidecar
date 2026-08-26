@@ -147,7 +147,7 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
     ring.prepare_connect(std::move(conn), buffer_manager.get_user_data());
   }
 
-  // PPM UDP: mesh binds well-known port + SO_REUSEPORT; ingress stays unbound
+  // RLP UDP: mesh binds well-known port + SO_REUSEPORT; ingress stays unbound
   // so credit replies return to the per-thread ephemeral source of each DN.
   sockfd = socket(AF_INET, SOCK_DGRAM, 0);
   if (sockfd < 0) {
@@ -157,16 +157,16 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
     int reuse = 1;
     if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse)) <
         0) {
-      LOG(FATAL) << "Failed to set SO_REUSEPORT on PPM socket: "
+      LOG(FATAL) << "Failed to set SO_REUSEPORT on RLP socket: "
                  << strerror(errno);
     }
-    struct sockaddr_in ppm_addr{};
-    ppm_addr.sin_family = AF_INET;
-    ppm_addr.sin_port = htons(config.ingress_listener_port);
-    ppm_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    if (bind(sockfd, reinterpret_cast<struct sockaddr *>(&ppm_addr),
-             sizeof(ppm_addr)) < 0) {
-      LOG(FATAL) << "Failed to bind PPM UDP socket to port "
+    struct sockaddr_in rlp_addr{};
+    rlp_addr.sin_family = AF_INET;
+    rlp_addr.sin_port = htons(config.ingress_listener_port);
+    rlp_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (bind(sockfd, reinterpret_cast<struct sockaddr *>(&rlp_addr),
+             sizeof(rlp_addr)) < 0) {
+      LOG(FATAL) << "Failed to bind RLP UDP socket to port "
                  << config.ingress_listener_port << ": " << strerror(errno);
     }
   }
@@ -478,7 +478,7 @@ void State::remove_connection(std::shared_ptr<HTTPConnection> conn) {
   // pools.at(conn.type).remove_connection(conn.get_fd());
 }
 
-static std::string_view extract_service_from_ppm_req(const char *data) {
+static std::string_view extract_service_from_rlp_req(const char *data) {
   size_t header_size = 26;
   if (data[1] != 0x01 && data[1] != 0x02) {
     LOG(FATAL) << "Invalid message type: " << (int)data[1];
@@ -495,7 +495,7 @@ State::credit_post_process(const std::unique_ptr<Buffer> &buf) {
   const char *data = buf->data.data();
 
   // check the data format and extract the service name
-  auto key = extract_service_from_ppm_req(data);
+  auto key = extract_service_from_rlp_req(data);
   const std::string &service =
       config.is_ingress ? ingress_service : ppm_queue.check(key);
   // extract the ID of the request (int64_t)
@@ -797,7 +797,7 @@ void State::send_dn(struct sockaddr_in addr, const std::string &service,
 void State::dump_entire_state() {
   LOG(INFO) << "Dumping entire state:";
   LOG(INFO) << "ingress_service: " << ingress_service;
-  LOG(INFO) << "PPM State:";
+  LOG(INFO) << "RLP State:";
   LOG(INFO) << "--- In Local "
                "(shared_state.in_local) ---";
   LOG(INFO) << "  " << shared_state.in_local.load();
@@ -1032,16 +1032,16 @@ void State::update_limits(int32_t rtt, std::string_view service) {
   }
 }
 
-void State::dispatch_ppm_recv(const std::unique_ptr<Buffer> &buf) {
+void State::dispatch_rlp_recv(const std::unique_ptr<Buffer> &buf) {
   const size_t n = buf->get_filled();
   if (n < 3) {
-    LOG(FATAL) << "PPM UDP payload too short: " << n;
+    LOG(FATAL) << "RLP UDP payload too short: " << n;
   }
   const auto &d = buf->data;
-  static constexpr size_t k_ppm_header = 26;
+  static constexpr size_t k_rlp_header = 26;
   size_t declared = (size_t)(unsigned char)d[0];
-  if (declared < k_ppm_header || declared > n) {
-    LOG(FATAL) << "Invalid PPM length byte: " << declared << " filled: " << n;
+  if (declared < k_rlp_header || declared > n) {
+    LOG(FATAL) << "Invalid RLP length byte: " << declared << " filled: " << n;
   }
   uint8_t b1 = (unsigned char)d[1];
   uint8_t b2 = (unsigned char)d[2];
@@ -1061,7 +1061,7 @@ void State::dispatch_ppm_recv(const std::unique_ptr<Buffer> &buf) {
     }
     return;
   }
-  LOG(FATAL) << "Unknown PPM UDP message: type " << (int)b1 << " flags "
+  LOG(FATAL) << "Unknown RLP UDP message: type " << (int)b1 << " flags "
              << (int)b2;
 }
 
@@ -1080,7 +1080,7 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
       LOG(FATAL) << "Batching is not allowed";
     }
 
-    std::string_view service = extract_service_from_ppm_req(req->data.data());
+    std::string_view service = extract_service_from_rlp_req(req->data.data());
     RPCID rpc_id = (int64_t)((uint64_t)(unsigned char)req->data.at(5) << 56 |
                              (uint64_t)(unsigned char)req->data.at(6) << 48 |
                              (uint64_t)(unsigned char)req->data.at(7) << 40 |
@@ -1118,7 +1118,7 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
 
   } else if (req->data.at(1) == 0x02) {
     // credit return
-    auto service = extract_service_from_ppm_req(req->data.data());
+    auto service = extract_service_from_rlp_req(req->data.data());
     VLOG(2) << "QM: Received Credit Return "
             << "| service: " << service;
     shared_state.credit_queue.decrement_in_flight(service);

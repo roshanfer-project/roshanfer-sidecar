@@ -2,7 +2,7 @@
 
 # Ingress
 
-We use `ConnectionType::EGRESS` for mesh-facing TCP because it matches PPM routing: requests arrive on the listener typed `INGRESS`, but each parsed RPC is handled as **EGRESS downstream** toward the frontend pool. Responses follow the reverse path. **`ConnectionType::INGRESS` TCP path is not used for ingress HTTP.** Only HTTP/1.
+We use `ConnectionType::EGRESS` for mesh-facing TCP because it matches Request Limit Protocol (RLP) routing: requests arrive on the listener typed `INGRESS`, but each parsed RPC is handled as **EGRESS downstream** toward the frontend pool. Responses follow the reverse path. **`ConnectionType::INGRESS` TCP path is not used for ingress HTTP.** Only HTTP/1.
 
 ## Request
 
@@ -30,7 +30,7 @@ Requests are received on `ConnectionDirection::DOWNSTREAM` on the EGRESS listene
 
 ### Credit grant → forward
 
-8. On UDP **credit grant** (`dispatch_ppm_recv`, response to our DN), ingress calls **`State::ingress_post_credit`** (not `ppm_client(true, …)`).
+8. On UDP **credit grant** (`dispatch_rlp_recv`, response to our DN), ingress calls **`State::ingress_post_credit`** (not `ppm_client(true, …)`).
 
 9. **`ingress_post_credit`**: **`credit_post_process`**, then asserts **`num_credits == 1`** (batched grants are fatal on ingress).
 
@@ -80,7 +80,7 @@ Direction `DOWNSTREAM`.
 
 ### `ConnectionType::EGRESS` requests
 
-3. Same PPM client pattern as other mesh nodes: **`ppm_client(false)`** drains **`rpc_queue` → `PPMQueue` → `send_dn`**; **`ppm_client(true)`** on grant pops **`PPMQueue`** and forwards. **Unlike ingress**, the frontend keeps admitted mesh RPCs in **`PPMQueue`** until credited.
+3. Same RLP client pattern as other mesh nodes: **`ppm_client(false)`** drains **`rpc_queue` → `PPMQueue` → `send_dn`**; **`ppm_client(true)`** on grant pops **`PPMQueue`** and forwards. **Unlike ingress**, the frontend keeps admitted mesh RPCs in **`PPMQueue`** until credited.
 
 ## Response
 

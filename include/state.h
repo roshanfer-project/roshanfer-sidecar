@@ -90,8 +90,8 @@ public:
   void forward(ConnectionType, ConnectionDirection);
   void remove_connection(std::shared_ptr<HTTPConnection>);
 
-  // PPM-related functions
-  void dispatch_ppm_recv(const std::unique_ptr<Buffer> &);
+  // RLP-related functions
+  void dispatch_rlp_recv(const std::unique_ptr<Buffer> &);
   void queue_multiplexer(const std::unique_ptr<Buffer> &);
   void ppm_client(bool, const std::unique_ptr<Buffer> &);
 
@@ -108,7 +108,7 @@ public:
   int get_sockfd() { return sockfd; }
 
 private:
-  // PPM-related functions
+  // RLP-related functions
   void send_dn(struct sockaddr_in, const std::string &, size_t, RPCID,
                Priority);
   std::unique_ptr<Buffer>

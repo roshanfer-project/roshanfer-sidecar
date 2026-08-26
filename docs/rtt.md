@@ -1,6 +1,6 @@
-# PPM / UDP RTT measurement
+# Request Limit Protocol (RLP) / UDP RTT measurement
 
-All times are **microseconds** (`steady_clock`). The PPM header is **26 bytes** plus the service name; byte `[2]` is `0x00` for a DN **request** and `0x01` for a credit **response**.
+All times are **microseconds** (`steady_clock`). The RLP header is **26 bytes** plus the service name; byte `[2]` is `0x00` for a DN **request** and `0x01` for a credit **response**.
 
 ## Client → server (DN request)
 

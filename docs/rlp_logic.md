@@ -1,4 +1,4 @@
-PPM is a protocol that ensures services only receive requests up to their configured limit.
+Request Limit Protocol (RLP) is a protocol that ensures services only receive requests up to their configured limit.
 
 # Message Types
 
@@ -28,7 +28,7 @@ Active requests are decreases when:
 
 # Protocol State
 
-PPM is a stateful protocol, so both client and server rely on some state variables.
+RLP is a stateful protocol, so both client and server rely on some state variables.
 
 ## Client-side
 
@@ -91,12 +91,11 @@ In every deployment, we definitely have one sidecar as Ingress, one as Frontend.
 
 A simple topology is shown below:
 
-External clients --HTTP/1 (without PPM protocol)--> Ingress --HTTP/1 (with PPM protocol)--> Frontend --HTTP/2 (with PPM protocol)--> Backend 1 --HTTP/2 (with PPM protocol)--> ...
+External clients --HTTP/1 (without RLP)--> Ingress --HTTP/1 (with RLP)--> Frontend --HTTP/2 (with RLP)--> Backend 1 --HTTP/2 (with RLP)--> ...
 
 **Role-Specific Logic:**
 
 - **Ingress**: 
   - **Drops**: **Head-drop when the ingress deque reaches `ingress_size_cap`** (**`Ingress::drop_rpc`** → 503). Other roles do not drop.
-  - **Credits**: Ingress uses **PPM DNs and grants** toward the frontend but buffers pending HTTP RPCs in **`Ingress::queue`**, not **`PPMQueue`**. It may send **`0x02` credit return** when a grant arrives but **`dequeue`** yields no RPC (**`ingress_post_credit`** path). Frontend **`queue_multiplexer`** treats **`0x02`** like other clients (**`decrement_in_flight`**).
-- **Mesh Services**: Strictly enforce PPM credits and do not drop requests (at all).
-
+  - **Credits**: Ingress uses **RLP DNs and grants** toward the frontend but buffers pending HTTP RPCs in **`Ingress::queue`**, not **`PPMQueue`**. It may send **`0x02` credit return** when a grant arrives but **`dequeue`** yields no RPC (**`ingress_post_credit`** path). Frontend **`queue_multiplexer`** treats **`0x02`** like other clients (**`decrement_in_flight`**).
+- **Mesh Services**: Strictly enforce RLP credits and do not drop requests (at all).

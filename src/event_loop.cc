@@ -315,13 +315,13 @@ void EventLoop::run() {
 
         RingWrapper::handle_multishot_recv(old_buffer, cqe->res);
 
-        VLOG(1) << "PPM UDP recv, dispatch by header";
+        VLOG(1) << "RLP UDP recv, dispatch by header";
         try {
-          state.dispatch_ppm_recv(old_buffer);
+          state.dispatch_rlp_recv(old_buffer);
         } catch (const std::out_of_range &e) {
           LOG(FATAL) << "Out of range error: " << e.what();
         } catch (const std::exception &e) {
-          LOG(FATAL) << "Error in PPM dispatch: " << e.what();
+          LOG(FATAL) << "Error in RLP dispatch: " << e.what();
         }
 
         buffer_manager.free_dn_buffer(std::move(old_buffer));

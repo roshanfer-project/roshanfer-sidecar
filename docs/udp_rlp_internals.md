@@ -1,18 +1,18 @@
-# UDP / PPM internals
+# UDP / Request Limit Protocol (RLP) internals
 
-This document describes how demand notifications (DNs) and credit messages are sent and received over UDP in the sidecar: sockets, io_uring, buffer pools, and the main code paths. For protocol semantics and limits, see [ppm_logic.md](ppm_logic.md). For when `ppm_client` runs relative to HTTP handling, see [rpc_flow.md](rpc_flow.md). For header byte meanings used in RTT measurement, see [rtt.md](rtt.md).
+This document describes how demand notifications (DNs) and credit messages are sent and received over UDP in the sidecar: sockets, io_uring, buffer pools, and the main code paths. For protocol semantics and limits, see [rlp_logic.md](rlp_logic.md). For when `ppm_client` runs relative to HTTP handling, see [rpc_flow.md](rpc_flow.md). For header byte meanings used in RTT measurement, see [rtt.md](rtt.md).
 
-## Single PPM UDP socket
+## Single RLP UDP socket
 
 | Socket | File / symbol | Role |
 |--------|---------------|------|
-| PPM | `State::sockfd` | Created in `State` ctor (`state.cc`) as `AF_INET` / `SOCK_DGRAM`. **Non-ingress** mesh sidecars **`bind`** to `ingress_listener_port` with **`SO_REUSEPORT`**. **Ingress** leaves the socket **unbound** so replies match the ephemeral source of each DN. **Sends** DNs (`send_dn`), credit replies from `check_credit_transmission`, and **credit returns** (`0x02`): dfanout path and **ingress** when **all** ingress deque RPCs miss deadline after a grant. **Receives** inbound PPM datagrams on multishot `recvmsg` where configured.
+| RLP | `State::sockfd` | Created in `State` ctor (`state.cc`) as `AF_INET` / `SOCK_DGRAM`. **Non-ingress** mesh sidecars **`bind`** to `ingress_listener_port` with **`SO_REUSEPORT`**. **Ingress** leaves the socket **unbound** so replies match the ephemeral source of each DN. **Sends** DNs (`send_dn`), credit replies from `check_credit_transmission`, and **credit returns** (`0x02`): dfanout path and **ingress** when **all** ingress deque RPCs miss deadline after a grant. **Receives** inbound RLP datagrams on multishot `recvmsg` where configured.
 
-TCP ingress and UDP PPM may share the same port number (`ingress_listener_port`) on mesh nodes; the kernel distinguishes them by protocol.
+TCP ingress and UDP RLP may share the same port number (`ingress_listener_port`) on mesh nodes; the kernel distinguishes them by protocol.
 
-## Receive demux: `dispatch_ppm_recv`
+## Receive demux: `dispatch_rlp_recv`
 
-After `handle_multishot_recv`, the event loop calls `State::dispatch_ppm_recv` (`state.cc`), which inspects the payload header (minimum length checks, then bytes 1–2):
+After `handle_multishot_recv`, the event loop calls `State::dispatch_rlp_recv` (`state.cc`), which inspects the payload header (minimum length checks, then bytes 1–2):
 
 | Condition | Handler |
 |-----------|---------|
@@ -37,7 +37,7 @@ Unknown combinations `LOG(FATAL)`.
 
 ## Buffer management
 
-**Two io_uring buffer groups** are registered in `RingWrapper`’s constructor: `bgid 0` for TCP reads, `bgid 1` for UDP/PPM. `add_buffer_to_ring(buffer, bgid)` adds a slab back after use (`ring_wrapper.cc`).
+**Two io_uring buffer groups** are registered in `RingWrapper`’s constructor: `bgid 0` for TCP reads, `bgid 1` for UDP/RLP. `add_buffer_to_ring(buffer, bgid)` adds a slab back after use (`ring_wrapper.cc`).
 
 **DN buffers** live in `BufferManager::dn_buffer_vector`, each `Buffer(256, index)` where logical indices for DN slots are offset by `count` from TCP buffer indices (`buffer_manager.cc`). When a CQE carries `IORING_CQE_F_BUFFER`, the buffer index is decoded and `get_dn_buffer_by_index` subtracts `count` to recover the DN slot.
 
@@ -47,7 +47,7 @@ Unknown combinations `LOG(FATAL)`.
 
 ## `UserData` (per-SQE metadata)
 
-`UserData` (`ring_helper.hpp`) carries `Operation op` and the `Buffer` for sends via `set_buffer`. The `UDPType` enum remains on `UserData` for legacy / logging; **receive dispatch no longer uses it** — routing is by PPM header in `dispatch_ppm_recv`.
+`UserData` (`ring_helper.hpp`) carries `Operation op` and the `Buffer` for sends via `set_buffer`. The `UDPType` enum remains on `UserData` for legacy / logging; **receive dispatch no longer uses it** — routing is by RLP header in `dispatch_rlp_recv`.
 
 Instances come from `BufferManager::get_user_data()` and are returned with `free_user_data` (`buffer_manager.cc`).
 
@@ -58,10 +58,10 @@ Instances come from `BufferManager::get_user_data()` and are returned with `free
 | Phase | Trigger | Key calls |
 |--------|---------|-----------|
 | Outbound DN | After TCP READ handling | **Ingress:** `ingress_pre_credit` → `send_dn` → `prepare_sendmsg_with_serveraddr`. **Other clients:** `ppm_client(false, nullptr)` drains `rpc_queue` / `PPMQueue` then `send_dn` |
-| Inbound PPM | `RCVMSG` on `sockfd` | `handle_multishot_recv` → `dispatch_ppm_recv` → `queue_multiplexer` and/or grant handler below |
-| DN accepted (server) | `dispatch_ppm_recv` → QM | `shared_state.credit_queue.push` → `check_credit_transmission` → may `ring.prepare_sendmsg(sockfd, ...)` |
-| Credit grant | `dispatch_ppm_recv` | **Ingress:** `ingress_post_credit`. **Others:** `ppm_client(true, buf)` → `fanout_req_management` / `PPMQueue::pop` / `send_sub_request` |
-| Credit return | `dispatch_ppm_recv` → QM `0x02` branch | `decrement_in_flight` → `check_credit_transmission` |
+| Inbound RLP | `RCVMSG` on `sockfd` | `handle_multishot_recv` → `dispatch_rlp_recv` → `queue_multiplexer` and/or grant handler below |
+| DN accepted (server) | `dispatch_rlp_recv` → QM | `shared_state.credit_queue.push` → `check_credit_transmission` → may `ring.prepare_sendmsg(sockfd, ...)` |
+| Credit grant | `dispatch_rlp_recv` | **Ingress:** `ingress_post_credit`. **Others:** `ppm_client(true, buf)` → `fanout_req_management` / `PPMQueue::pop` / `send_sub_request` |
+| Credit return | `dispatch_rlp_recv` → QM `0x02` branch | `decrement_in_flight` → `check_credit_transmission` |
 | Slot freed (ingress path) | Response forwarded on ingress side | `credit_queue.decrement_in_flight` → `check_credit_transmission` (`state.cc`) |
 
 ```mermaid
@@ -73,7 +73,7 @@ flowchart LR
   end
   subgraph upstream [Upstream sidecar]
     sockIO2[sockfd send recv]
-    dispatch[dispatch_ppm_recv]
+    dispatch[dispatch_rlp_recv]
     qm[queue_multiplexer]
     cq[CreditQueue]
     checkTx[check_credit_transmission]
@@ -96,11 +96,11 @@ flowchart LR
 
 - **Buffers:** `BufferManager::get_dn_buffer`, `get_dn_buffer_by_index`, `free_dn_buffer`
 - **Ring:** `RingWrapper::prepare_rcvmsg`, `handle_multishot_recv`, `prepare_sendmsg`, `prepare_sendmsg_with_serveraddr`
-- **State:** `send_dn`, `dispatch_ppm_recv`, `queue_multiplexer`, `check_credit_transmission`, `ppm_client`, `ingress_pre_credit`, `ingress_post_credit`, `prepare_credit_return`, `credit_post_process`, `extract_service_from_ppm_req`
+- **State:** `send_dn`, `dispatch_rlp_recv`, `queue_multiplexer`, `check_credit_transmission`, `ppm_client`, `ingress_pre_credit`, `ingress_post_credit`, `prepare_credit_return`, `credit_post_process`, `extract_service_from_rlp_req`
 - **Types:** `Operation`, `UserData`, `UDPType` in `ring_helper.hpp`
 
 ## Further reading
 
-- [ppm_logic.md](ppm_logic.md) — PPM limits, active requests, client/server state
+- [rlp_logic.md](rlp_logic.md) — RLP limits, active requests, client/server state
 - [rpc_flow.md](rpc_flow.md) — Ingress / frontend / backend HTTP flow and `ppm_client` timing
-- [rtt.md](rtt.md) — PPM header timing fields and RTT decomposition
+- [rtt.md](rtt.md) — RLP header timing fields and RTT decomposition

@@ -5,7 +5,7 @@
 | Header | Field on `RPCMessage` | Role |
 |--------|------------------------|------|
 | `rpc-id` | `global_id` | End-to-end correlation (debug, tracing). Set from the wire on every hop. |
-| `rpc-local-id` | `local_id` (after parsing rules below) | Per-sidecar routing, PPM, `id_map` / `ppm_queue` keys. |
+| `rpc-local-id` | `local_id` (after parsing rules below) | Per-sidecar routing, RLP, `id_map` / `ppm_queue` keys. |
 
 Both are carried as decimal strings in HTTP/gRPC metadata. `RPCID` is `int64_t`; `-1` means “unset” for `local_id` where explicitly initialized.
 
@@ -45,7 +45,7 @@ Decode (unsigned): `parent = (uint64_t)local_id >> 32`, `branch = (uint32_t)loca
 
 ## Mapping EGRESS `local_id` → INGRESS RPC (`get_ingress_rpc`)
 
-`get_ingress_rpc(id)` is used for **EGRESS** composite ids (PPM, fan-out counters, credit paths). It does **not** assume a separate side table:
+`get_ingress_rpc(id)` is used for **EGRESS** composite ids (RLP, fan-out counters, credit paths). It does **not** assume a separate side table:
 
 1. `ingress_side_id = (uint64_t)id >> 32`.
 2. If `ingress_side_id == 0` → **`LOG(FATAL)`** (invalid on the EGRESS path: parent 0 is not allowed for mesh composites).
