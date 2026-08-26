@@ -92,8 +92,8 @@ public:
 
   // RLP-related functions
   void dispatch_rlp_recv(const std::unique_ptr<Buffer> &);
-  void queue_multiplexer(const std::unique_ptr<Buffer> &);
-  void ppm_client(bool is_credit_grant, const std::unique_ptr<Buffer> &);
+  void protocol_server(const std::unique_ptr<Buffer> &);
+  void protocol_client(bool is_credit_grant, const std::unique_ptr<Buffer> &);
 
   void ingress_pre_credit();
   void ingress_post_credit(const std::unique_ptr<Buffer> &);

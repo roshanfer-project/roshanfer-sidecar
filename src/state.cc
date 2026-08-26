@@ -107,7 +107,7 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
 
   for (const auto &[service, info] : config.mapping) {
     /* local_state.local_concurrency_limit.set(service,
-                                            (uint32_t)config.ppm_limit); */
+                                            (uint32_t)config.global_limit); */
 
     // for ingress, we should have the same name for hosted services and
     // downstream services
@@ -122,8 +122,8 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
 
   /*
   Since HTTP/1.1 does not support multiplexing, we need to create at least
-  ppm_limit connections for ingress requests. In the case of HTTP/2, we can
-  easilly go up to 100 concurrent streams, but ppm_limit will limit the number
+  global_limit connections for ingress requests. In the case of HTTP/2, we can
+  easilly go up to 100 concurrent streams, but global_limit will limit the number
   concurrent streams.
   */
   int n_conn;
@@ -171,7 +171,7 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
     }
   }
 
-  LOG(INFO) << "ppm_limit: " << shared_state.credit_queue.get_ppm_limit();
+  LOG(INFO) << "global_limit: " << shared_state.credit_queue.get_global_limit();
   for (const auto &service : get_hosted_services(parsed_config)) {
     LOG(INFO) << "per_endpoint_limit for " << service << ": "
               << shared_state.credit_queue.get_per_endpoint_limit(service);
@@ -350,7 +350,7 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
   if (type == ConnectionType::EGRESS &&
       direction == ConnectionDirection::DOWNSTREAM) {
     // we don't route EGRESS DOWNSTREAM requests (handled by `ingress_admit`
-    // and `ppm_client`)
+    // and `protocol_client`)
     return;
   }
   if (rpc_queue.empty(type, direction)) {
@@ -552,7 +552,7 @@ State::credit_post_process(const std::unique_ptr<Buffer> &buf) {
                << ", service of the credit: " << key;
   }
 
-  VLOG(1) << "PPMClient: Valid credit "
+  VLOG(1) << "ProtocolClient: Valid credit "
           << "| id: " << id << "| service: " << key
           << "| new credits: " << (int)data[4]
           << "| ppm_queue size: " << ppm_queue.size(service);
@@ -560,7 +560,7 @@ State::credit_post_process(const std::unique_ptr<Buffer> &buf) {
   return {service, true, data[4], id};
 }
 
-void State::ppm_client(bool is_credit_grant,
+void State::protocol_client(bool is_credit_grant,
                        const std::unique_ptr<Buffer> &credit_grant) {
   if (is_credit_grant) {
     // we have received a Credit Grant
@@ -574,7 +574,7 @@ void State::ppm_client(bool is_credit_grant,
       if (!config.is_ingress) {
         fanout_req_management(id, service, credit_grant);
       } else {
-        LOG(FATAL) << "Ingress should not use ppm_client for sending requests "
+        LOG(FATAL) << "Ingress should not use protocol_client for sending requests "
                       "post credit";
       }
     }
@@ -641,7 +641,7 @@ void State::fanout_req_management(RPCID id, const std::string &service,
     if (*ingress_rpc->dfanout_service != service) {
       auto credit_return = prepare_credit_return(credit_grant);
       ingress_rpc->credit_return_queue.push(std::move(credit_return));
-      VLOG(2) << "PPMClient: Add credit for service: " << service
+      VLOG(2) << "ProtocolClient: Add credit for service: " << service
               << " id: " << id << " to Credit Return Queue";
     }
 
@@ -658,7 +658,7 @@ void State::fanout_req_management(RPCID id, const std::string &service,
         ring.prepare_sendmsg(sockfd, std::move(ret),
                              buffer_manager.get_user_data());
       }
-      VLOG(2) << "PPMClient: Flush Credit Return Queue for id: " << id;
+      VLOG(2) << "ProtocolClient: Flush Credit Return Queue for id: " << id;
     }
   } else {
     // sequential fanout
@@ -789,7 +789,7 @@ void State::send_credit_request(struct sockaddr_in addr, const std::string &serv
   ring.prepare_sendmsg_with_serveraddr(sockfd, std::move(buffer),
                                        buffer_manager.get_user_data(), addr);
 
-  VLOG(1) << "PPMClient: Credit Request for new request "
+  VLOG(1) << "ProtocolClient: Credit Request for new request "
           << "| service: " << service << "| id: " << id << "| credits: " << 1
           << "| queue size: " << ppm_queue.size(service);
 }
@@ -907,7 +907,7 @@ void State::check_credit_transmission() {
   ring.prepare_sendmsg(sockfd, std::move(buffer),
                        buffer_manager.get_user_data());
 
-  VLOG(1) << "QM: Sent credit " << "| thread id: " << thread_id;
+  VLOG(1) << "ProtocolServer: Sent credit " << "| thread id: " << thread_id;
 }
 
 float State::cal_local_service_time(std::string_view us_service) {
@@ -972,15 +972,15 @@ float State::get_theo_term(std::string_view service, bool sequential) {
 }
 
 void State::update_limits(int32_t rtt, std::string_view service) {
-  VLOG(2) << "QM: RTT " << rtt << " for service " << service;
+  VLOG(2) << "ProtocolServer: RTT " << rtt << " for service " << service;
   auto &rtt_stats = stats.ema_us_sidecar_rtt_us.get(service);
   rtt_stats.update(rtt);
   if (rtt_stats.get_count() % 2000 == 0) {
-    VLOG(1) << "QM: RTT " << rtt_stats.get_value() << " for service "
+    VLOG(1) << "ProtocolServer: RTT " << rtt_stats.get_value() << " for service "
             << service;
     auto local_rt = cal_local_service_time(service);
     // auto local_rt = stats.ma_us_service_time_us.get(service).get_value();
-    VLOG(1) << "QM: Local Service time " << local_rt << " for service "
+    VLOG(1) << "ProtocolServer: Local Service time " << local_rt << " for service "
             << service;
     auto it = config.mapping.find(service);
     if (it == config.mapping.end()) {
@@ -997,12 +997,12 @@ void State::update_limits(int32_t rtt, std::string_view service) {
     }
     new_limit += config.extra_limit;
     shared_state.credit_queue.update_endpoint_limit(new_limit, service);
-    VLOG(1) << "QM: New limit for service " << service << " is " << new_limit;
+    VLOG(1) << "ProtocolServer: New limit for service " << service << " is " << new_limit;
 
     // only update global limit for leaf services (intermediate services don't
     // use it)
     if (config.routing.size() == 0) {
-      // update ppm_limit
+      // update global_limit
       auto sum_limits = 0;
       auto max_limit = 0;
       for (auto &[us_service, _] : config.mapping) {
@@ -1012,16 +1012,16 @@ void State::update_limits(int32_t rtt, std::string_view service) {
         max_limit = limit > max_limit ? limit : max_limit;
       }
 
-      shared_state.credit_queue.update_ppm_limit(
+      shared_state.credit_queue.update_global_limit(
           max_limit + (int32_t)((float)(sum_limits - max_limit) *
                                 config.over_commitment.value()));
     }
 
-    VLOG(1) << "QM: New ppm limit is "
-            << shared_state.credit_queue.get_ppm_limit();
+    VLOG(1) << "ProtocolServer: New global limit is "
+            << shared_state.credit_queue.get_global_limit();
 #ifdef NANO_LOG_ENABLED
     NANO_LOG(NOTICE, "M# %s LIMIT GLOBAL T:T %d", config.name.c_str(),
-             shared_state.credit_queue.get_ppm_limit());
+             shared_state.credit_queue.get_global_limit());
     NANO_LOG(NOTICE, "M# %s LIMIT LOCAL-%.*s T:T %d", config.name.c_str(),
              static_cast<int>(service.size()), service.data(),
              shared_state.credit_queue.get_per_endpoint_limit(service));
@@ -1046,18 +1046,18 @@ void State::dispatch_rlp_recv(const std::unique_ptr<Buffer> &buf) {
   uint8_t b1 = (unsigned char)d[1];
   uint8_t b2 = (unsigned char)d[2];
   if (b1 == 0x02) {
-    queue_multiplexer(buf);
+    protocol_server(buf);
     return;
   }
   if (b1 == 0x01 && b2 == 0x00) {
-    queue_multiplexer(buf);
+    protocol_server(buf);
     return;
   }
   if (b1 == 0x01 && b2 == 0x01) {
     if (config.is_ingress) {
       ingress_post_credit(buf);
     } else {
-      ppm_client(true, buf);
+      protocol_client(true, buf);
     }
     return;
   }
@@ -1065,14 +1065,14 @@ void State::dispatch_rlp_recv(const std::unique_ptr<Buffer> &buf) {
              << (int)b2;
 }
 
-void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
+void State::protocol_server(const std::unique_ptr<Buffer> &req) {
   // read the request
   if (req->data.at(1) == 0x01) {
     // we have a credit request
 
     // check if it's a request
     if (req->data.at(2) != 0x00) {
-      LOG(FATAL) << "QM only handles Credit Requests";
+      LOG(FATAL) << "ProtocolServer only handles Credit Requests";
     }
 
     char requested_credits = req->data.at(3);
@@ -1101,7 +1101,7 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
       LOG(FATAL) << "Invalid RTT: " << rtt;
     }
 
-    VLOG(1) << "QM: Received Credit Request "
+    VLOG(1) << "ProtocolServer: Received Credit Request "
             << "| service: " << service << "| id: " << rpc_id
             << "| priority: " << priority << "| thread id: " << thread_id;
 
@@ -1119,7 +1119,7 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
   } else if (req->data.at(1) == 0x02) {
     // credit return
     auto service = extract_service_from_rlp_req(req->data.data());
-    VLOG(2) << "QM: Received Credit Return "
+    VLOG(2) << "ProtocolServer: Received Credit Return "
             << "| service: " << service;
     shared_state.credit_queue.decrement_in_flight(service);
     check_credit_transmission();

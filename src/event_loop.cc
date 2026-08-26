@@ -186,11 +186,11 @@ void EventLoop::run() {
         }
 
         try {
-          state.ppm_client(false, nullptr);
+          state.protocol_client(false, nullptr);
         } catch (const std::out_of_range &e) {
           LOG(FATAL) << "Out of range error: " << e.what();
         } catch (const std::exception &e) {
-          LOG(FATAL) << "Error in PPM client: " << e.what();
+          LOG(FATAL) << "Error in Protocol Client: " << e.what();
         }
 
         // flush every HTTP2 frame out

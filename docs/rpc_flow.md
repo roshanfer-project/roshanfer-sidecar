@@ -26,11 +26,11 @@ Requests are received on `ConnectionDirection::DOWNSTREAM` on the EGRESS listene
    - **`Ingress::send_credit_request_checker`**: if the deque is non-empty and there is **no Credit Request already in flight** (`has_credit_request_on_fly`), sets `has_credit_request_on_fly` and returns true.
    - If true: **`send_credit_request`** with **`queue.front()`**’s `get_id()` / `get_priority()` (same ids as HTTP headers).
 
-7. **`State::ppm_client(false, nullptr)`** runs afterward; for ingress it only drains **`rpc_queue` EGRESS downstream** if anything was queued there (ingress mesh requests **do not** go through that queue). Frontend/backend still use this path.
+7. **`State::protocol_client(false, nullptr)`** runs afterward; for ingress it only drains **`rpc_queue` EGRESS downstream** if anything was queued there (ingress mesh requests **do not** go through that queue). Frontend/backend still use this path.
 
 ### Credit Grant → forward
 
-8. On UDP **Credit Grant** (`dispatch_rlp_recv`, the Credit Grant for our Credit Request), ingress calls **`State::ingress_post_credit`** (not `ppm_client(true, …)`).
+8. On UDP **Credit Grant** (`dispatch_rlp_recv`, the Credit Grant for our Credit Request), ingress calls **`State::ingress_post_credit`** (not `protocol_client(true, …)`).
 
 9. **`ingress_post_credit`**: **`credit_post_process`**, then asserts **`num_credits == 1`** (batched grants are fatal on ingress).
 
@@ -80,7 +80,7 @@ Direction `DOWNSTREAM`.
 
 ### `ConnectionType::EGRESS` requests
 
-3. Same RLP client pattern as other mesh nodes: **`ppm_client(false)`** drains **`rpc_queue` → `PPMQueue` → `send_credit_request`**; **`ppm_client(true)`** on Credit Grant pops **`PPMQueue`** and forwards. **Unlike ingress**, the frontend keeps admitted mesh RPCs in **`PPMQueue`** until credited.
+3. Same RLP client pattern as other mesh nodes: **`protocol_client(false)`** drains **`rpc_queue` → `PPMQueue` → `send_credit_request`**; **`protocol_client(true)`** on Credit Grant pops **`PPMQueue`** and forwards. **Unlike ingress**, the frontend keeps admitted mesh RPCs in **`PPMQueue`** until credited.
 
 ## Response
 
@@ -99,4 +99,4 @@ gRPC on both sides; same idea as frontend EGRESS path. See **`HTTP2Connection::h
 3. `on_header_callback` fills headers.
 4. `on_data_chunk_recv_callback` for DATA.
 5. `frame_recv_callback` detects RPC completion → **`RPCQueue`**.
-6. Same **`forward` / `ppm_client`** flow as frontend EGRESS.
+6. Same **`forward` / `protocol_client`** flow as frontend EGRESS.

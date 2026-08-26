@@ -4,13 +4,13 @@ Request Limit Protocol (RLP) is a protocol that ensures services only receive re
 
 1. Credit Request: Used to inform a server that the client has a number of requests to send. An important field is "requested credits". Note that this is only sent for new arriving requests to the client (for now it's always 1). There are no retries in the protocol. No timeouts are required (in fact not implemented in the current version) if we assume servers don't crash, which is out of our scope.
 2. Credit Grant: It uses a the same header and structure as Credit Request. It is distinguished from Credit Request by setting a field. An important field is "granted credits". This type is the explciit response to a Credit Request. In other words, there is a 1-to-1 mapping between Credit Request and Credit Grant. **NOTE: In the new version of the protocol, we do not send back Credit Grants with no granted credits.** This message only goes back when there is a credit.
-3. Credit return (`data[1] == 0x02`): Sent by a **client** to release a granted slot without forwarding an HTTP request (e.g. dfanout unused branches, or **ingress** when **`ingress_post_credit`** has no RPC to forward—**`0x02`** path—or legacy/defensive empty-dequeue handling). Handled by **`queue_multiplexer`** → **`decrement_in_flight(service)`**.
+3. Credit return (`data[1] == 0x02`): Sent by a **client** to release a granted slot without forwarding an HTTP request (e.g. dfanout unused branches, or **ingress** when **`ingress_post_credit`** has no RPC to forward—**`0x02`** path—or legacy/defensive empty-dequeue handling). Handled by **`protocol_server`** → **`decrement_in_flight(service)`**.
 
 # Parameters
 
 Non-ingress services have two parameters:
 
-1. PPM Limit (or global limit): This is the maximum total number of requests a service can have **active** at any time.
+1. global limit (GL): This is the maximum total number of requests a service can have **active** at any time.
 2. Per-Endpoint Limit: This is a cap for each endpoint.
 
 # What are **Active** requests?
@@ -34,7 +34,7 @@ RLP is a stateful protocol, so both client and server rely on some state variabl
 
 1. **PPMQueue** (non-ingress mesh nodes): Holds RPCs that already triggered a Credit Request and are waiting for credit before `forward_request`.
 
-2. **Ingress-only**: There is **no `PPMQueue`** step for externally originated HTTP requests on the normal ingress HTTP path—pending RPCs live only in **`Ingress`’s deque**, and **`rpc_queue` EGRESS downstream** stays empty so **`ppm_client(false)`** does not stash ingress HTTP into **`PPMQueue`**. At most **one Credit Request is outstanding** per ingress worker (`Ingress::send_credit_request_checker` / `has_credit_request_on_fly`). Additional arrivals enqueue behind the head but **do not send another Credit Request** until the current grant cycle finishes (`ingress_post_credit` → **`send_sub_request`** or **credit return** → **`ingress_pre_credit`**). **`ppm_client(true)` is not used on ingress**; **`ingress_post_credit`** handles grants.
+2. **Ingress-only**: There is **no `PPMQueue`** step for externally originated HTTP requests on the normal ingress HTTP path—pending RPCs live only in **`Ingress`’s deque**, and **`rpc_queue` EGRESS downstream** stays empty so **`protocol_client(false)`** does not stash ingress HTTP into **`PPMQueue`**. At most **one Credit Request is outstanding** per ingress worker (`Ingress::send_credit_request_checker` / `has_credit_request_on_fly`). Additional arrivals enqueue behind the head but **do not send another Credit Request** until the current grant cycle finishes (`ingress_post_credit` → **`send_sub_request`** or **credit return** → **`ingress_pre_credit`**). **`protocol_client(true)` is not used on ingress**; **`ingress_post_credit`** handles grants.
 
 ## Server-side
 
@@ -54,13 +54,13 @@ RLP is a stateful protocol, so both client and server rely on some state variabl
 
 ### Every request (non-ingress clients)
 
-1. At some point `State::ppm_client(false, …)` runs (`rpc_flow.md`).
+1. At some point `State::protocol_client(false, …)` runs (`rpc_flow.md`).
 2. New RPCs are taken from **`rpc_queue`** EGRESS downstream and pushed to **`PPMQueue`**.
 3. A **Credit Request is sent per RPC** admitted that way (no batching).
 
 ### On every Credit Grant (non-ingress clients)
 
-1. `State::ppm_client(true, …)` runs.
+1. `State::protocol_client(true, …)` runs.
 2. Pop **`PPMQueue`** by id / fan-out rules and **`send_sub_request`**.
 3. Decrement **`in_flight`** where applicable (fan-out nuances unchanged).
 
@@ -76,7 +76,7 @@ Clients receive responses on their **EGRESS** side and bump **`in_flight`** / ac
 
 ### On every Credit Request
 
-1. `State::queue_multiplexer` gets called.
+1. `State::protocol_server` gets called.
 2. Checks if the in_flight is less than global limit and in_flight_per_endpoint is less than per_endpoint_limit.
 3. If the in_flight is less than limit, the grant it and increment in_flight and in_flight_per_endpoint. Otherwise, store the rejected Credit Request info in a credit queue (shared among all threads).
 
@@ -97,5 +97,5 @@ External clients --HTTP/1 (without RLP)--> Ingress --HTTP/1 (with RLP)--> Fronte
 
 - **Ingress**: 
   - **Drops**: **Head-drop when the ingress deque reaches `ingress_size_cap`** (**`Ingress::drop_rpc`** → 503). Other roles do not drop.
-  - **Credits**: Ingress uses **RLP Credit Requests and grants** toward the frontend but buffers pending HTTP RPCs in **`Ingress::queue`**, not **`PPMQueue`**. It may send **`0x02` credit return** when a grant arrives but **`dequeue`** yields no RPC (**`ingress_post_credit`** path). Frontend **`queue_multiplexer`** treats **`0x02`** like other clients (**`decrement_in_flight`**).
+  - **Credits**: Ingress uses **RLP Credit Requests and grants** toward the frontend but buffers pending HTTP RPCs in **`Ingress::queue`**, not **`PPMQueue`**. It may send **`0x02` credit return** when a grant arrives but **`dequeue`** yields no RPC (**`ingress_post_credit`** path). Frontend **`protocol_server`** treats **`0x02`** like other clients (**`decrement_in_flight`**).
 - **Mesh Services**: Strictly enforce RLP credits and do not drop requests (at all).
