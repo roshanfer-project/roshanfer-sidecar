@@ -23,18 +23,18 @@ Requests are received on `ConnectionDirection::DOWNSTREAM` on the EGRESS listene
 
 6. **`State::ingress_pre_credit`** (`state.cc`):
    - If **`stats.tail_e2e_time_us`** reported a fresh smoothed quantile flush (**`consume_flush_updated()`**), **`Ingress::update_ingress_cap()`** runs (**AIMD** on **`ingress_size_cap`**; see below).
-   - **`Ingress::send_dn_checker`**: if the deque is non-empty and there is **no DN already in flight** (`has_dn_on_fly`), sets `has_dn_on_fly` and returns true.
-   - If true: **`send_dn`** with **`queue.front()`**’s `get_id()` / `get_priority()` (same ids as HTTP headers).
+   - **`Ingress::send_credit_request_checker`**: if the deque is non-empty and there is **no Credit Request already in flight** (`has_credit_request_on_fly`), sets `has_credit_request_on_fly` and returns true.
+   - If true: **`send_credit_request`** with **`queue.front()`**’s `get_id()` / `get_priority()` (same ids as HTTP headers).
 
 7. **`State::ppm_client(false, nullptr)`** runs afterward; for ingress it only drains **`rpc_queue` EGRESS downstream** if anything was queued there (ingress mesh requests **do not** go through that queue). Frontend/backend still use this path.
 
 ### Credit grant → forward
 
-8. On UDP **credit grant** (`dispatch_rlp_recv`, response to our DN), ingress calls **`State::ingress_post_credit`** (not `ppm_client(true, …)`).
+8. On UDP **credit grant** (`dispatch_rlp_recv`, response to our Credit Request), ingress calls **`State::ingress_post_credit`** (not `ppm_client(true, …)`).
 
 9. **`ingress_post_credit`**: **`credit_post_process`**, then asserts **`num_credits == 1`** (batched grants are fatal on ingress).
 
-10. **`Ingress::dequeue`** pops the **front** RPC, clears **`has_dn_on_fly`**, **`ingress_mean.down()`**, returns **`std::optional`** carrying that RPC. (**Implementation detail:** today an empty deque is **`LOG(FATAL)`**; **`ingress_post_credit`** still has a branch that emits **`0x02`** if dequeue returns **`nullopt`**—useful if the implementation later allows an empty deque under a race.)
+10. **`Ingress::dequeue`** pops the **front** RPC, clears **`has_credit_request_on_fly`**, **`ingress_mean.down()`**, returns **`std::optional`** carrying that RPC. (**Implementation detail:** today an empty deque is **`LOG(FATAL)`**; **`ingress_post_credit`** still has a branch that emits **`0x02`** if dequeue returns **`nullopt`**—useful if the implementation later allows an empty deque under a race.)
 
 11. If **`dequeue`** returned a value → **`send_sub_request`** (`route_request` + **`forward_request`**, no **`PPMQueue`**).
 
@@ -42,7 +42,7 @@ Requests are received on `ConnectionDirection::DOWNSTREAM` on the EGRESS listene
 
 13. **`forward(ConnectionType::EGRESS, ConnectionDirection::UPSTREAM)`** drains queued **503** responses from **`drop_rpc`** so clients do not wait for an unrelated TCP READ.
 
-14. **`ingress_pre_credit`** issues the **next DN** if there is backlog and **`send_dn_checker`** allows it.
+14. **`ingress_pre_credit`** issues the **next Credit Request** if there is backlog and **`send_credit_request_checker`** allows it.
 
 15. Elsewhere, **`write_http`** flushes bytes on connections.
 
@@ -80,7 +80,7 @@ Direction `DOWNSTREAM`.
 
 ### `ConnectionType::EGRESS` requests
 
-3. Same RLP client pattern as other mesh nodes: **`ppm_client(false)`** drains **`rpc_queue` → `PPMQueue` → `send_dn`**; **`ppm_client(true)`** on grant pops **`PPMQueue`** and forwards. **Unlike ingress**, the frontend keeps admitted mesh RPCs in **`PPMQueue`** until credited.
+3. Same RLP client pattern as other mesh nodes: **`ppm_client(false)`** drains **`rpc_queue` → `PPMQueue` → `send_credit_request`**; **`ppm_client(true)`** on grant pops **`PPMQueue`** and forwards. **Unlike ingress**, the frontend keeps admitted mesh RPCs in **`PPMQueue`** until credited.
 
 ## Response
 

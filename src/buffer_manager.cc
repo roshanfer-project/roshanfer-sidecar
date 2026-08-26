@@ -53,20 +53,20 @@ void UserData::clear() {
 
 BufferManager::BufferManager(size_t len, size_t buffer_size, RingWrapper &ring)
     : count(len), size(buffer_size), ring(ring), buffer_vector(),
-      dn_buffer_vector(), user_data_queue() {
+      udp_buffer_vector(), user_data_queue() {
   for (size_t i = 0; i < count; i++) {
     user_data_queue.push(new UserData(i));
     buffer_vector.push_back(std::make_unique<Buffer>(size, i));
-    dn_buffer_vector.push_back(std::make_unique<Buffer>(256, i + count));
+    udp_buffer_vector.push_back(std::make_unique<Buffer>(256, i + count));
 
     if ((double)i < 0.8 * (double)count) {
       ring.add_buffer_to_ring(buffer_vector.back(), 0);
-      ring.add_buffer_to_ring(dn_buffer_vector.back(), 1);
+      ring.add_buffer_to_ring(udp_buffer_vector.back(), 1);
       buffer_vector.back()->is_provided = true;
-      dn_buffer_vector.back()->is_provided = true;
+      udp_buffer_vector.back()->is_provided = true;
     } else {
       free_buffer_queue.push(i);
-      free_dn_buffer_queue.push(i + count);
+      free_udp_buffer_queue.push(i + count);
     }
   }
 };
@@ -104,17 +104,17 @@ std::unique_ptr<Buffer> BufferManager::get_buffer_by_index(size_t index) {
   return buffer;
 }
 
-std::unique_ptr<Buffer> BufferManager::get_dn_buffer_by_index(size_t index) {
-  if (index < count || index >= count + dn_buffer_vector.size()) {
-    LOG(FATAL) << "DN buffer id out of range: " << index << " (expect [" << count
-               << ", " << count + dn_buffer_vector.size()
+std::unique_ptr<Buffer> BufferManager::get_udp_buffer_by_index(size_t index) {
+  if (index < count || index >= count + udp_buffer_vector.size()) {
+    LOG(FATAL) << "UDP buffer id out of range: " << index << " (expect [" << count
+               << ", " << count + udp_buffer_vector.size()
                << ")) — TCP id or corrupt CQE flags?";
   }
-  if (dn_buffer_vector.at(index - count) == nullptr) {
+  if (udp_buffer_vector.at(index - count) == nullptr) {
     LOG(FATAL) << "Buffer is null, index: " << index;
     return nullptr;
   }
-  auto buffer = std::move(dn_buffer_vector.at(index - count));
+  auto buffer = std::move(udp_buffer_vector.at(index - count));
   if (!buffer->is_free) {
     LOG(FATAL) << "Buffer is not free, index: " << buffer->get_index();
     return nullptr;
@@ -123,14 +123,14 @@ std::unique_ptr<Buffer> BufferManager::get_dn_buffer_by_index(size_t index) {
   return buffer;
 }
 
-std::unique_ptr<Buffer> BufferManager::get_dn_buffer() {
-  if (free_dn_buffer_queue.empty()) {
-    LOG(FATAL) << "No free dn buffer available";
+std::unique_ptr<Buffer> BufferManager::get_udp_buffer() {
+  if (free_udp_buffer_queue.empty()) {
+    LOG(FATAL) << "No free UDP buffer available";
     return nullptr;
   }
   auto buffer =
-      std::move(dn_buffer_vector.at(free_dn_buffer_queue.front() - count));
-  free_dn_buffer_queue.pop();
+      std::move(udp_buffer_vector.at(free_udp_buffer_queue.front() - count));
+  free_udp_buffer_queue.pop();
   if (!buffer->is_free) {
     LOG(FATAL) << "Buffer is not free, index: " << buffer->get_index();
     return nullptr;
@@ -139,7 +139,7 @@ std::unique_ptr<Buffer> BufferManager::get_dn_buffer() {
   return buffer;
 }
 
-void BufferManager::free_dn_buffer(std::unique_ptr<Buffer> buffer) {
+void BufferManager::free_udp_buffer(std::unique_ptr<Buffer> buffer) {
   if (!buffer) {
     LOG(FATAL) << "buffer cannot be null";
     return;
@@ -152,13 +152,13 @@ void BufferManager::free_dn_buffer(std::unique_ptr<Buffer> buffer) {
   buffer->clear();
   size_t index = buffer->get_index();
   bool is_provided = buffer->is_provided;
-  dn_buffer_vector.at(index - count) = std::move(buffer);
+  udp_buffer_vector.at(index - count) = std::move(buffer);
   if (is_provided) {
-    ring.add_buffer_to_ring(dn_buffer_vector.at(index - count),
+    ring.add_buffer_to_ring(udp_buffer_vector.at(index - count),
                             1 // UDP buffer group
     );
   } else {
-    free_dn_buffer_queue.push(index);
+    free_udp_buffer_queue.push(index);
   }
 }
 

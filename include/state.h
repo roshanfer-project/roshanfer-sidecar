@@ -109,8 +109,8 @@ public:
 
 private:
   // RLP-related functions
-  void send_dn(struct sockaddr_in, const std::string &, size_t, RPCID,
-               Priority);
+  void send_credit_request(struct sockaddr_in, const std::string &, size_t,
+                           RPCID, Priority);
   std::unique_ptr<Buffer>
   prepare_credit_return(const std::unique_ptr<Buffer> &);
   std::tuple<const std::string &, bool, size_t, RPCID>

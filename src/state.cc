@@ -148,7 +148,7 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
   }
 
   // RLP UDP: mesh binds well-known port + SO_REUSEPORT; ingress stays unbound
-  // so credit replies return to the per-thread ephemeral source of each DN.
+  // so credit replies return to the per-thread ephemeral source of each Credit Request.
   sockfd = socket(AF_INET, SOCK_DGRAM, 0);
   if (sockfd < 0) {
     LOG(FATAL) << "Failed to create socket";
@@ -563,7 +563,7 @@ State::credit_post_process(const std::unique_ptr<Buffer> &buf) {
 void State::ppm_client(bool dn_resp,
                        const std::unique_ptr<Buffer> &dn_resp_buffer) {
   if (dn_resp) {
-    // we have received a demand notification response
+    // we have received a credit request response
     auto [service, ok, num_credits, id] = credit_post_process(dn_resp_buffer);
 
     if (!ok) {
@@ -579,7 +579,7 @@ void State::ppm_client(bool dn_resp,
       }
     }
   } else {
-    // we need to send a demand notification
+    // we need to send a credit request
 
     // first admit all requests to ppm queue
     size_t size =
@@ -591,24 +591,24 @@ void State::ppm_client(bool dn_resp,
           rpc_mapper.get_ds_rpc(ConnectionType::EGRESS, ds_stream_id, ds_fd);
       ppm_queue.push(rpc);
 
-      // send out DNs
+      // send out Credit Requests
       if (config.is_ingress) {
-        send_dn(upstream_route_mapper.get_pool(rpc->get_service()).get_addr(),
+        send_credit_request(upstream_route_mapper.get_pool(rpc->get_service()).get_addr(),
                 rpc->get_service(), 1, rpc->get_local_id(),
                 rpc->get_priority());
       } else {
         auto &ingress_rpc = rpc_mapper.get_ingress_rpc(rpc->get_local_id());
         auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
 
-        // for dynamic fan-out, send DN to all downstreams
+        // for dynamic fan-out, send Credit Request to all downstreams
         if (mapping_entry.dfanout.value_or(false)) {
           ingress_rpc->dfanout_service = &rpc->get_service();
           for (auto &ds_service : mapping_entry.downstreams) {
-            send_dn(upstream_route_mapper.get_pool(ds_service).get_addr(),
+            send_credit_request(upstream_route_mapper.get_pool(ds_service).get_addr(),
                     ds_service, 1, rpc->get_local_id(), rpc->get_priority());
           }
         } else {
-          send_dn(upstream_route_mapper.get_pool(rpc->get_service()).get_addr(),
+          send_credit_request(upstream_route_mapper.get_pool(rpc->get_service()).get_addr(),
                   rpc->get_service(), 1, rpc->get_local_id(),
                   rpc->get_priority());
         }
@@ -673,7 +673,7 @@ void State::fanout_req_management(RPCID id, const std::string &service,
 
 std::unique_ptr<Buffer>
 State::prepare_credit_return(const std::unique_ptr<Buffer> &dn_reply) {
-  auto credit_ret = buffer_manager.get_dn_buffer();
+  auto credit_ret = buffer_manager.get_udp_buffer();
 
   // copy the content
   if (credit_ret->get_size() - credit_ret->get_filled() <
@@ -741,17 +741,17 @@ void State::fanout_res_credit_management(RPCID id) {
   shared_state.credit_queue.increment_in_flight(ingress_rpc->get_service());
 }
 
-void State::send_dn(struct sockaddr_in addr, const std::string &service,
+void State::send_credit_request(struct sockaddr_in addr, const std::string &service,
                     size_t num_credits, RPCID id, Priority priority) {
-  // send a demand notification
+  // send a credit request
   ssize_t header_size = 26;
   size_t len = (size_t)header_size + service.length();
-  auto buffer = buffer_manager.get_dn_buffer();
+  auto buffer = buffer_manager.get_udp_buffer();
   if (buffer->data.size() < len) {
     LOG(FATAL) << "Buffer size is too small";
   }
   buffer->data.at(0) = (char)len;
-  buffer->data.at(1) = 0x01;              // demand notification (0x01)
+  buffer->data.at(1) = 0x01;              // credit request (0x01)
   buffer->data.at(2) = 0x00;              // request (0x00), response (0x01)
   buffer->data.at(3) = (char)num_credits; // number of requested credits
   // position 4 is for the received number of credits
@@ -789,7 +789,7 @@ void State::send_dn(struct sockaddr_in addr, const std::string &service,
   ring.prepare_sendmsg_with_serveraddr(sockfd, std::move(buffer),
                                        buffer_manager.get_user_data(), addr);
 
-  VLOG(1) << "PPMClient: DN for new request "
+  VLOG(1) << "PPMClient: Credit Request for new request "
           << "| service: " << service << "| id: " << id << "| credits: " << 1
           << "| queue size: " << ppm_queue.size(service);
 }
@@ -824,14 +824,14 @@ void State::ingress_pre_credit() {
     ingress.update_ingress_cap();
   }
 
-  if (!ingress.send_dn_checker()) {
+  if (!ingress.send_credit_request_checker()) {
     return;
   }
 
-  // we should send a DN
+  // we should send a Credit Request
   auto id = ingress.get_tail_id();
   auto priority = ingress.get_tail_priority();
-  send_dn(upstream_route_mapper.get_pool(ingress_service).get_addr(),
+  send_credit_request(upstream_route_mapper.get_pool(ingress_service).get_addr(),
           ingress_service, 1, id, priority);
 }
 
@@ -861,7 +861,7 @@ void State::ingress_post_credit(const std::unique_ptr<Buffer> &buf) {
   // drain drops
   forward(ConnectionType::EGRESS, ConnectionDirection::UPSTREAM);
 
-  // send the next DN
+  // send the next Credit Request
   ingress_pre_credit();
 }
 
@@ -1068,11 +1068,11 @@ void State::dispatch_rlp_recv(const std::unique_ptr<Buffer> &buf) {
 void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
   // read the request
   if (req->data.at(1) == 0x01) {
-    // we have demand notification
+    // we have a credit request
 
     // check if it's a request
     if (req->data.at(2) != 0x00) {
-      LOG(FATAL) << "QM only handles DN requests";
+      LOG(FATAL) << "QM only handles Credit Requests";
     }
 
     char requested_credits = req->data.at(3);
@@ -1101,11 +1101,11 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
       LOG(FATAL) << "Invalid RTT: " << rtt;
     }
 
-    VLOG(1) << "QM: Received DN request "
+    VLOG(1) << "QM: Received Credit Request "
             << "| service: " << service << "| id: " << rpc_id
             << "| priority: " << priority << "| thread id: " << thread_id;
 
-    auto resp = buffer_manager.get_dn_buffer();
+    auto resp = buffer_manager.get_udp_buffer();
     write_failed_dn_response(req, resp);
     resp->enter_queue_ts =
         std::chrono::duration_cast<std::chrono::microseconds>(

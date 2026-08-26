@@ -28,7 +28,7 @@ Ingress::Ingress(int index_arg, std::string &ingress_service_ref,
                  Stats &stats_ref, RPCMapper &rpc_mapper_ref,
                  RPCQueue &rpc_queue_ref)
     : stats(stats_ref), rpc_mapper(rpc_mapper_ref), rpc_queue(rpc_queue_ref),
-      queue(std::deque<std::shared_ptr<RPCMessage>>()), has_dn_on_fly(false),
+      queue(std::deque<std::shared_ptr<RPCMessage>>()), has_credit_request_on_fly(false),
       drop_id(0), drop_fd(-index_arg), last_rpc_id((RPCID)index_arg << 48),
       ingress_service(ingress_service_ref) {
   ingress_mean.set_description("Ingress-Mean-" + ingress_service);
@@ -85,7 +85,7 @@ std::optional<std::shared_ptr<RPCMessage>> Ingress::dequeue() {
   auto rpc = std::move(queue.front());
   queue.pop_front();
 
-  has_dn_on_fly = false;
+  has_credit_request_on_fly = false;
   ingress_mean.update((double)queue.size());
   VLOG(2) << "Dequeued RPC message for service: " << ingress_service;
 #ifdef NANO_LOG_ENABLED
@@ -181,9 +181,9 @@ void Ingress::drop_rpc(std::shared_ptr<RPCMessage> rpc) {
           << "| id: " << drop_rpc->get_id_string();
 }
 
-bool Ingress::send_dn_checker() {
-  bool check = (queue.size() > 0 && !has_dn_on_fly);
-  has_dn_on_fly = check ? true : has_dn_on_fly;
+bool Ingress::send_credit_request_checker() {
+  bool check = (queue.size() > 0 && !has_credit_request_on_fly);
+  has_credit_request_on_fly = check ? true : has_credit_request_on_fly;
   return check;
 }
 

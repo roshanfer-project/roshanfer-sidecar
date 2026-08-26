@@ -22,7 +22,7 @@ public:
   const std::string &expected_service() const { return ingress_service; }
   void update_ingress_cap();
   void dump_state();
-  bool send_dn_checker();
+  bool send_credit_request_checker();
   RPCID get_tail_id();
   Priority get_tail_priority();
 
@@ -45,7 +45,7 @@ private:
   RPCQueue &rpc_queue;
   std::deque<std::shared_ptr<RPCMessage>> queue;
   TimeWeightedMean ingress_mean;
-  bool has_dn_on_fly;
+  bool has_credit_request_on_fly;
   int32_t priority;
   int32_t drop_id;
   int drop_fd;
