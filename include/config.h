@@ -50,6 +50,11 @@ struct Config {
   std::optional<int> cpu_count;
   std::optional<float> over_commitment;
   int extra_limit;
+  float aimd_err_d = -0.05F;
+  float aimd_err_i = -0.3F;
+  float aimd_adj_d = 1.5F;
+  float aimd_adj_i = 1.0F;
+  float safe_multiply = 2.0F;
 };
 
 Config load_config(const std::string &filename);

@@ -82,6 +82,27 @@ Config load_config(const std::string &filename) {
   }
   LOG(INFO) << "config.extra_limit: " << local_config.extra_limit;
 
+  if (node["aimd_err_d"]) {
+    local_config.aimd_err_d = node["aimd_err_d"].as<float>();
+  }
+  if (node["aimd_err_i"]) {
+    local_config.aimd_err_i = node["aimd_err_i"].as<float>();
+  }
+  if (node["aimd_adj_d"]) {
+    local_config.aimd_adj_d = node["aimd_adj_d"].as<float>();
+  }
+  if (node["aimd_adj_i"]) {
+    local_config.aimd_adj_i = node["aimd_adj_i"].as<float>();
+  }
+  if (node["safe_multiply"]) {
+    local_config.safe_multiply = node["safe_multiply"].as<float>();
+  }
+  LOG(INFO) << "config.aimd_err_d: " << local_config.aimd_err_d
+            << " aimd_err_i: " << local_config.aimd_err_i
+            << " aimd_adj_d: " << local_config.aimd_adj_d
+            << " aimd_adj_i: " << local_config.aimd_adj_i
+            << " safe_multiply: " << local_config.safe_multiply;
+
   // Optional is_frontend
   if (node["is_frontend"]) {
     local_config.is_frontend = node["is_frontend"].as<bool>();

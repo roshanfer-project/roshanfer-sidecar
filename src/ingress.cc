@@ -100,19 +100,20 @@ void Ingress::update_ingress_cap() {
   auto err =
       (stats.tail_e2e_time_us.get(ingress_service).value() - slo_us) / slo_us;
 
-  if (err > aimd_err_d) {
-    ingress_size_cap = (size_t)std::ceil((float)ingress_size_cap / aimd_adj_d);
-  } else if (err < aimd_err_i) {
+  if (err > config.aimd_err_d) {
+    ingress_size_cap =
+        (size_t)std::ceil((float)ingress_size_cap / config.aimd_adj_d);
+  } else if (err < config.aimd_err_i) {
     auto ing_mean = ingress_mean.value();
     auto concurrency =
         stats.time_mean_ds_concurrency.get(ingress_service).value();
     if (ing_mean >= (float)ingress_size_cap * aimd_queue_th) {
-      ingress_size_cap += (size_t)std::ceil((-err) * aimd_adj_i);
-    } else if ((float)ingress_size_cap > safe_multiply * concurrency) {
+      ingress_size_cap += (size_t)std::ceil((-err) * config.aimd_adj_i);
+    } else if ((float)ingress_size_cap > config.safe_multiply * concurrency) {
       const double lowered =
-          std::ceil((double)ingress_size_cap / (double)aimd_adj_d);
-      ingress_size_cap =
-          (size_t)std::max((double)(safe_multiply * concurrency), lowered);
+          std::ceil((double)ingress_size_cap / (double)config.aimd_adj_d);
+      ingress_size_cap = (size_t)std::max(
+          (double)(config.safe_multiply * concurrency), lowered);
     }
   }
 
