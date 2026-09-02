@@ -87,7 +87,7 @@ std::optional<std::shared_ptr<RPCMessage>> Ingress::dequeue() {
   auto rpc = std::move(queue.front());
   queue.pop_front();
 
-  dn_on_fly -= 1;
+  credit_requests_on_fly -= 1;
   ingress_mean.update((double)queue.size());
   VLOG(2) << "Dequeued RPC message for service: " << ingress_service;
 #ifdef NANO_LOG_ENABLED
@@ -197,16 +197,17 @@ void Ingress::drop_rpc(std::shared_ptr<RPCMessage> rpc) {
           << "| id: " << drop_rpc->get_id_string();
 }
 
-std::optional<std::tuple<RPCID, Priority>> Ingress::send_dn_checker() {
-  if (queue.size() <= dn_on_fly) {
+std::optional<std::tuple<RPCID, Priority>>
+Ingress::send_credit_request_checker() {
+  if (queue.size() <= credit_requests_on_fly) {
     return std::nullopt;
   }
 
-  auto rpc = queue.at(dn_on_fly);
+  auto rpc = queue.at(credit_requests_on_fly);
   if (rpc == nullptr) {
     LOG(FATAL) << "queue is empty";
   }
-  dn_on_fly += 1;
+  credit_requests_on_fly += 1;
   return std::make_tuple(rpc->get_local_id(), rpc->get_priority());
 }
 

@@ -4,7 +4,7 @@
 
 - **Ingress:**: Sidecar at the gateway, which used to do overload control.
 - **Mesh:**: All other sidecars.
-- **Early-binding**: There is a 1:1 mapping between RPC and DN/credit. A credit can only be used for the RPC which issued the corresponding DN.
+- **Early-binding**: There is a 1:1 mapping between RPC and Credit Request/credit. A credit can only be used for the RPC which issued the corresponding Credit Request.
 - **Late-binding**: A credit can be used for any RPC which is pending for credit. The mapping is made after the credit arrives, hence **late**.
 
 ## Setup
@@ -19,7 +19,7 @@
 - The load balancing policy is based on least-loaded policy with load being the number of RPCs awaiting for credit.
 - Ingress uses late-binding (FCFS deque). Mesh sequential RPCs use late-binding when `mesh_late_binding` is true (default); pfanout/dfanout stay early-binding
 - Mesh late-bind queue order is `late_binding_type`: `fcfs` (default, by `req_rcv_time`) or `edf` (by absolute `deadline` header from ingress)
-- Ingress issues one DN per request in its queue **concurrently**
+- Ingress issues one Credit Request per request in its queue **concurrently** (`credit_requests_on_fly`)
 
 ## Details
 ### Two-level selection
@@ -34,15 +34,15 @@ LB logic lives in the connection pool (when asking for a connection/replica).
 ### Waiting count tracker
 
 - One `KeyValueMinTracker` (`waitings`) per `ConnectionPool` (i.e. per service), alongside a `bindings` map (`RPCID -> {lb_fd, replica_index}`).
-- `increase(replica_index)` on DN send (`acquire`); `decrease(replica_index)` when the credit is resolved (`release`).
-- Load counted = outstanding DNs (credits awaited) per replica; used by `lb()` to pick the least-loaded replica.
+- `increase(replica_index)` on Credit Request send (`acquire`); `decrease(replica_index)` when the credit is resolved (`release`).
+- Load counted = outstanding Credit Requests (credits awaited) per replica; used by `lb()` to pick the least-loaded replica.
 - All replicas initialized to 0 at startup via `init(index)` in `add_replica`.
 
 ### Binding lifecycle
 
-A binding is created per DN and destroyed once its credit is resolved. Everything is keyed by `RPCID`, unique within a pool (dfanout sends one DN per downstream with the same `RPCID`, but into different pools, so keys never collide).
+A binding is created per Credit Request and destroyed once its credit is resolved. Everything is keyed by `RPCID`, unique within a pool (dfanout sends one Credit Request per downstream with the same `RPCID`, but into different pools, so keys never collide).
 
-- `acquire(id)` — on DN send: `lb()` picks the replica, store the binding, `increase`.
+- `acquire(id)` — on Credit Request send: `lb()` picks the replica, store the binding, `increase`.
 - `peek(id)` — on routing: return the bound connection, **no mutation**.
 - `release(id)` — on route success or credit return: `decrease` + erase the binding.
 
@@ -59,7 +59,7 @@ When multiple replicas have the same waiting count, one is chosen **uniformly at
 
 ### dfanout
 
-- **All downstreams:** `get_pool(ds_service).acquire(id)` → a binding in each downstream's own pool + a DN sent to it.
+- **All downstreams:** `get_pool(ds_service).acquire(id)` → a binding in each downstream's own pool + a Credit Request sent to it.
 - **Primary (`dfanout_service`):** the credit is spent — `route_request` (`peek`+`release`) forwards the sub-request.
 - **Others:** credit returned via `0x02`; the binding is released during the credit-return flush (`get_pool(*ret->ret_service).release(ret->ret_id)`), after all credits have arrived.
 
@@ -67,7 +67,7 @@ When multiple replicas have the same waiting count, one is chosen **uniformly at
 
 - `State` is thread-local; the event loop processes one RPC step at a time per thread.
 - Mesh path has no request drops (drops are ingress-only).
-- Ingress may have multiple outstanding DNs; each has its own binding keyed by `RPCID`.
+- Ingress may have multiple outstanding Credit Requests (`credit_requests_on_fly`); each has its own binding keyed by `RPCID`.
 
 ### Performance
 
@@ -77,14 +77,14 @@ When multiple replicas have the same waiting count, one is chosen **uniformly at
 
 ## Call path
 
-**Ingress:** `ingress_pre_credit` → `ConnectionPool::acquire(id)` (bind + waiting++) → `send_dn` → *(credit reply)* → `ingress_post_credit` → `Ingress::dequeue` (head) → `send_sub_request(head, credit_id)` → `route_request` (`peek`→`release`) → `forward_request`. Empty queue → return credit (`0x02`) + `release(credit_id)`.
+**Ingress:** `ingress_pre_credit` → `ConnectionPool::acquire(id)` (bind + waiting++) → `send_credit_request` → *(Credit Grant)* → `ingress_post_credit` → `Ingress::dequeue` (head) → `send_sub_request(head, credit_id)` → `route_request` (`peek`→`release`) → `forward_request`. Empty queue → return credit (`0x02`) + `release(credit_id)`.
 
-**Mesh:** `ppm_client(false)` → `register_id_map` → `acquire(id)` per downstream → `send_dn` → `PPMQueue::push` (priority = deadline or `req_rcv_time`) → *(credit reply)* → `ppm_client(true)` → `fanout_req_management` (sequential: `pop(service)` if `mesh_late_binding`, else `pop(service, credit_id)`; fan-out: pop by `credit_id`) → `get_egress_rpc` → `send_sub_request` → `route_request` (`peek`→`release`); returned credits `release`d on flush.
+**Mesh:** `protocol_client(false)` → `register_id_map` → `acquire(id)` per downstream → `send_credit_request` → `PPMQueue::push` (priority = deadline or `req_rcv_time`) → *(Credit Grant)* → `protocol_client(true)` → `fanout_req_management` (sequential: `pop(service)` if `mesh_late_binding`, else `pop(service, credit_id)`; fan-out: pop by `credit_id`) → `get_egress_rpc` → `send_sub_request` → `route_request` (`peek`→`release`); returned credits `release`d on flush.
 
 ## Key code
 
 `ConnectionPool::acquire` / `peek` / `release` / `lb`, `ReplicaPool::get_any_conn`, `KeyValueMinTracker`, `FlexiblePriorityQueue`, `PPMQueue::push` / `pop`.
 
-Mesh: `State::ppm_client`, `State::fanout_req_management`, `State::send_sub_request`, `State::route_request`.
+Mesh: `State::protocol_client`, `State::fanout_req_management`, `State::send_sub_request`, `State::route_request`.
 
 Ingress: `State::ingress_pre_credit`, `State::ingress_post_credit`, `State::send_sub_request`, `State::route_request`.

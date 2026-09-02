@@ -59,9 +59,9 @@ public:
   void increment_in_flight(std::string_view);
   void decrement_in_flight(std::string_view);
   void update_endpoint_limit(int32_t, std::string_view);
-  void update_ppm_limit(int32_t);
+  void update_global_limit(int32_t);
 
-  int32_t get_ppm_limit() { return ppm_limit; }
+  int32_t get_global_limit() { return global_limit; }
   int32_t get_per_endpoint_limit(std::string_view service) {
     return per_endpoint_limit.get(service);
   }
@@ -76,7 +76,7 @@ private:
 
   // global limit counters
   int32_t in_flight;
-  int32_t ppm_limit;
+  int32_t global_limit;
 
   // per-endpoint limit counters
   LocalMap<int32_t> in_flight_per_endpoint;

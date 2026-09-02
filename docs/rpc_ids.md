@@ -5,7 +5,7 @@
 | Header | Field on `RPCMessage` | Role |
 |--------|------------------------|------|
 | `rpc-id` | `global_id` | End-to-end correlation (debug, tracing) |
-| `rpc-local-id` | `local_id` | 1. Distinguish downstream requests of a single upstream request. 2. Find upstream request from downstream requests. 3. This is the id used for DN/credits. |
+| `rpc-local-id` | `local_id` | 1. Distinguish downstream requests of a single upstream request. 2. Find upstream request from downstream requests. 3. This is the id used for Credit Request/Credit Grant. |
 
 Both are carried as decimal strings in HTTP/gRPC metadata. `RPCID` is `int64_t`; `-1` means “unset” for `local_id` where explicitly initialized.
 

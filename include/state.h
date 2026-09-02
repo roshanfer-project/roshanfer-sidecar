@@ -115,10 +115,10 @@ public:
   void forward(ConnectionType, ConnectionDirection);
   void remove_connection(std::shared_ptr<HTTPConnection>);
 
-  // PPM-related functions
-  void dispatch_ppm_recv(const std::unique_ptr<Buffer> &);
-  void queue_multiplexer(const std::unique_ptr<Buffer> &);
-  void ppm_client(bool, const std::unique_ptr<Buffer> &);
+  // RLP-related functions
+  void dispatch_rlp_recv(const std::unique_ptr<Buffer> &);
+  void protocol_server(const std::unique_ptr<Buffer> &);
+  void protocol_client(bool is_credit_grant, const std::unique_ptr<Buffer> &);
 
   void ingress_pre_credit();
   void ingress_post_credit(const std::unique_ptr<Buffer> &);
@@ -134,9 +134,9 @@ public:
   int get_sockfd() { return sockfd; }
 
 private:
-  // PPM-related functions
-  void send_dn(struct sockaddr_in, const std::string &, size_t, RPCID, Priority,
-               FanOutType);
+  // RLP-related functions
+  void send_credit_request(struct sockaddr_in, const std::string &, size_t,
+                           RPCID, Priority, FanOutType);
   std::unique_ptr<Buffer>
   prepare_credit_return(const std::unique_ptr<Buffer> &);
   std::tuple<const std::string &, bool, size_t, RPCID, FanOutType>

@@ -14,10 +14,10 @@ public:
   BufferManager(size_t, size_t, RingWrapper &);
   std::unique_ptr<Buffer> get_buffer();
   std::unique_ptr<Buffer> get_buffer_by_index(size_t);
-  std::unique_ptr<Buffer> get_dn_buffer_by_index(size_t);
-  std::unique_ptr<Buffer> get_dn_buffer();
+  std::unique_ptr<Buffer> get_udp_buffer_by_index(size_t);
+  std::unique_ptr<Buffer> get_udp_buffer();
   void free_buffer(std::unique_ptr<Buffer>);
-  void free_dn_buffer(std::unique_ptr<Buffer>);
+  void free_udp_buffer(std::unique_ptr<Buffer>);
   UserData *get_user_data();
   void free_user_data(UserData *&);
 
@@ -27,7 +27,7 @@ private:
   RingWrapper &ring;
   std::vector<std::unique_ptr<Buffer>> buffer_vector;
   std::queue<size_t> free_buffer_queue;
-  std::vector<std::unique_ptr<Buffer>> dn_buffer_vector;
-  std::queue<size_t> free_dn_buffer_queue;
+  std::vector<std::unique_ptr<Buffer>> udp_buffer_vector;
+  std::queue<size_t> free_udp_buffer_queue;
   std::queue<UserData *> user_data_queue;
 };

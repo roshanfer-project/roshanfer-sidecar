@@ -186,11 +186,11 @@ void EventLoop::run() {
         }
 
         try {
-          state.ppm_client(false, nullptr);
+          state.protocol_client(false, nullptr);
         } catch (const std::out_of_range &e) {
           LOG(FATAL) << "Out of range error: " << e.what();
         } catch (const std::exception &e) {
-          LOG(FATAL) << "Error in PPM client: " << e.what();
+          LOG(FATAL) << "Error in Protocol Client: " << e.what();
         }
 
         // flush every HTTP2 frame out
@@ -298,15 +298,15 @@ void EventLoop::run() {
         std::unique_ptr<Buffer> old_buffer = nullptr;
         if (cqe->flags & IORING_CQE_F_BUFFER) {
           auto buffer_index = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
-          old_buffer = buffer_manager.get_dn_buffer_by_index(buffer_index);
+          old_buffer = buffer_manager.get_udp_buffer_by_index(buffer_index);
           if (!old_buffer) {
-            LOG(FATAL) << "DN Buffer is null in read completion event";
+            LOG(FATAL) << "UDP Buffer is null in read completion event";
           }
         } else if (cqe->res > 0) {
           // If we read data but got no (provided) buffer, that's an issue for
           // multishot
           LOG(FATAL) << "Read " << cqe->res
-                     << " bytes but no DN buffer provided (flag missing)";
+                     << " bytes but no UDP buffer provided (flag missing)";
         }
         if (cqe->res <= 0) {
           LOG(FATAL) << "Failed to receive UDP message, error: "
@@ -315,16 +315,16 @@ void EventLoop::run() {
 
         RingWrapper::handle_multishot_recv(old_buffer, cqe->res);
 
-        VLOG(1) << "PPM UDP recv, dispatch by header";
+        VLOG(1) << "RLP UDP recv, dispatch by header";
         try {
-          state.dispatch_ppm_recv(old_buffer);
+          state.dispatch_rlp_recv(old_buffer);
         } catch (const std::out_of_range &e) {
           LOG(FATAL) << "Out of range error: " << e.what();
         } catch (const std::exception &e) {
-          LOG(FATAL) << "Error in PPM dispatch: " << e.what();
+          LOG(FATAL) << "Error in RLP dispatch: " << e.what();
         }
 
-        buffer_manager.free_dn_buffer(std::move(old_buffer));
+        buffer_manager.free_udp_buffer(std::move(old_buffer));
 
         break;
       }
@@ -345,7 +345,7 @@ void EventLoop::run() {
         }
 
         // free the buffer
-        buffer_manager.free_dn_buffer(std::move(buffer));
+        buffer_manager.free_udp_buffer(std::move(buffer));
 
         // free the user data
         buffer_manager.free_user_data(ud);
