@@ -13,6 +13,7 @@ UserData::UserData(size_t id)
     : buffer(), in_ring(false), listener(), conn(), op(Operation::ACCEPT),
       index(id), udp_type(UDPType::REQUEST) {
   std::memset(&accept_addr, 0, sizeof(accept_addr));
+  accept_addr_len = sizeof(accept_addr);
 
   msg.msg_name = 0;
   msg.msg_namelen = sizeof(struct sockaddr_in);
@@ -49,6 +50,7 @@ void UserData::clear() {
   udp_type = UDPType::CLEAR;
   in_ring = false;
   std::memset(&accept_addr, 0, sizeof(accept_addr));
+  accept_addr_len = sizeof(accept_addr);
 }
 
 BufferManager::BufferManager(size_t len, size_t buffer_size, RingWrapper &ring)

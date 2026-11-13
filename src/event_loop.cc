@@ -18,6 +18,7 @@
 #include <ring_wrapper.h>
 #include <string>
 #include <strings.h>
+#include <arpa/inet.h>
 #include <sys/socket.h>
 
 void EventLoop::run() {
@@ -69,6 +70,13 @@ void EventLoop::run() {
           auto conn = listener->add_connection(
               cqe->res, std::addressof(rpc_mapper), std::addressof(rpc_queue),
               http_type, std::addressof(state.stats));
+
+          char peer_ip[INET_ADDRSTRLEN] = "?";
+          inet_ntop(AF_INET, &ud->accept_addr.sin_addr, peer_ip,
+                    sizeof(peer_ip));
+          LOG(INFO) << "Accepted " << listener->type_to_str()
+                    << " connection fd " << cqe->res << " from " << peer_ip
+                    << ":" << ntohs(ud->accept_addr.sin_port);
 
           VLOG(1) << "Index:" << index << " accepted connection on "
                   << listener->type_to_str() << " listener"
@@ -123,7 +131,7 @@ void EventLoop::run() {
           if (cqe->res < 0) {
             state.dump_entire_state();
             LOG(FATAL) << "Failed to read from " << orig_conn->get_host() << ":"
-                       << orig_conn->get_port()
+                       << orig_conn->get_port() << " fd " << orig_conn->get_fd()
                        << ", error: " << strerror(-cqe->res);
           } else if (cqe->res == 0) {
             LOG(INFO) << "Closing connection on fd: " << orig_conn->get_fd()
