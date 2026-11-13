@@ -303,7 +303,7 @@ Config load_config(const std::string &filename) {
     LOG(INFO) << "config.cpu_count: " << local_config.cpu_count.value();
   }
 
-  if (config.is_ingress &&
+  if (local_config.is_ingress &&
       (local_config.num_threads != (int)local_config.mapping.size())) {
     LOG(FATAL) << "Number of threads (" << local_config.num_threads
                << ") does not match the number of hosted services ("
