@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include <pthread.h>
+#include <unistd.h>
 
 #ifdef NANO_LOG_ENABLED
 #include "NanoLog.h"
@@ -22,11 +23,16 @@ static void nanolog_atexit_sync() {
     NanoLog::sync();
 }
 
-static void nanolog_on_sigterm(int /*sig*/) {
+#endif
+
+// The sidecar runs as PID 1, where the kernel drops a re-raised SIGTERM (glog's handler re-raises it),
+// so without this the pod waits out the 30 s kill grace period.
+static void on_sigterm(int /*sig*/) {
+#ifdef NANO_LOG_ENABLED
     NanoLog::sync();
+#endif
     _exit(128 + 15);
 }
-#endif
 
 void MyPrefixFormatter(std::ostream& s, const google::LogMessage& m, void* /*data*/) {
     s << google::GetLogSeverityName(m.severity())[0]
@@ -51,12 +57,12 @@ int main(int argc, char* argv[]) {
     google::InitGoogleLogging(argv[0]);
     google::InstallPrefixFormatter(&MyPrefixFormatter);
     google::InstallFailureSignalHandler();
+    std::signal(SIGTERM, on_sigterm);  // after glog, so it replaces glog's SIGTERM handler
 
 #ifdef NANO_LOG_ENABLED
     NanoLog::setLogFile("/compressedLog");
     NanoLog::preallocate();
     NanoLog::setLogLevel(NOTICE);
-    std::signal(SIGTERM, nanolog_on_sigterm);
     std::atexit(nanolog_atexit_sync);
 #endif
 
