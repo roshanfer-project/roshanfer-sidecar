@@ -26,7 +26,7 @@ struct MappingInfo {
   std::optional<bool> dfanout;
 };
 
-enum class LateBindingType { FCFS, EDF };
+enum class LateBindingType { NONE, FCFS, EDF };
 
 struct Config {
   size_t ring_size;
@@ -52,9 +52,16 @@ struct Config {
   std::optional<int> cpu_count;
   std::optional<float> over_commitment;
   int extra_limit;
+  float aimd_err_d = -0.05F;
+  float aimd_err_i = -0.3F;
+  float aimd_adj_d = 1.5F;
+  float aimd_adj_i = 1.0F;
+  float safe_multiply = 2.0F;
   bool lb_mode;
   bool mesh_late_binding;
   LateBindingType late_binding_type;
+  // false: one Credit Request in flight per ingress queue (main's behavior)
+  bool ingress_concurrent_credit_requests;
 };
 
 Config load_config(const std::string &filename);

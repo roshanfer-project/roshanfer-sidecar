@@ -107,10 +107,10 @@ void RingWrapper::prepare_accept(std::shared_ptr<Listener> listener,
 
   // zero initialize the structure
   std::memset(&ud->accept_addr, 0, sizeof(struct sockaddr_in));
-  socklen_t server_addr_len = sizeof(ud->accept_addr);
+  ud->accept_addr_len = sizeof(ud->accept_addr);
 
   io_uring_prep_accept(sqe, fd, reinterpret_cast<sockaddr *>(&ud->accept_addr),
-                       &server_addr_len, 0);
+                       &ud->accept_addr_len, 0);
 
   ud->listener = std::move(listener);
   ud->op = Operation::ACCEPT;

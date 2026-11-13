@@ -86,6 +86,7 @@ public:
   size_t index;
   UDPType udp_type;
   struct sockaddr_in accept_addr; // used for preparing accept
+  socklen_t accept_addr_len; // must outlive prepare_accept: the kernel may write it later
 
   // used for preparing sendmsg
   struct msghdr msg;

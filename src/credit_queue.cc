@@ -18,7 +18,7 @@ void InnerCreditQueue::push(std::unique_ptr<Buffer> buffer,
 
 std::unique_ptr<Buffer> InnerCreditQueue::pop(
     int32_t &in_flight, LocalMap<int32_t> &in_flight_per_endpoint,
-    int32_t &ppm_limit, LocalMap<int32_t> &per_endpoint_limit) {
+    int32_t &global_limit, LocalMap<int32_t> &per_endpoint_limit) {
   if (_size == 0) {
     return nullptr;
   }
@@ -27,7 +27,7 @@ std::unique_ptr<Buffer> InnerCreditQueue::pop(
   while (1) {
     if (it->value.size() > 0 &&
         in_flight_per_endpoint.get(it->key) < per_endpoint_limit.get(it->key) &&
-        in_flight < ppm_limit) {
+        in_flight < global_limit) {
       in_flight_per_endpoint.get(it->key)++;
       in_flight++;
       auto buffer = std::move(it->value.front());
@@ -49,7 +49,7 @@ std::unique_ptr<Buffer> InnerCreditQueue::pop(
 CreditQueue::CreditQueue(std::vector<std::string> endpoints, int32_t cpu_count)
     : credit_queue{{{endpoints}, {endpoints}, {endpoints}}},
       weights({16, 4, 1}), it(0), remaining_rounds(weights.at(it)), lock(),
-      _size(0), in_flight(0), ppm_limit(0), in_flight_per_endpoint(endpoints),
+      _size(0), in_flight(0), global_limit(0), in_flight_per_endpoint(endpoints),
       per_endpoint_limit(endpoints) {
   for (size_t i = 0; i < endpoints.size(); i++) {
     in_flight_per_endpoint.set(endpoints.at(i), 0);
@@ -59,11 +59,11 @@ CreditQueue::CreditQueue(std::vector<std::string> endpoints, int32_t cpu_count)
   auto sum_limit = max_limit * (int)endpoints.size();
   if (config.routing.size() == 0) {
     // for leaf services
-    ppm_limit = max_limit + (int32_t)((float)(sum_limit - max_limit) *
+    global_limit = max_limit + (int32_t)((float)(sum_limit - max_limit) *
                                       config.over_commitment.value_or(-1));
   } else {
     // for intermediate services
-    ppm_limit = INT_MAX;
+    global_limit = INT_MAX;
   }
 }
 
@@ -85,9 +85,9 @@ void CreditQueue::update_endpoint_limit(int32_t limit, std::string_view api) {
           << ", limit: " << limit;
 }
 
-void CreditQueue::update_ppm_limit(int32_t limit) {
+void CreditQueue::update_global_limit(int32_t limit) {
   lock.lock();
-  ppm_limit = limit;
+  global_limit = limit;
   lock.unlock();
   VLOG(1) << "CreditQueue: new global limit: " << limit;
 }
@@ -100,7 +100,7 @@ std::unique_ptr<Buffer> CreditQueue::pop() {
   lock.lock();
 
   // global limit check
-  if (in_flight >= ppm_limit) {
+  if (in_flight >= global_limit) {
     lock.unlock();
     return nullptr;
   }
@@ -108,7 +108,7 @@ std::unique_ptr<Buffer> CreditQueue::pop() {
   size_t init_index = it;
   while (1) {
     if (auto buffer = credit_queue.at(it).pop(in_flight, in_flight_per_endpoint,
-                                              ppm_limit, per_endpoint_limit);
+                                              global_limit, per_endpoint_limit);
         buffer != nullptr) {
       remaining_rounds--;
       if (remaining_rounds == 0) {

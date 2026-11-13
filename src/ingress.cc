@@ -87,7 +87,7 @@ std::optional<std::shared_ptr<RPCMessage>> Ingress::dequeue() {
   auto rpc = std::move(queue.front());
   queue.pop_front();
 
-  dn_on_fly -= 1;
+  credit_requests_on_fly -= 1;
   ingress_mean.update((double)queue.size());
   VLOG(2) << "Dequeued RPC message for service: " << ingress_service;
 #ifdef NANO_LOG_ENABLED
@@ -102,19 +102,20 @@ void Ingress::update_ingress_cap() {
   auto err =
       (stats.tail_e2e_time_us.get(ingress_service).value() - slo_us) / slo_us;
 
-  if (err > aimd_err_d) {
-    ingress_size_cap = (size_t)std::ceil((float)ingress_size_cap / aimd_adj_d);
-  } else if (err < aimd_err_i) {
+  if (err > config.aimd_err_d) {
+    ingress_size_cap =
+        (size_t)std::ceil((float)ingress_size_cap / config.aimd_adj_d);
+  } else if (err < config.aimd_err_i) {
     auto ing_mean = ingress_mean.value();
     auto concurrency =
         stats.time_mean_ds_concurrency.get(ingress_service).value();
     if (ing_mean >= (float)ingress_size_cap * aimd_queue_th) {
-      ingress_size_cap += (size_t)std::ceil((-err) * aimd_adj_i);
-    } else if ((float)ingress_size_cap > safe_multiply * concurrency) {
+      ingress_size_cap += (size_t)std::ceil((-err) * config.aimd_adj_i);
+    } else if ((float)ingress_size_cap > config.safe_multiply * concurrency) {
       const double lowered =
-          std::ceil((double)ingress_size_cap / (double)aimd_adj_d);
-      ingress_size_cap =
-          (size_t)std::max((double)(safe_multiply * concurrency), lowered);
+          std::ceil((double)ingress_size_cap / (double)config.aimd_adj_d);
+      ingress_size_cap = (size_t)std::max(
+          (double)(config.safe_multiply * concurrency), lowered);
     }
   }
 
@@ -197,16 +198,21 @@ void Ingress::drop_rpc(std::shared_ptr<RPCMessage> rpc) {
           << "| id: " << drop_rpc->get_id_string();
 }
 
-std::optional<std::tuple<RPCID, Priority>> Ingress::send_dn_checker() {
-  if (queue.size() <= dn_on_fly) {
+std::optional<std::tuple<RPCID, Priority>>
+Ingress::send_credit_request_checker() {
+  if (queue.size() <= credit_requests_on_fly) {
+    return std::nullopt;
+  }
+  if (!config.ingress_concurrent_credit_requests &&
+      credit_requests_on_fly > 0) {
     return std::nullopt;
   }
 
-  auto rpc = queue.at(dn_on_fly);
+  auto rpc = queue.at(credit_requests_on_fly);
   if (rpc == nullptr) {
     LOG(FATAL) << "queue is empty";
   }
-  dn_on_fly += 1;
+  credit_requests_on_fly += 1;
   return std::make_tuple(rpc->get_local_id(), rpc->get_priority());
 }
 

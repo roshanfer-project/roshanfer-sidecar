@@ -118,7 +118,7 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
 
   for (const auto &[service, info] : config.mapping) {
     /* local_state.local_concurrency_limit.set(service,
-                                            (uint32_t)config.ppm_limit); */
+                                            (uint32_t)config.global_limit); */
 
     // for ingress, we should have the same name for hosted services and
     // downstream services
@@ -133,9 +133,9 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
 
   /*
   Since HTTP/1.1 does not support multiplexing, we need to create at least
-  ppm_limit connections for ingress requests. In the case of HTTP/2, we can
-  easilly go up to 100 concurrent streams, but ppm_limit will limit the number
-  concurrent streams.
+  global_limit connections for ingress requests. In the case of HTTP/2, we can
+  easilly go up to 100 concurrent streams, but global_limit will limit the
+  number concurrent streams.
   */
   int n_conn;
   if (config.is_frontend) {
@@ -165,8 +165,9 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
     }
   }
 
-  // PPM UDP: mesh binds well-known port + SO_REUSEPORT; ingress stays unbound
-  // so credit replies return to the per-thread ephemeral source of each DN.
+  // RLP UDP: mesh binds well-known port + SO_REUSEPORT; ingress stays unbound
+  // so credit replies return to the per-thread ephemeral source of each Credit
+  // Request.
   sockfd = socket(AF_INET, SOCK_DGRAM, 0);
   if (sockfd < 0) {
     LOG(FATAL) << "Failed to create socket";
@@ -175,21 +176,21 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
     int reuse = 1;
     if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse)) <
         0) {
-      LOG(FATAL) << "Failed to set SO_REUSEPORT on PPM socket: "
+      LOG(FATAL) << "Failed to set SO_REUSEPORT on RLP socket: "
                  << strerror(errno);
     }
-    struct sockaddr_in ppm_addr{};
-    ppm_addr.sin_family = AF_INET;
-    ppm_addr.sin_port = htons(config.ingress_listener_port);
-    ppm_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    if (bind(sockfd, reinterpret_cast<struct sockaddr *>(&ppm_addr),
-             sizeof(ppm_addr)) < 0) {
-      LOG(FATAL) << "Failed to bind PPM UDP socket to port "
+    struct sockaddr_in rlp_addr{};
+    rlp_addr.sin_family = AF_INET;
+    rlp_addr.sin_port = htons(config.ingress_listener_port);
+    rlp_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (bind(sockfd, reinterpret_cast<struct sockaddr *>(&rlp_addr),
+             sizeof(rlp_addr)) < 0) {
+      LOG(FATAL) << "Failed to bind RLP UDP socket to port "
                  << config.ingress_listener_port << ": " << strerror(errno);
     }
   }
 
-  LOG(INFO) << "ppm_limit: " << shared_state.credit_queue.get_ppm_limit();
+  LOG(INFO) << "global_limit: " << shared_state.credit_queue.get_global_limit();
   for (const auto &service : get_hosted_services(parsed_config)) {
     LOG(INFO) << "per_endpoint_limit for " << service << ": "
               << shared_state.credit_queue.get_per_endpoint_limit(service);
@@ -375,8 +376,8 @@ bool State::forward_request(std::shared_ptr<HTTPConnection> conn,
 void State::forward(ConnectionType type, ConnectionDirection direction) {
   if (type == ConnectionType::EGRESS &&
       direction == ConnectionDirection::DOWNSTREAM) {
-    // we don't route EGRESS DOWNSTREAM requests (handled by `ingress_admit`
-    // and `ppm_client`)
+    // we don't route EGRESS DOWNSTREAM requests (handled by `Ingress::enqueue`
+    // and `protocol_client`)
     return;
   }
   if (rpc_queue.empty(type, direction)) {
@@ -504,7 +505,7 @@ void State::remove_connection(std::shared_ptr<HTTPConnection> conn) {
   // pools.at(conn.type).remove_connection(conn.get_fd());
 }
 
-static std::string_view extract_service_from_ppm_req(const char *data) {
+static std::string_view extract_service_from_rlp_req(const char *data) {
   size_t header_size = 27;
   if (data[1] != 0x01 && data[1] != 0x02) {
     LOG(FATAL) << "Invalid message type: " << (int)data[1];
@@ -521,7 +522,7 @@ State::credit_post_process(const std::unique_ptr<Buffer> &buf) {
   const char *data = buf->data.data();
 
   // check the data format and extract the service name
-  auto key = extract_service_from_ppm_req(data);
+  auto key = extract_service_from_rlp_req(data);
   const std::string &service =
       config.is_ingress ? ingress_service : ppm_queue.check(key);
   // extract the ID of the request (int64_t)
@@ -578,7 +579,7 @@ State::credit_post_process(const std::unique_ptr<Buffer> &buf) {
                << ", service of the credit: " << key;
   }
 
-  VLOG(1) << "PPMClient: Valid credit "
+  VLOG(1) << "ProtocolClient: Valid credit "
           << "| id: " << id << "| service: " << key
           << "| new credits: " << (int)data[4]
           << "| ppm_queue size: " << ppm_queue.size(service);
@@ -586,12 +587,12 @@ State::credit_post_process(const std::unique_ptr<Buffer> &buf) {
   return {service, true, data[4], id, value_to_fanout_type(buf->data.at(14))};
 }
 
-void State::ppm_client(bool dn_resp,
-                       const std::unique_ptr<Buffer> &dn_resp_buffer) {
-  if (dn_resp) {
-    // we have received a demand notification response
+void State::protocol_client(bool is_credit_grant,
+                            const std::unique_ptr<Buffer> &credit_grant) {
+  if (is_credit_grant) {
+    // we have received a Credit Grant
     auto [service, ok, num_credits, credit_id, fanout_type] =
-        credit_post_process(dn_resp_buffer);
+        credit_post_process(credit_grant);
 
     if (!ok) {
       return;
@@ -599,14 +600,15 @@ void State::ppm_client(bool dn_resp,
 
     for (size_t i = 0; i < num_credits; i++) {
       if (!config.is_ingress) {
-        fanout_req_management(credit_id, service, fanout_type, dn_resp_buffer);
+        fanout_req_management(credit_id, service, fanout_type, credit_grant);
       } else {
-        LOG(FATAL) << "Ingress should not use ppm_client for sending requests "
-                      "post credit";
+        LOG(FATAL)
+            << "Ingress should not use protocol_client for sending requests "
+               "post credit";
       }
     }
   } else {
-    // we need to send a demand notification
+    // we need to send a credit request
 
     // first admit all requests to ppm queue
     size_t size =
@@ -623,7 +625,7 @@ void State::ppm_client(bool dn_resp,
           rpc_mapper.get_ds_rpc(ConnectionType::EGRESS, ds_stream_id, ds_fd);
       rpc_mapper.register_id_map(rpc, ConnectionType::EGRESS);
 
-      // send out DNs
+      // send Credit Requests
       auto &ingress_rpc = rpc_mapper.get_ingress_rpc(rpc->get_local_id());
       auto &mapping_entry = config.mapping.at(ingress_rpc->get_service());
       FanOutType fanout_type;
@@ -635,20 +637,20 @@ void State::ppm_client(bool dn_resp,
         fanout_type = FanOutType::SEQUENTIAL;
       }
 
-      // for dynamic fan-out, send DN to all downstreams
+      // for dynamic fan-out, send Credit Request to all downstreams
       if (mapping_entry.dfanout.value_or(false)) {
         ingress_rpc->dfanout_service = &rpc->get_service();
         for (auto &ds_service : mapping_entry.downstreams) {
           auto addr = upstream_route_mapper.get_pool(ds_service)
                           .acquire(rpc->get_local_id());
-          send_dn(addr, ds_service, 1, rpc->get_local_id(), rpc->get_priority(),
-                  fanout_type);
+          send_credit_request(addr, ds_service, 1, rpc->get_local_id(),
+                              rpc->get_priority(), fanout_type);
         }
       } else {
         auto addr = upstream_route_mapper.get_pool(rpc->get_service())
                         .acquire(rpc->get_local_id());
-        send_dn(addr, rpc->get_service(), 1, rpc->get_local_id(),
-                rpc->get_priority(), fanout_type);
+        send_credit_request(addr, rpc->get_service(), 1, rpc->get_local_id(),
+                            rpc->get_priority(), fanout_type);
       }
 
       // we need to have the replica index before pushing
@@ -679,7 +681,7 @@ void State::ppm_client(bool dn_resp,
 */
 void State::fanout_req_management(RPCID credit_id, const std::string &service,
                                   FanOutType fanout_type,
-                                  const std::unique_ptr<Buffer> &dn_reply) {
+                                  const std::unique_ptr<Buffer> &credit_grant) {
   // credit management and transmission
   // Paralell and Dynamic only support early-binding
   if (fanout_type == FanOutType::PARALELL) {
@@ -704,11 +706,11 @@ void State::fanout_req_management(RPCID credit_id, const std::string &service,
     ingress_rpc->pfanout_req++;
     // fill dfanout queue
     if (*ingress_rpc->dfanout_service != service) {
-      auto credit_return = prepare_credit_return(dn_reply);
+      auto credit_return = prepare_credit_return(credit_grant);
       credit_return->ret_service = &service;
       credit_return->ret_id = credit_id;
       ingress_rpc->credit_return_queue.push(std::move(credit_return));
-      VLOG(2) << "PPMClient: Add credit for service: " << service
+      VLOG(2) << "ProtocolClient: Add credit for service: " << service
               << " credit_id: " << credit_id << " to Credit Return Queue";
     }
 
@@ -730,7 +732,7 @@ void State::fanout_req_management(RPCID credit_id, const std::string &service,
         ring.prepare_sendmsg(sockfd, std::move(ret),
                              buffer_manager.get_user_data());
       }
-      VLOG(2) << "PPMClient: Flush Credit Return Queue for credit_id: "
+      VLOG(2) << "ProtocolClient: Flush Credit Return Queue for credit_id: "
               << credit_id;
     }
 
@@ -753,23 +755,23 @@ void State::fanout_req_management(RPCID credit_id, const std::string &service,
 }
 
 std::unique_ptr<Buffer>
-State::prepare_credit_return(const std::unique_ptr<Buffer> &dn_reply) {
-  auto credit_ret = buffer_manager.get_dn_buffer();
+State::prepare_credit_return(const std::unique_ptr<Buffer> &credit_grant) {
+  auto credit_ret = buffer_manager.get_udp_buffer();
 
   // copy the content
   if (credit_ret->get_size() - credit_ret->get_filled() <
-      dn_reply->get_filled()) {
+      credit_grant->get_filled()) {
     LOG(FATAL) << "buffer overflow";
   }
-  std::copy_n(dn_reply->data.begin(), dn_reply->get_filled(),
+  std::copy_n(credit_grant->data.begin(), credit_grant->get_filled(),
               credit_ret->data.begin());
-  credit_ret->set_filled(dn_reply->get_filled());
+  credit_ret->set_filled(credit_grant->get_filled());
 
   // set the command code
   credit_ret->data.at(1) = 0x02; // credit return (0x02)
 
   // set the detination
-  credit_ret->prepare_sendmsg(dn_reply->get_addr());
+  credit_ret->prepare_sendmsg(credit_grant->get_addr());
 
   return credit_ret;
 }
@@ -821,19 +823,20 @@ void State::fanout_res_credit_management(RPCID id) {
   shared_state.credit_queue.increment_in_flight(ingress_rpc->get_service());
 }
 
-void State::send_dn(struct sockaddr_in addr, const std::string &service,
-                    size_t num_credits, RPCID id, Priority priority,
-                    FanOutType fanout_type) {
-  // send a demand notification
+void State::send_credit_request(struct sockaddr_in addr,
+                                const std::string &service, size_t num_credits,
+                                RPCID id, Priority priority,
+                                FanOutType fanout_type) {
+  // send a Credit Request
   ssize_t header_size = 27;
   size_t len = (size_t)header_size + service.length();
-  auto buffer = buffer_manager.get_dn_buffer();
+  auto buffer = buffer_manager.get_udp_buffer();
   if (buffer->data.size() < len) {
     LOG(FATAL) << "Buffer size is too small";
   }
   buffer->data.at(0) = (char)len;
-  buffer->data.at(1) = 0x01;              // demand notification (0x01)
-  buffer->data.at(2) = 0x00;              // request (0x00), response (0x01)
+  buffer->data.at(1) = 0x01; // credit request (0x01)
+  buffer->data.at(2) = 0x00; // Credit Request (0x00), Credit Grant (0x01)
   buffer->data.at(3) = (char)num_credits; // number of requested credits
   // position 4 is for the received number of credits
   // position 5 is for the ID of the request (int64_t - eight bytes)
@@ -871,7 +874,7 @@ void State::send_dn(struct sockaddr_in addr, const std::string &service,
   ring.prepare_sendmsg_with_serveraddr(sockfd, std::move(buffer),
                                        buffer_manager.get_user_data(), addr);
 
-  VLOG(1) << "PPMClient: DN for new request "
+  VLOG(1) << "ProtocolClient: Credit Request for new request "
           << "| service: " << service << "| id: " << id << "| credits: " << 1
           << "| queue size: " << ppm_queue.size(service);
 }
@@ -879,7 +882,7 @@ void State::send_dn(struct sockaddr_in addr, const std::string &service,
 void State::dump_entire_state() {
   LOG(INFO) << "Dumping entire state:";
   LOG(INFO) << "ingress_service: " << ingress_service;
-  LOG(INFO) << "PPM State:";
+  LOG(INFO) << "RLP State:";
   LOG(INFO) << "--- In Local "
                "(shared_state.in_local) ---";
   LOG(INFO) << "  " << shared_state.in_local.load();
@@ -906,11 +909,12 @@ void State::ingress_pre_credit() {
     ingress.update_ingress_cap();
   }
   std::optional<std::tuple<RPCID, Priority>> potential;
-  while ((potential = ingress.send_dn_checker()).has_value()) {
-    // we should send a DN
+  while ((potential = ingress.send_credit_request_checker()).has_value()) {
+    // we should send a Credit Request
     auto [id, priority] = potential.value();
     auto addr = upstream_route_mapper.get_pool(ingress_service).acquire(id);
-    send_dn(addr, ingress_service, 1, id, priority, FanOutType::SEQUENTIAL);
+    send_credit_request(addr, ingress_service, 1, id, priority,
+                        FanOutType::SEQUENTIAL);
   }
 }
 
@@ -943,30 +947,30 @@ void State::ingress_post_credit(const std::unique_ptr<Buffer> &buf) {
   // drain drops
   forward(ConnectionType::EGRESS, ConnectionDirection::UPSTREAM);
 
-  // send the next DN
+  // send the next Credit Request
   ingress_pre_credit();
 }
 
-inline static void write_dn_response(int result,
-                                     const std::unique_ptr<Buffer> &req,
-                                     const std::unique_ptr<Buffer> &resp) {
-  // copy request to response
-  if (resp->data.size() - resp->get_filled() < req->get_filled()) {
+inline static void write_credit_grant(int granted_credits,
+                                      const std::unique_ptr<Buffer> &req,
+                                      const std::unique_ptr<Buffer> &grant) {
+  // copy Credit Request to Credit Grant
+  if (grant->data.size() - grant->get_filled() < req->get_filled()) {
     LOG(FATAL) << "Buffer overflow"
-               << " , resp size: " << resp->data.size()
-               << " , filled: " << resp->get_filled()
+               << " , grant size: " << grant->data.size()
+               << " , filled: " << grant->get_filled()
                << " , req size: " << req->get_filled();
   }
-  std::copy_n(req->data.begin(), req->get_filled(), resp->data.begin());
-  resp->data.at(2) = 0x01; // response
-  resp->data.at(4) = (char)result;
-  resp->set_filled(req->get_filled());
+  std::copy_n(req->data.begin(), req->get_filled(), grant->data.begin());
+  grant->data.at(2) = 0x01; // Credit Grant
+  grant->data.at(4) = (char)granted_credits;
+  grant->set_filled(req->get_filled());
 }
 
 inline static void
-write_failed_dn_response(const std::unique_ptr<Buffer> &req,
-                         const std::unique_ptr<Buffer> &resp) {
-  write_dn_response(1, req, resp);
+write_full_credit_grant(const std::unique_ptr<Buffer> &req,
+                        const std::unique_ptr<Buffer> &resp) {
+  write_credit_grant(1, req, resp);
   resp->prepare_sendmsg(req->get_addr());
 }
 
@@ -976,7 +980,7 @@ void State::check_credit_transmission() {
     return;
   }
 
-  // calculate the queuing time in credit_queue and set it to response
+  // calculate the queuing time in credit_queue and set it on the Credit Grant
   int64_t now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                        std::chrono::steady_clock::now().time_since_epoch())
                        .count();
@@ -989,7 +993,7 @@ void State::check_credit_transmission() {
   ring.prepare_sendmsg(sockfd, std::move(buffer),
                        buffer_manager.get_user_data());
 
-  VLOG(1) << "QM: Sent credit " << "| thread id: " << thread_id;
+  VLOG(1) << "ProtocolServer: Sent credit " << "| thread id: " << thread_id;
 }
 
 float State::cal_local_service_time(std::string_view us_service) {
@@ -1054,16 +1058,16 @@ float State::get_theo_term(std::string_view service, bool sequential) {
 }
 
 void State::update_limits(int32_t rtt, std::string_view service) {
-  VLOG(2) << "QM: RTT " << rtt << " for service " << service;
+  VLOG(2) << "ProtocolServer: RTT " << rtt << " for service " << service;
   auto &rtt_stats = stats.ema_us_sidecar_rtt_us.get(service);
   rtt_stats.update(rtt);
   if (rtt_stats.get_count() % 2000 == 0) {
-    VLOG(1) << "QM: RTT " << rtt_stats.get_value() << " for service "
-            << service;
+    VLOG(1) << "ProtocolServer: RTT " << rtt_stats.get_value()
+            << " for service " << service;
     auto local_rt = cal_local_service_time(service);
     // auto local_rt = stats.ma_us_service_time_us.get(service).get_value();
-    VLOG(1) << "QM: Local Service time " << local_rt << " for service "
-            << service;
+    VLOG(1) << "ProtocolServer: Local Service time " << local_rt
+            << " for service " << service;
     auto it = config.mapping.find(service);
     if (it == config.mapping.end()) {
       LOG(FATAL) << "service " << service << " not found in config.mapping";
@@ -1079,12 +1083,13 @@ void State::update_limits(int32_t rtt, std::string_view service) {
     }
     new_limit += config.extra_limit;
     shared_state.credit_queue.update_endpoint_limit(new_limit, service);
-    VLOG(1) << "QM: New limit for service " << service << " is " << new_limit;
+    VLOG(1) << "ProtocolServer: New limit for service " << service << " is "
+            << new_limit;
 
     // only update global limit for leaf services (intermediate services don't
     // use it)
     if (config.routing.size() == 0) {
-      // update ppm_limit
+      // update global_limit
       auto sum_limits = 0;
       auto max_limit = 0;
       for (auto &[us_service, _] : config.mapping) {
@@ -1094,16 +1099,16 @@ void State::update_limits(int32_t rtt, std::string_view service) {
         max_limit = limit > max_limit ? limit : max_limit;
       }
 
-      shared_state.credit_queue.update_ppm_limit(
+      shared_state.credit_queue.update_global_limit(
           max_limit + (int32_t)((float)(sum_limits - max_limit) *
                                 config.over_commitment.value()));
     }
 
-    VLOG(1) << "QM: New ppm limit is "
-            << shared_state.credit_queue.get_ppm_limit();
+    VLOG(1) << "ProtocolServer: New global limit is "
+            << shared_state.credit_queue.get_global_limit();
 #ifdef NANO_LOG_ENABLED
     NANO_LOG(NOTICE, "M# %s LIMIT GLOBAL T:T %d", config.name.c_str(),
-             shared_state.credit_queue.get_ppm_limit());
+             shared_state.credit_queue.get_global_limit());
     NANO_LOG(NOTICE, "M# %s LIMIT LOCAL-%.*s T:T %d", config.name.c_str(),
              static_cast<int>(service.size()), service.data(),
              shared_state.credit_queue.get_per_endpoint_limit(service));
@@ -1114,47 +1119,47 @@ void State::update_limits(int32_t rtt, std::string_view service) {
   }
 }
 
-void State::dispatch_ppm_recv(const std::unique_ptr<Buffer> &buf) {
+void State::dispatch_rlp_recv(const std::unique_ptr<Buffer> &buf) {
   const size_t n = buf->get_filled();
   if (n < 3) {
-    LOG(FATAL) << "PPM UDP payload too short: " << n;
+    LOG(FATAL) << "RLP UDP payload too short: " << n;
   }
   const auto &d = buf->data;
-  static constexpr size_t k_ppm_header = 27;
+  static constexpr size_t k_rlp_header = 27;
   size_t declared = (size_t)(unsigned char)d[0];
-  if (declared < k_ppm_header || declared > n) {
-    LOG(FATAL) << "Invalid PPM length byte: " << declared << " filled: " << n;
+  if (declared < k_rlp_header || declared > n) {
+    LOG(FATAL) << "Invalid RLP length byte: " << declared << " filled: " << n;
   }
   uint8_t b1 = (unsigned char)d[1];
   uint8_t b2 = (unsigned char)d[2];
   if (b1 == 0x02) {
-    queue_multiplexer(buf);
+    protocol_server(buf);
     return;
   }
   if (b1 == 0x01 && b2 == 0x00) {
-    queue_multiplexer(buf);
+    protocol_server(buf);
     return;
   }
   if (b1 == 0x01 && b2 == 0x01) {
     if (config.is_ingress) {
       ingress_post_credit(buf);
     } else {
-      ppm_client(true, buf);
+      protocol_client(true, buf);
     }
     return;
   }
-  LOG(FATAL) << "Unknown PPM UDP message: type " << (int)b1 << " flags "
+  LOG(FATAL) << "Unknown RLP UDP message: type " << (int)b1 << " flags "
              << (int)b2;
 }
 
-void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
+void State::protocol_server(const std::unique_ptr<Buffer> &req) {
   // read the request
   if (req->data.at(1) == 0x01) {
-    // we have demand notification
+    // we have a credit request
 
     // check if it's a request
     if (req->data.at(2) != 0x00) {
-      LOG(FATAL) << "QM only handles DN requests";
+      LOG(FATAL) << "ProtocolServer only handles Credit Requests";
     }
 
     char requested_credits = req->data.at(3);
@@ -1162,7 +1167,7 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
       LOG(FATAL) << "Batching is not allowed";
     }
 
-    std::string_view service = extract_service_from_ppm_req(req->data.data());
+    std::string_view service = extract_service_from_rlp_req(req->data.data());
     RPCID rpc_id = (int64_t)((uint64_t)(unsigned char)req->data.at(5) << 56 |
                              (uint64_t)(unsigned char)req->data.at(6) << 48 |
                              (uint64_t)(unsigned char)req->data.at(7) << 40 |
@@ -1183,12 +1188,12 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
       LOG(FATAL) << "Invalid RTT: " << rtt;
     }
 
-    VLOG(1) << "QM: Received DN request "
+    VLOG(1) << "ProtocolServer: Received Credit Request "
             << "| service: " << service << "| id: " << rpc_id
             << "| priority: " << priority << "| thread id: " << thread_id;
 
-    auto resp = buffer_manager.get_dn_buffer();
-    write_failed_dn_response(req, resp);
+    auto resp = buffer_manager.get_udp_buffer();
+    write_full_credit_grant(req, resp);
     resp->enter_queue_ts =
         std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::steady_clock::now().time_since_epoch())
@@ -1200,8 +1205,8 @@ void State::queue_multiplexer(const std::unique_ptr<Buffer> &req) {
 
   } else if (req->data.at(1) == 0x02) {
     // credit return
-    auto service = extract_service_from_ppm_req(req->data.data());
-    VLOG(2) << "QM: Received Credit Return "
+    auto service = extract_service_from_rlp_req(req->data.data());
+    VLOG(2) << "ProtocolServer: Received Credit Return "
             << "| service: " << service;
     shared_state.credit_queue.decrement_in_flight(service);
     check_credit_transmission();

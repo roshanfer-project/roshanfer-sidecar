@@ -58,14 +58,26 @@ Config load_config(const std::string &filename) {
   if (node["mesh_late_binding"]) {
     local_config.mesh_late_binding = node["mesh_late_binding"].as<bool>();
   } else {
-    local_config.mesh_late_binding = true;
+    local_config.mesh_late_binding = false;
   }
   LOG(INFO) << "config.mesh_late_binding: " << local_config.mesh_late_binding;
+
+  // optional ingress_concurrent_credit_requests
+  if (node["ingress_concurrent_credit_requests"]) {
+    local_config.ingress_concurrent_credit_requests =
+        node["ingress_concurrent_credit_requests"].as<bool>();
+  } else {
+    local_config.ingress_concurrent_credit_requests = false;
+  }
+  LOG(INFO) << "config.ingress_concurrent_credit_requests: "
+            << local_config.ingress_concurrent_credit_requests;
 
   std::string type_string;
   if (node["late_binding_type"]) {
     type_string = node["late_binding_type"].as<std::string>();
-    if (type_string == "fcfs") {
+    if (type_string == "none") {
+      local_config.late_binding_type = LateBindingType::NONE;
+    } else if (type_string == "fcfs") {
       local_config.late_binding_type = LateBindingType::FCFS;
     } else if (type_string == "edf") {
       local_config.late_binding_type = LateBindingType::EDF;
@@ -77,6 +89,10 @@ Config load_config(const std::string &filename) {
     type_string = "fcfs";
   }
   LOG(INFO) << "config.late_binding_type: " << type_string;
+  if (local_config.mesh_late_binding &&
+      local_config.late_binding_type == LateBindingType::NONE) {
+    LOG(FATAL) << "mesh_late_binding is true but late_binding_type is none";
+  }
 
   if (node["is_plain_frontend"]) {
     local_config.is_plain_frontend = node["is_plain_frontend"].as<bool>();
@@ -114,6 +130,27 @@ Config load_config(const std::string &filename) {
     local_config.extra_limit = 0;
   }
   LOG(INFO) << "config.extra_limit: " << local_config.extra_limit;
+
+  if (node["aimd_err_d"]) {
+    local_config.aimd_err_d = node["aimd_err_d"].as<float>();
+  }
+  if (node["aimd_err_i"]) {
+    local_config.aimd_err_i = node["aimd_err_i"].as<float>();
+  }
+  if (node["aimd_adj_d"]) {
+    local_config.aimd_adj_d = node["aimd_adj_d"].as<float>();
+  }
+  if (node["aimd_adj_i"]) {
+    local_config.aimd_adj_i = node["aimd_adj_i"].as<float>();
+  }
+  if (node["safe_multiply"]) {
+    local_config.safe_multiply = node["safe_multiply"].as<float>();
+  }
+  LOG(INFO) << "config.aimd_err_d: " << local_config.aimd_err_d
+            << " aimd_err_i: " << local_config.aimd_err_i
+            << " aimd_adj_d: " << local_config.aimd_adj_d
+            << " aimd_adj_i: " << local_config.aimd_adj_i
+            << " safe_multiply: " << local_config.safe_multiply;
 
   // Optional is_frontend
   if (node["is_frontend"]) {
@@ -266,7 +303,7 @@ Config load_config(const std::string &filename) {
     LOG(INFO) << "config.cpu_count: " << local_config.cpu_count.value();
   }
 
-  if (config.is_ingress &&
+  if (local_config.is_ingress &&
       (local_config.num_threads != (int)local_config.mapping.size())) {
     LOG(FATAL) << "Number of threads (" << local_config.num_threads
                << ") does not match the number of hosted services ("

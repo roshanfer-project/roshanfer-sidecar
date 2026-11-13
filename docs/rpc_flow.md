@@ -2,7 +2,7 @@
 
 # Ingress
 
-We use `ConnectionType::EGRESS` for mesh-facing TCP because it matches PPM routing: requests arrive on the listener typed `INGRESS`, but each parsed RPC is handled as **EGRESS downstream** toward the frontend pool. Responses follow the reverse path. **`ConnectionType::INGRESS` TCP path is not used for ingress HTTP.** Only HTTP/1.
+We use `ConnectionType::EGRESS` for mesh-facing TCP because it matches Request Limit Protocol (RLP) routing: requests arrive on the listener typed `INGRESS`, but each parsed RPC is handled as **EGRESS downstream** toward the frontend pool. Responses follow the reverse path. **`ConnectionType::INGRESS` TCP path is not used for ingress HTTP.** Only HTTP/1.
 
 ## Request
 
@@ -15,26 +15,26 @@ Requests are received on `ConnectionDirection::DOWNSTREAM` on the EGRESS listene
 ### Ingress queue (single buffer before mesh)
 
 4. **`Ingress::enqueue`** (`ingress.cc`):
-   - **Admission:** if **`queue.size() >= ingress_size_cap`**, **`drop_rpc`** (503 on **`rpc_queue` EGRESS UPSTREAM**) and return—strict cap (**admit only when `size < ingress_size_cap`**).
-   - Otherwise adds **`rpc-id`**, **`priority`**, and **`deadline`** headers (`add_rpc_id_header` / `add_priority_header` / `add_deadline_header`), bumps **`ingress_mean.up()`** (time-weighted occupancy tracker), **`push_back`** onto the deque.
+   - **Admission:** if **`!lb_mode`** and **`queue.size() >= ingress_size_cap`**, **`drop_rpc`** (503 on **`rpc_queue` EGRESS UPSTREAM**) and return—strict cap (**admit only when `size < ingress_size_cap`**). **`lb_mode`** skips this drop.
+   - Otherwise adds **`rpc-id`**, **`priority`**, and **`deadline`** headers (`add_rpc_id_header` / `add_priority_header` / `add_deadline_header`), **`push_back`**, then **`ingress_mean.update(queue.size())`**.
    - Ingress requires **`routing.slo`** and **`routing.priority`** for the service (validated in ctor).
 
 5. Event loop calls **`State::forward`** (drops/responses only on usual queues).
 
 6. **`State::ingress_pre_credit`** (`state.cc`):
    - If **`stats.tail_e2e_time_us`** reported a fresh smoothed quantile flush (**`consume_flush_updated()`**), **`Ingress::update_ingress_cap()`** runs (**AIMD** on **`ingress_size_cap`**; see below).
-   - **`Ingress::send_dn_checker`**: if the deque is non-empty and there is **no DN already in flight** (`has_dn_on_fly`), sets `has_dn_on_fly` and returns true.
-   - If true: **`send_dn`** with **`queue.front()`**’s `get_id()` / `get_priority()` (same ids as HTTP headers).
+   - **`Ingress::send_credit_request_checker`**: while **`queue.size() > credit_requests_on_fly`**, take **`queue.at(credit_requests_on_fly)`**, increment the count, and return that RPC’s **`get_local_id()`** / **`get_priority()`**.
+   - For each returned pair: **`acquire(id)`** then **`send_credit_request`**. Multiple Credit Requests can be outstanding at once.
 
-7. **`State::ppm_client(false, nullptr)`** runs afterward; for ingress it only drains **`rpc_queue` EGRESS downstream** if anything was queued there (ingress mesh requests **do not** go through that queue). Frontend/backend still use this path.
+7. **`State::protocol_client(false, nullptr)`** runs afterward; for ingress it only drains **`rpc_queue` EGRESS downstream** if anything was queued there (ingress mesh requests **do not** go through that queue). Frontend/backend still use this path.
 
-### Credit grant → forward
+### Credit Grant → forward
 
-8. On UDP **credit grant** (`dispatch_ppm_recv`, response to our DN), ingress calls **`State::ingress_post_credit`** (not `ppm_client(true, …)`).
+8. On UDP **Credit Grant** (`dispatch_rlp_recv`, the Credit Grant for our Credit Request), ingress calls **`State::ingress_post_credit`** (not `protocol_client(true, …)`).
 
 9. **`ingress_post_credit`**: **`credit_post_process`**, then asserts **`num_credits == 1`** (batched grants are fatal on ingress).
 
-10. **`Ingress::dequeue`** pops the **front** RPC, clears **`has_dn_on_fly`**, **`ingress_mean.down()`**, returns **`std::optional`** carrying that RPC. (**Implementation detail:** today an empty deque is **`LOG(FATAL)`**; **`ingress_post_credit`** still has a branch that emits **`0x02`** if dequeue returns **`nullopt`**—useful if the implementation later allows an empty deque under a race.)
+10. **`Ingress::dequeue`** pops the **front** RPC, decrements **`credit_requests_on_fly`**, **`ingress_mean.update(queue.size())`**, returns **`std::optional`** carrying that RPC. (**Implementation detail:** today an empty deque is **`LOG(FATAL)`**; **`ingress_post_credit`** still has a branch that emits **`0x02`** if dequeue returns **`nullopt`**—useful if the implementation later allows an empty deque under a race.)
 
 11. If **`dequeue`** returned a value → **`send_sub_request`** (`route_request` + **`forward_request`**, no **`PPMQueue`**).
 
@@ -42,7 +42,7 @@ Requests are received on `ConnectionDirection::DOWNSTREAM` on the EGRESS listene
 
 13. **`forward(ConnectionType::EGRESS, ConnectionDirection::UPSTREAM)`** drains queued **503** responses from **`drop_rpc`** so clients do not wait for an unrelated TCP READ.
 
-14. **`ingress_pre_credit`** issues the **next DN** if there is backlog and **`send_dn_checker`** allows it.
+14. **`ingress_pre_credit`** issues Credit Requests for any remaining queued RPCs that do not yet have one outstanding.
 
 15. Elsewhere, **`write_http`** flushes bytes on connections.
 
@@ -52,11 +52,11 @@ Completed RPCs update **`Stats::tail_e2e_time_us`** (**`SmoothedQuantileEstimato
 
 Rough control law (constants in **`ingress.h`**): **`err = (ema_us − slo_us) / slo_us`** where **`slo_us = slo_ms * 1000`** matches microsecond latency samples. If **`err > aimd_err_d`**, **`ingress_size_cap`** is multiplicatively decreased using **`ceil(cap / aimd_adj_d)`** (less aggressive than truncating down). If **`err < aimd_err_i`**, the cap may increase when the time-average ingress occupancy (**`ingress_mean.value()`** since the last read) is high relative to the cap, or decrease slightly when the cap exceeds **`safe_multiply *`** time-average downstream concurrency (**`time_mean_ds_concurrency`**); that branch also uses **`ceil(cap / aimd_adj_d)`** for the lowered candidate. Finally **`ingress_size_cap ≥ 1`**.
 
-**Signals:** **`ingress_mean`**—**`up`** on admit, **`down`** on **`dequeue`**—feeds average queue depth between AIMD reads. **`time_mean_ds_concurrency`**—**`up`** on **`send_sub_request`**, **`down`** on egress response handling—approximates work visible past ingress for the concurrency guard.
+**Signals:** **`ingress_mean`**—**`update(queue.size())`** on admit and **`dequeue`**—feeds average queue depth between AIMD reads. **`time_mean_ds_concurrency`**—**`up`** on **`send_sub_request`**, **`down`** on egress response handling—approximates work visible past ingress for the concurrency guard.
 
 ### Dropped request (ingress only)
 
-Ingress drops are **`Ingress::drop_rpc`**: **head-drop when the ingress deque has reached `ingress_size_cap`**, and the same helper for explicit error responses. Drops enqueue **`RPCQueue` EGRESS UPSTREAM** and **`forward`** drains **503**s. Downstream sidecars do not run ingress drop logic.
+Ingress drops are **`Ingress::drop_rpc`**: **head-drop when `!lb_mode` and the ingress deque has reached `ingress_size_cap`**, and the same helper for explicit error responses. Drops enqueue **`RPCQueue` EGRESS UPSTREAM** and **`forward`** drains **503**s. Downstream sidecars do not run ingress drop logic.
 
 ## Response
 
@@ -80,7 +80,7 @@ Direction `DOWNSTREAM`.
 
 ### `ConnectionType::EGRESS` requests
 
-3. Same PPM client pattern as other mesh nodes: **`ppm_client(false)`** drains **`rpc_queue` → `PPMQueue` → `send_dn`**; **`ppm_client(true)`** on grant pops **`PPMQueue`** and forwards. **Unlike ingress**, the frontend keeps admitted mesh RPCs in **`PPMQueue`** until credited. Replica and connection selection: see **`load_balancing.md`**.
+3. Same RLP client pattern as other mesh nodes: **`protocol_client(false)`** drains **`rpc_queue` → `PPMQueue` → `send_credit_request`**; **`protocol_client(true)`** on Credit Grant pops **`PPMQueue`** and forwards. **Unlike ingress**, the frontend keeps admitted mesh RPCs in **`PPMQueue`** until credited. Replica and connection selection: see **`load_balancing.md`**.
 
 ## Response
 
@@ -99,4 +99,4 @@ gRPC on both sides; same idea as frontend EGRESS path. See **`HTTP2Connection::h
 3. `on_header_callback` fills headers.
 4. `on_data_chunk_recv_callback` for DATA.
 5. `frame_recv_callback` detects RPC completion → **`RPCQueue`**.
-6. Same **`forward` / `ppm_client`** flow as frontend EGRESS. Replica and connection selection: see **`load_balancing.md`**.
+6. Same **`forward` / `protocol_client`** flow as frontend EGRESS. Replica and connection selection: see **`load_balancing.md`**.

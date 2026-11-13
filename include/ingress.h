@@ -23,7 +23,7 @@ public:
   const std::string &expected_service() const { return ingress_service; }
   void update_ingress_cap();
   void dump_state();
-  std::optional<std::tuple<RPCID, Priority>> send_dn_checker();
+  std::optional<std::tuple<RPCID, Priority>> send_credit_request_checker();
 
 private:
   void drop_rpc(std::shared_ptr<RPCMessage>);
@@ -33,11 +33,6 @@ private:
 
   // AIMD members
   size_t ingress_size_cap = 10;
-  const float aimd_err_d = -0.05F;
-  const float aimd_err_i = -0.3F;
-  const float aimd_adj_d = 1.5F;
-  const float aimd_adj_i = 1.0F;
-  const float safe_multiply = 2.0F;
   const float aimd_queue_th = 0.8F;
 
   Stats &stats;
@@ -45,7 +40,7 @@ private:
   RPCQueue &rpc_queue;
   std::deque<std::shared_ptr<RPCMessage>> queue;
   TimeWeightedMean ingress_mean;
-  size_t dn_on_fly = 0;
+  size_t credit_requests_on_fly = 0;
   int32_t priority;
   int32_t drop_id;
   int drop_fd;
