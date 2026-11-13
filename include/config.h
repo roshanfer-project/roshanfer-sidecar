@@ -52,6 +52,7 @@ struct Config {
   std::optional<int> cpu_count;
   std::optional<float> over_commitment;
   int extra_limit;
+  bool bounded_limit_step = true;
   float aimd_err_d = -0.05F;
   float aimd_err_i = -0.3F;
   float aimd_adj_d = 1.5F;

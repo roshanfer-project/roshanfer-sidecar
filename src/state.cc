@@ -1,5 +1,6 @@
 #include "state.h"
 #include "buffer.h"
+#include "bounded_step.h"
 #include "buffer_manager.h"
 #include "config.h"
 #include "connection.h"
@@ -1075,13 +1076,20 @@ void State::update_limits(int32_t rtt, std::string_view service) {
     bool sequential = !it->second.pfanout.value_or(false) &&
                       !it->second.dfanout.value_or(false);
     float theo_term = get_theo_term(service, sequential);
-    int32_t new_limit =
-        (std::max((int32_t)std::ceil(theo_term / local_rt), 1) + 1) *
-        config.cpu_count.value();
+    float ratio = theo_term / local_rt;
+    // The cast is UB for local_rt <= 0 or a ratio past int32; x86 gave 1.
+    int32_t mult = (local_rt > 0 && ratio < (float)INT32_MAX)
+                       ? std::max((int32_t)std::ceil(ratio), 1)
+                       : 1;
+    int32_t new_limit = (mult + 1) * config.cpu_count.value();
     if (!it->second.dfanout.value_or(false)) {
       new_limit += it->second.downstreams.size();
     }
     new_limit += config.extra_limit;
+    if (config.bounded_limit_step) {
+      new_limit = bounded_step(
+          shared_state.credit_queue.get_per_endpoint_limit(service), new_limit);
+    }
     shared_state.credit_queue.update_endpoint_limit(new_limit, service);
     VLOG(1) << "ProtocolServer: New limit for service " << service << " is "
             << new_limit;

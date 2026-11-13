@@ -89,6 +89,11 @@ TEST(ConfigTest, MissingKeysUseDefaults) {
   expect_mode(parse(kBase), {false, LateBindingType::FCFS, false});
 }
 
+TEST(ConfigTest, BoundedLimitStep) {
+  EXPECT_TRUE(parse(kBase).bounded_limit_step);
+  EXPECT_FALSE(parse(kBase + "bounded_limit_step: false\n").bounded_limit_step);
+}
+
 TEST(ConfigDeathTest, LateBindingWithNoneType) {
   EXPECT_DEATH(parse(kBase + "mesh_late_binding: True\n"
                              "late_binding_type: none\n"),

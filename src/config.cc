@@ -131,6 +131,11 @@ Config load_config(const std::string &filename) {
   }
   LOG(INFO) << "config.extra_limit: " << local_config.extra_limit;
 
+  if (node["bounded_limit_step"]) {
+    local_config.bounded_limit_step = node["bounded_limit_step"].as<bool>();
+  }
+  LOG(INFO) << "config.bounded_limit_step: " << local_config.bounded_limit_step;
+
   if (node["aimd_err_d"]) {
     local_config.aimd_err_d = node["aimd_err_d"].as<float>();
   }
