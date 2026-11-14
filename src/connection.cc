@@ -29,7 +29,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <unordered_map>
-#include <unordered_set>
 
 std::string type_to_str(ConnectionType type) {
   if (type == ConnectionType::INGRESS) {
@@ -452,8 +451,7 @@ std::shared_ptr<HTTPConnection> ReplicaPool::get_connection(int fd) {
   }
 };
 
-std::shared_ptr<HTTPConnection>
-ReplicaPool::get_any_conn(const std::unordered_set<FD> *exclude) {
+std::shared_ptr<HTTPConnection> ReplicaPool::get_any_conn() {
   if (connections.empty()) {
     throw NoConnectionException("ReplicaPool is empty");
   }
@@ -461,9 +459,7 @@ ReplicaPool::get_any_conn(const std::unordered_set<FD> *exclude) {
   auto start = next_conn;
   do {
     auto &c = next_conn->second;
-    const bool excluded =
-        exclude && exclude->find(c->get_fd()) != exclude->end();
-    if (c->available() && !excluded) {
+    if (c->available()) {
       auto out = c;
       next_conn++;
       if (next_conn == connections.end()) {
@@ -505,36 +501,16 @@ std::shared_ptr<ReplicaPool> ConnectionPool::lb() {
 
 struct sockaddr_in ConnectionPool::acquire(RPCID id) {
   auto replica = lb();
-  std::shared_ptr<HTTPConnection> conn;
-  try {
-    conn = replica->get_any_conn(&binded_fds);
-  } catch (NoConnectionException &e) {
-    LOG(FATAL) << "No conn available to acquire. id: " << id;
-  }
-
-  // update bindings
-  auto [_, ok] =
-      bindings.emplace(id, LBBind{.lb_fd = conn->get_fd(),
-                                  .replica_index = replica->get_index()});
-  if (!ok) {
+  if (!bindings.emplace(id, replica->get_index()).second) {
     LOG(FATAL) << "cannot bind to id: " << id;
   }
-  if (conn->http() == HTTP::HTTP1) {
-    if (!binded_fds.emplace(conn->get_fd()).second) {
-      LOG(FATAL) << "cannot bind to fd: " << conn->get_fd();
-    }
-  }
-
-  // update waitings
   waitings.increase(replica->get_index());
-
-  return conn->get_addr_in();
+  return replica->get_addr();
 }
 
-std::shared_ptr<HTTPConnection> ConnectionPool::peek(RPCID id) {
+std::shared_ptr<ReplicaPool> ConnectionPool::replica(RPCID id) {
   if (auto it = bindings.find(id); it != bindings.end()) {
-    return replicas.at(it->second.replica_index)
-        ->get_connection(it->second.lb_fd);
+    return replicas.at(it->second);
   } else {
     LOG(FATAL) << "id: " << id << " not found in bindings";
   }
@@ -542,8 +518,7 @@ std::shared_ptr<HTTPConnection> ConnectionPool::peek(RPCID id) {
 
 void ConnectionPool::release(RPCID id) {
   if (auto it = bindings.find(id); it != bindings.end()) {
-    waitings.decrease(it->second.replica_index);
-    binded_fds.erase(it->second.lb_fd);
+    waitings.decrease(it->second);
     bindings.erase(it);
   } else {
     LOG(FATAL) << "id: " << id << " not found in bindings";

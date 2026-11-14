@@ -20,7 +20,6 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 class NoConnectionException : public std::runtime_error {
@@ -206,11 +205,6 @@ private:
   std::shared_ptr<HTTPMessage> rpc_message;
 };
 
-typedef struct LBBind {
-  FD lb_fd;
-  ReplicaIndex replica_index;
-} LBBind;
-
 class ReplicaPool {
 public:
   ReplicaPool(ReplicaIndex, struct sockaddr_in, ConnectionType);
@@ -226,8 +220,7 @@ public:
   std::shared_ptr<HTTPConnection>
   add_connection(const std::string &, int, RPCMapper *, RPCQueue *, HTTP,
                  Stats *, struct sockaddr_in * = nullptr);
-  std::shared_ptr<HTTPConnection>
-  get_any_conn(const std::unordered_set<FD> * = nullptr);
+  std::shared_ptr<HTTPConnection> get_any_conn();
   std::shared_ptr<HTTPConnection> get_connection(int fd);
   struct sockaddr_in get_addr() { return addr; }
   ReplicaIndex get_index() { return index; }
@@ -249,7 +242,7 @@ public:
 
   std::shared_ptr<ReplicaPool> lb();
   struct sockaddr_in acquire(RPCID);
-  std::shared_ptr<HTTPConnection> peek(RPCID);
+  std::shared_ptr<ReplicaPool> replica(RPCID);
   void release(RPCID);
 
   std::shared_ptr<ReplicaPool> &add_replica(struct sockaddr_in addr_in) {
@@ -277,8 +270,8 @@ private:
   ReplicaIndex max_replica_index = 0;
   ConnectionType type;
   KeyValueMinTracker waitings{};
-  std::unordered_map<RPCID, LBBind> bindings{};
-  std::unordered_set<FD> binded_fds{};
+  // credit id -> replica it was requested from; the connection is picked at send
+  std::unordered_map<RPCID, ReplicaIndex> bindings{};
 };
 
 inline bool same_sockaddr_in(const struct sockaddr_in &a,

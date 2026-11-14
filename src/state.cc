@@ -290,7 +290,8 @@ std::shared_ptr<HTTPConnection> State::route_request(ConnectionType type,
       pool = std::nullopt;
     } else {
       pool.emplace(&upstream_route_mapper.get_pool(rpc->get_service()));
-      conn = pool.value()->peek(credit_id);
+      // any idle connection to the replica that granted the credit
+      conn = pool.value()->replica(credit_id)->get_any_conn();
     }
 
     if (conn->get_status() == ConnectionStatus::TEARDOWN) {
