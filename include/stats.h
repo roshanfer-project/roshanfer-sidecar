@@ -1,7 +1,6 @@
 #pragma once
 
 #include "fast_map.hpp"
-#include "hdr/hdr_histogram.h"
 #include "quantile_estimator.hpp"
 #include "rpc_message.h"
 #include "tdigest.h"
@@ -15,24 +14,6 @@
 #ifdef NANO_LOG_ENABLED
 #include "config.h"
 #endif
-
-class Utilization {
-public:
-  Utilization(uint32_t, std::vector<std::string> services);
-  void update(uint32_t, std::string &);
-
-private:
-  void report(std::string &service);
-
-private:
-  LocalMap<double> total;
-  LocalMap<uint32_t> last_in;
-  LocalMap<uint32_t> count;
-  uint32_t period;
-  LocalMap<std::chrono::steady_clock::time_point> last_update;
-  LocalMap<std::chrono::steady_clock::time_point> last_report;
-  struct hdr_histogram *hist;
-};
 
 class MovingAverage {
 public:

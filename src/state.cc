@@ -84,7 +84,6 @@ State::State(Config parsed_config, RingWrapper &ring_ref,
       shared_state(shared_state_ref),
       local_state(get_hosted_services(parsed_config),
                   get_downstream_services(parsed_config), ingress_service_ref),
-      utilization(1000, get_hosted_services(parsed_config)),
       ingress_service(ingress_service_ref), stats(stats_ref) {
 
   if (config.buffer_size > HTTP1Connection_BUF_SIZE) {
@@ -410,8 +409,6 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
 
       if (!config.is_ingress) {
         shared_state.in_local.fetch_add(1);
-        utilization.update((uint32_t)shared_state.in_local.load(),
-                           rpc->get_service());
       }
     } else if (direction == ConnectionDirection::UPSTREAM) {
       // we are dealing with a response
@@ -451,8 +448,6 @@ void State::forward(ConnectionType type, ConnectionDirection direction) {
 
             // update stats
             shared_state.in_local.fetch_sub(1);
-            utilization.update((uint32_t)shared_state.in_local.load(),
-                               rpc->get_service());
           }
 
           if (VLOG_IS_ON(1)) {

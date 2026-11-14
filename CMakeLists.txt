@@ -66,9 +66,6 @@ set_target_properties(yaml-cpp PROPERTIES
 # find nghttp2
 pkg_check_modules(NGHTTP2 REQUIRED libnghttp2)
 
-# add hdrhistogram
-add_subdirectory(external/HdrHistogram_c)
-
 # add NanoLog
 include_directories(include)
 include_directories(SYSTEM external/NanoLog/runtime)
@@ -93,8 +90,6 @@ target_link_libraries(sidecar ${CMAKE_CURRENT_SOURCE_DIR}/external/NanoLog/runti
 target_link_libraries(sidecar pthread)
 # link rt
 target_link_libraries(sidecar rt)
-# link HdrHistogram
-target_link_libraries(sidecar hdr_histogram_static)
 
 # unit tests
 enable_testing()

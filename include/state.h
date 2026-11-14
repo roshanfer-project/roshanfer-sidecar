@@ -168,7 +168,6 @@ private:
 public:
   SharedState &shared_state;
   LocalState local_state;
-  Utilization utilization;
   std::string &ingress_service;
   Stats &stats;
 };

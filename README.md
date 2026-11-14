@@ -9,7 +9,7 @@ sidecar/
 ├── src/                       implementation (event loop, ingress, RLP, HTTP)
 ├── include/                   public headers for the same
 ├── docs/                      RPC flow, RLP, UDP internals, coding standards
-├── external/                  NanoLog, HdrHistogram, yaml-cpp, glog
+├── external/                  NanoLog, yaml-cpp, glog
 ├── build.sh                   CMake wrapper (release / debug)
 ├── CMakeLists.txt             C++20 build
 └── Dockerfile                 ubuntu:noble image
