@@ -1054,7 +1054,7 @@ void State::update_limits(int32_t rtt, std::string_view service) {
   VLOG(2) << "ProtocolServer: RTT " << rtt << " for service " << service;
   auto &rtt_stats = stats.ema_us_sidecar_rtt_us.get(service);
   rtt_stats.update(rtt);
-  if (rtt_stats.get_count() % 2000 == 0) {
+  if (rtt_stats.get_count() % 200 == 0) {
     VLOG(1) << "ProtocolServer: RTT " << rtt_stats.get_value()
             << " for service " << service;
     auto local_rt = cal_local_service_time(service);
