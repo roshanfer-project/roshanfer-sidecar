@@ -98,10 +98,6 @@ add_executable(flexible_priority_queue_test tests/flexible_priority_queue_test.c
 target_link_libraries(flexible_priority_queue_test GTest::gtest_main glog::glog)
 gtest_discover_tests(flexible_priority_queue_test)
 
-add_executable(bounded_step_test tests/bounded_step_test.cc)
-target_link_libraries(bounded_step_test GTest::gtest_main)
-gtest_discover_tests(bounded_step_test)
-
 add_executable(config_test tests/config_test.cc src/config.cc)
 target_link_libraries(config_test GTest::gtest_main glog::glog yaml-cpp)
 gtest_discover_tests(config_test)

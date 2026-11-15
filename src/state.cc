@@ -1,6 +1,5 @@
 #include "state.h"
 #include "buffer.h"
-#include "bounded_step.h"
 #include "buffer_manager.h"
 #include "config.h"
 #include "connection.h"
@@ -1082,10 +1081,6 @@ void State::update_limits(int32_t rtt, std::string_view service) {
       new_limit += it->second.downstreams.size();
     }
     new_limit += config.extra_limit;
-    if (config.bounded_limit_step) {
-      new_limit = bounded_step(
-          shared_state.credit_queue.get_per_endpoint_limit(service), new_limit);
-    }
     shared_state.credit_queue.update_endpoint_limit(new_limit, service);
     VLOG(1) << "ProtocolServer: New limit for service " << service << " is "
             << new_limit;
