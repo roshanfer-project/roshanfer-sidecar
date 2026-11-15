@@ -13,7 +13,7 @@ Unit tests (builds via `build.sh`, then runs `ctest`):
 ./test.sh debug
 ```
 
-Requires `libc++-18-dev` and `libc++abi-18-dev` (especially if `libc++-22-dev` is installed). Set `SIDECAR_ENABLE_NANOLOG=1` to enable NanoLog logging. Deps (glog, googletest, yaml-cpp, NanoLog) are built by `external/setup_deps.sh` on configure.
+Requires `libc++-18-dev` and `libc++abi-18-dev` (especially if `libc++-22-dev` is installed). Set `SIDECAR_ENABLE_METRICS=1` to compile in-memory metrics (`include/metrics.h`), served per thread at `127.0.0.1:5000+i/dump`. `build/metrics_bench` measures the per-record cost. Deps (glog, googletest, yaml-cpp) are built by `external/setup_deps.sh` on configure.
 
 # Project Instructions
 

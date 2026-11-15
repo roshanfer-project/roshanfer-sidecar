@@ -12,8 +12,7 @@ set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -fno-omit-frame-pointer")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g -gdwarf-3 -fno-omit-frame-pointer")
 # options: "-fsanitize=address": to see memory leaks, stack corruption, etc.
 
-option(SIDECAR_ENABLE_NANOLOG "Compile sidecar with NANO_LOG_ENABLED (metric export via NanoLog)" OFF)
-# NABO_LOG_TRACE_ENABLED: optional trace; keep off unless needed
+option(SIDECAR_ENABLE_METRICS "Compile sidecar with SIDECAR_METRICS (in-memory metrics served on /dump)" OFF)
 
 # enable hardening
 add_compile_definitions(_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE)
@@ -37,7 +36,7 @@ add_link_options(-L"${LIBCXX_ROOT}/lib" -Wl,-rpath,"${LIBCXX_ROOT}/lib")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror=format -Wshadow -Wnull-dereference -Wuninitialized -Wconversion -Wreorder -Wsign-compare -Wnon-virtual-dtor -Woverloaded-virtual -Wall -Wextra")
 # -Wrange-loop-analysis
 
-# Build dependencies (glog, googletest, NanoLog, yaml-cpp)
+# Build dependencies (glog, googletest, yaml-cpp)
 execute_process(COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/setup_deps.sh WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} RESULT_VARIABLE DEPS_RESULT)
 if(NOT DEPS_RESULT EQUAL 0)
   message(FATAL_ERROR "Failed to build dependencies")
@@ -66,15 +65,13 @@ set_target_properties(yaml-cpp PROPERTIES
 # find nghttp2
 pkg_check_modules(NGHTTP2 REQUIRED libnghttp2)
 
-# add NanoLog
 include_directories(include)
-include_directories(SYSTEM external/NanoLog/runtime)
 
 file(GLOB_RECURSE SOURCES src/*.cc src/*.c)
 
 add_executable(sidecar ${SOURCES})
-if(SIDECAR_ENABLE_NANOLOG)
-  target_compile_definitions(sidecar PRIVATE NANO_LOG_ENABLED)
+if(SIDECAR_ENABLE_METRICS)
+  target_compile_definitions(sidecar PRIVATE SIDECAR_METRICS)
 endif()
 # link glog
 target_link_libraries (sidecar glog::glog)
@@ -84,8 +81,6 @@ target_link_libraries(sidecar ${LIBURING_LIBRARIES})
 target_link_libraries(sidecar yaml-cpp)
 # link nghttp2
 target_link_libraries(sidecar ${NGHTTP2_LIBRARIES})
-# link nanolog
-target_link_libraries(sidecar ${CMAKE_CURRENT_SOURCE_DIR}/external/NanoLog/runtime/libNanoLog.a)
 # link pthread
 target_link_libraries(sidecar pthread)
 # link rt
@@ -101,3 +96,11 @@ gtest_discover_tests(flexible_priority_queue_test)
 add_executable(config_test tests/config_test.cc src/config.cc)
 target_link_libraries(config_test GTest::gtest_main glog::glog yaml-cpp)
 gtest_discover_tests(config_test)
+
+add_executable(metrics_test tests/metrics_test.cc src/metrics.cc)
+target_link_libraries(metrics_test GTest::gtest_main glog::glog)
+gtest_discover_tests(metrics_test)
+
+# microbenchmark, run by hand: taskset -c 2 ./build/metrics_bench
+add_executable(metrics_bench tests/metrics_bench.cc src/metrics.cc)
+target_link_libraries(metrics_bench glog::glog)

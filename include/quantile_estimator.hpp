@@ -11,11 +11,9 @@
 #include <utility>
 #include <vector>
 
-#if defined(NANO_LOG_ENABLED) || defined(NABO_LOG_TRACE_ENABLED)
-#include "NanoLog.h"
-#include "NanoLogCpp17.h"
-
-using namespace NanoLog::LogLevels;
+#ifdef SIDECAR_METRICS
+#include "metrics.h"
+#include <string>
 #endif
 namespace smoothed_quantile_estimator_detail {
 
@@ -110,7 +108,14 @@ public:
    * notify). */
   bool consume_flush_updated() { return std::exchange(flush_updated_, false); }
 
-  void set_description(std::string desc) { description = desc; }
+  void set_description(std::string desc) {
+    description = desc;
+#ifdef SIDECAR_METRICS
+    const std::string tail = "Tail-" + std::to_string(target_q_);
+    raw_id_ = metrics::id(tail + " " + description + " T:T");
+    smooth_id_ = metrics::id(tail + "-Smooth " + description + " T:T");
+#endif
+  }
 
 private:
   void flush_at(Clock::time_point now) {
@@ -135,15 +140,13 @@ private:
       smoothed_ = ema_alpha_ * q + (1.0 - ema_alpha_) * smoothed_;
     flush_updated_ = true;
 
-#ifdef NANO_LOG_ENABLED
-    if (description == "") {
+#ifdef SIDECAR_METRICS
+    if (raw_id_ == 0) {
       LOG(FATAL) << "emptry description in Qunatile Estimator";
     }
-
-    NANO_LOG(NOTICE, "M# %s Tail-%f %s T:T %f", config.name.c_str(), target_q_,
-             description.c_str(), q);
-    NANO_LOG(NOTICE, "M# %s Tail-%f-Smooth %s T:T %f", config.name.c_str(),
-             target_q_, description.c_str(), smoothed_);
+    const int64_t ts = metrics::now_us();
+    metrics::record(raw_id_, static_cast<float>(q), 0, ts);
+    metrics::record(smooth_id_, static_cast<float>(smoothed_), 0, ts);
 #endif
   }
 
@@ -157,4 +160,8 @@ private:
   std::optional<Clock::time_point> next_flush_;
   double smoothed_;
   bool flush_updated_{false};
+#ifdef SIDECAR_METRICS
+  uint16_t raw_id_ = 0;
+  uint16_t smooth_id_ = 0;
+#endif
 };

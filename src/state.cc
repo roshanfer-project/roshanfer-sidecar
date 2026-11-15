@@ -37,11 +37,8 @@
 #include <utility>
 #include <vector>
 
-#if defined(NANO_LOG_ENABLED) || defined(NABO_LOG_TRACE_ENABLED)
-#include "NanoLog.h"
-#include "NanoLogCpp17.h"
-
-using namespace NanoLog::LogLevels;
+#ifdef SIDECAR_METRICS
+#include "metrics.h"
 #endif
 
 UpstreamRouteMapper::UpstreamRouteMapper() : map() {}
@@ -1105,15 +1102,19 @@ void State::update_limits(int32_t rtt, std::string_view service) {
 
     VLOG(1) << "ProtocolServer: New global limit is "
             << shared_state.credit_queue.get_global_limit();
-#ifdef NANO_LOG_ENABLED
-    NANO_LOG(NOTICE, "M# %s LIMIT GLOBAL T:T %d", config.name.c_str(),
-             shared_state.credit_queue.get_global_limit());
-    NANO_LOG(NOTICE, "M# %s LIMIT LOCAL-%.*s T:T %d", config.name.c_str(),
-             static_cast<int>(service.size()), service.data(),
-             shared_state.credit_queue.get_per_endpoint_limit(service));
-    NANO_LOG(NOTICE, "M# %s Measured Local-RT-%.*s T:T %d", config.name.c_str(),
-             static_cast<int>(service.size()), service.data(),
-             (int32_t)local_rt);
+#ifdef SIDECAR_METRICS
+    const int64_t ts = metrics::now_us();
+    metrics::record(
+        stats.limit_global_id,
+        static_cast<float>(shared_state.credit_queue.get_global_limit()), 0,
+        ts);
+    metrics::record(stats.limit_local_id.get(service),
+                    static_cast<float>(
+                        shared_state.credit_queue.get_per_endpoint_limit(
+                            service)),
+                    0, ts);
+    metrics::record(stats.local_rt_id.get(service),
+                    static_cast<float>((int32_t)local_rt), 0, ts);
 #endif
   }
 }

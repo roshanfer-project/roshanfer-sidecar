@@ -18,11 +18,8 @@
 #include <tuple>
 #include <utility>
 
-#if defined(NANO_LOG_ENABLED) || defined(NABO_LOG_TRACE_ENABLED)
-#include "NanoLog.h"
-#include "NanoLogCpp17.h"
-
-using namespace NanoLog::LogLevels;
+#ifdef SIDECAR_METRICS
+#include "metrics.h"
 #endif
 
 Ingress::Ingress(int index_arg, std::string &ingress_service_ref,
@@ -33,6 +30,11 @@ Ingress::Ingress(int index_arg, std::string &ingress_service_ref,
       drop_fd(-index_arg), last_rpc_id((RPCID)index_arg << 48),
       ingress_service(ingress_service_ref) {
   ingress_mean.set_description("Ingress-Mean-" + ingress_service);
+#ifdef SIDECAR_METRICS
+  qs_id = metrics::id("Measured QS-" + ingress_service + " T:T");
+  qs_cap_id = metrics::id("Measured QS-CAP-" + ingress_service + " T:T");
+  err_id = metrics::id("Measured ERR-" + ingress_service + " N:N");
+#endif
   if (config.is_ingress) {
     if (!config.routing.at(ingress_service_ref).slo.has_value()) {
       LOG(FATAL) << "No SLO configured for ingress service: "
@@ -72,9 +74,8 @@ void Ingress::enqueue(std::shared_ptr<RPCMessage> rpc) {
   ingress_mean.update((double)queue.size());
   VLOG(2) << "Enqueued RPC message for service: " << ingress_service;
 
-#ifdef NANO_LOG_ENABLED
-  NANO_LOG(NOTICE, "M# %s Measured QS-%s T:T %zu", config.name.c_str(),
-           ingress_service.c_str(), queue.size());
+#ifdef SIDECAR_METRICS
+  metrics::record(qs_id, static_cast<float>(queue.size()));
 #endif
 }
 
@@ -90,9 +91,8 @@ std::optional<std::shared_ptr<RPCMessage>> Ingress::dequeue() {
   credit_requests_on_fly -= 1;
   ingress_mean.update((double)queue.size());
   VLOG(2) << "Dequeued RPC message for service: " << ingress_service;
-#ifdef NANO_LOG_ENABLED
-  NANO_LOG(NOTICE, "M# %s Measured QS-%s T:T %zu", config.name.c_str(),
-           ingress_service.c_str(), queue.size());
+#ifdef SIDECAR_METRICS
+  metrics::record(qs_id, static_cast<float>(queue.size()));
 #endif
   return rpc;
 }
@@ -120,11 +120,10 @@ void Ingress::update_ingress_cap() {
   }
 
   ingress_size_cap = std::max((size_t)1, ingress_size_cap);
-#ifdef NANO_LOG_ENABLED
-  NANO_LOG(NOTICE, "M# %s Measured QS-CAP-%s T:T %zu", config.name.c_str(),
-           ingress_service.c_str(), ingress_size_cap);
-  NANO_LOG(NOTICE, "M# %s Measured ERR-%s N:N %f", config.name.c_str(),
-           ingress_service.c_str(), err);
+#ifdef SIDECAR_METRICS
+  const int64_t ts = metrics::now_us();
+  metrics::record(qs_cap_id, static_cast<float>(ingress_size_cap), 0, ts);
+  metrics::record(err_id, static_cast<float>(err), 0, ts);
 #endif
 }
 

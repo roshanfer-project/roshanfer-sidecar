@@ -16,7 +16,8 @@ enum class Operation {
   CANCEL,
   RCVMSG,
   SENDMSG,
-  CLEAR
+  CLEAR,
+  DUMP_ACCEPT // metrics /dump listener (SIDECAR_METRICS only)
 };
 
 inline std::string operation_to_str(Operation op) {
@@ -37,6 +38,8 @@ inline std::string operation_to_str(Operation op) {
     return "SENDMSG";
   case Operation::CLEAR:
     return "CLEAR";
+  case Operation::DUMP_ACCEPT:
+    return "DUMP_ACCEPT";
   default:
     return "UNKNOWN";
   }

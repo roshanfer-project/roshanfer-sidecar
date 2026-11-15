@@ -30,4 +30,7 @@ public:
   Stats stats;
   Ingress ingress;
   State state;
+#ifdef SIDECAR_METRICS
+  int dump_fd;
+#endif
 };

@@ -20,6 +20,9 @@ public:
    */
   void prepare_accept(std::shared_ptr<Listener>, UserData *);
 
+  /** Accept on a plain fd (no Listener); used by the metrics /dump socket. */
+  void prepare_dump_accept(int fd, UserData *);
+
   /**
    * @brief Submits an SQE for reading data from the ring
    * @throws std::runtime_error if the submission fails

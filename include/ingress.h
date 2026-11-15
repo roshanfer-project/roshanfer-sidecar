@@ -58,4 +58,9 @@ private:
   std::array<char, 32> priority_header_value;
   std::array<char, 32> deadline_header_value;
   std::string &ingress_service;
+#ifdef SIDECAR_METRICS
+  uint16_t qs_id = 0;
+  uint16_t qs_cap_id = 0;
+  uint16_t err_id = 0;
+#endif
 };

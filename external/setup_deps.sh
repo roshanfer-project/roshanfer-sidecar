@@ -62,19 +62,6 @@ else
     echo "googletest already built. Skipping."
 fi
 
-# --- NanoLog ---
-if [ ! -f "${SCRIPT_DIR}/NanoLog/runtime/libNanoLog.a" ]; then
-    echo "Building NanoLog..."
-    cd "${SCRIPT_DIR}/NanoLog/runtime"
-    make clean
-    # NanoLog Makefile uses CXX_ARGS. We need to inject -stdlib=libc++ there.
-    # Also need -fPIC.
-    CXX=clang++-18 make libNanoLog.a CXX_ARGS="-std=c++17 -stdlib=libc++ -O3 -fPIC" -j$(nproc)
-    CXX=clang++-18 make decompressor CXX_ARGS="-std=c++17 -stdlib=libc++ -O3 -fPIC" -j$(nproc)
-else
-    echo "NanoLog already built. Skipping."
-fi
-
 # --- yaml-cpp ---
 # We can reuse the existing script but ensure it's called or just call it here.
 # The existing script handles its own checks.

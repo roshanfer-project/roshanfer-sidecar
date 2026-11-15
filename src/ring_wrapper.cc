@@ -118,6 +118,13 @@ void RingWrapper::prepare_accept(std::shared_ptr<Listener> listener,
   VLOG(1) << "Prepared accept, fd: " << fd;
 }
 
+void RingWrapper::prepare_dump_accept(int fd, UserData *ud) {
+  struct io_uring_sqe *sqe = get_sqe();
+  io_uring_prep_accept(sqe, fd, nullptr, nullptr, 0);
+  ud->op = Operation::DUMP_ACCEPT;
+  set_user_data(sqe, ud);
+}
+
 void RingWrapper::prepare_read(UserData *ud, std::shared_ptr<Listener> listener,
                                std::shared_ptr<HTTPConnection> conn) {
   struct io_uring_sqe *sqe = get_sqe();

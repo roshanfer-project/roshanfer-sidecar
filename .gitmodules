@@ -1,6 +1,3 @@
-[submodule "external/NanoLog"]
-        path = external/NanoLog
-        url = https://github.com/farzad1132/NanoLog.git
 [submodule "test/rwg"]
 	path = test/rwg
 	url = git@github.com:farzad1132/rwg.git

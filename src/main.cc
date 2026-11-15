@@ -14,23 +14,13 @@
 #include <pthread.h>
 #include <unistd.h>
 
-#ifdef NANO_LOG_ENABLED
-#include "NanoLog.h"
-#include "NanoLogCpp17.h"
-using namespace NanoLog::LogLevels;
-
-static void nanolog_atexit_sync() {
-    NanoLog::sync();
-}
-
+#ifdef SIDECAR_METRICS
+#include "metrics.h"
 #endif
 
 // The sidecar runs as PID 1, where the kernel drops a re-raised SIGTERM (glog's handler re-raises it),
 // so without this the pod waits out the 30 s kill grace period.
 static void on_sigterm(int /*sig*/) {
-#ifdef NANO_LOG_ENABLED
-    NanoLog::sync();
-#endif
     _exit(128 + 15);
 }
 
@@ -59,13 +49,6 @@ int main(int argc, char* argv[]) {
     google::InstallFailureSignalHandler();
     std::signal(SIGTERM, on_sigterm);  // after glog, so it replaces glog's SIGTERM handler
 
-#ifdef NANO_LOG_ENABLED
-    NanoLog::setLogFile("/compressedLog");
-    NanoLog::preallocate();
-    NanoLog::setLogLevel(NOTICE);
-    std::atexit(nanolog_atexit_sync);
-#endif
-
     Config parsed_config = load_config(argv[1]);
 
     std::vector<std::string> hosted_services;
@@ -92,8 +75,9 @@ int main(int argc, char* argv[]) {
     std::vector<std::thread> threads;
     for (uint8_t i = 0; i < parsed_config.num_threads; i++) {
         threads.emplace_back([&shared_state, parsed_config, i, &downstream_services]() {
-#ifdef NANO_LOG_ENABLED
-            NanoLog::preallocate();
+#ifdef SIDECAR_METRICS
+            // before EventLoop: its members intern metric ids on this thread
+            metrics::init(parsed_config.name + " thread " + std::to_string(i));
 #endif
             // Set thread name for identification in htop
             std::string thread_name = parsed_config.name + "-s-" + std::to_string(i);

@@ -20,6 +20,9 @@
 #include <strings.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#ifdef SIDECAR_METRICS
+#include "metrics.h"
+#endif
 
 void EventLoop::run() {
   // Pointers to accept and identify completion events
@@ -34,6 +37,9 @@ void EventLoop::run() {
   }
 
   ring.prepare_rcvmsg(state.get_sockfd(), buffer_manager.get_user_data());
+#ifdef SIDECAR_METRICS
+  ring.prepare_dump_accept(dump_fd, buffer_manager.get_user_data());
+#endif
 
   // main event loop
   while (true) {
@@ -361,6 +367,22 @@ void EventLoop::run() {
         break;
       }
 
+#ifdef SIDECAR_METRICS
+      case Operation::DUMP_ACCEPT: {
+        // debug-only port: a failed accept must not crash the run
+        if (cqe->res < 0) {
+          LOG(ERROR) << "Failed to accept /dump connection, error: "
+                     << strerror(-cqe->res);
+        } else {
+          // blocks this loop while it writes; only used after the load ends
+          metrics::serve(cqe->res);
+        }
+        ring.prepare_dump_accept(dump_fd, buffer_manager.get_user_data());
+        buffer_manager.free_user_data(ud);
+        break;
+      }
+#endif
+
       case Operation::CLEAR: {
         LOG(FATAL) << "Received a CLEAR operation, index: " << ud->index;
         break;
@@ -407,4 +429,8 @@ EventLoop::EventLoop(int th_index, std::string &ingress_service_ref,
   listeners.emplace(ConnectionType::INGRESS,
                     std::make_shared<Listener>(config.ingress_listener_port,
                                                ConnectionType::INGRESS));
+#ifdef SIDECAR_METRICS
+  dump_fd = metrics::listen(
+      static_cast<uint16_t>(metrics::kDumpBasePort + th_index));
+#endif
 };

@@ -18,11 +18,11 @@ if [ ! -d "./build" ]; then
 fi
 cd ./build
 EXTRA_CMAKE=()
-if [ "${SIDECAR_ENABLE_NANOLOG:-}" = "1" ]; then
-  EXTRA_CMAKE+=(-DSIDECAR_ENABLE_NANOLOG=ON)
-  echo "SIDECAR_ENABLE_NANOLOG=1 -> NanoLog metrics enabled in binary"
+if [ "${SIDECAR_ENABLE_METRICS:-}" = "1" ]; then
+  EXTRA_CMAKE+=(-DSIDECAR_ENABLE_METRICS=ON)
+  echo "SIDECAR_ENABLE_METRICS=1 -> in-memory metrics enabled in binary"
 else
-  EXTRA_CMAKE+=(-DSIDECAR_ENABLE_NANOLOG=OFF)
+  EXTRA_CMAKE+=(-DSIDECAR_ENABLE_METRICS=OFF)
 fi
 cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
   -DCMAKE_AR=/usr/bin/llvm-ar-18 -DCMAKE_RANLIB=/usr/bin/llvm-ranlib-18 "${EXTRA_CMAKE[@]}"
