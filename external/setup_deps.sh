@@ -62,6 +62,26 @@ else
     echo "googletest already built. Skipping."
 fi
 
+# --- liburing (static; noble's 2.5 lacks the futex helpers) ---
+if [ ! -f "${SCRIPT_DIR}/liburing_install/lib/liburing.a" ]; then
+    if [ ! -d "${SCRIPT_DIR}/liburing" ]; then
+        echo "Downloading liburing..."
+        wget -q https://github.com/axboe/liburing/archive/refs/tags/liburing-2.15.tar.gz -O liburing.tar.gz
+        tar -xf liburing.tar.gz
+        mv liburing-liburing-2.15 "${SCRIPT_DIR}/liburing"
+        rm liburing.tar.gz
+    fi
+
+    echo "Building liburing..."
+    cd "${SCRIPT_DIR}/liburing"
+    ./configure --cc=clang-18 --prefix="${SCRIPT_DIR}/liburing_install"
+    # -fPIC: the sidecar links as a PIE
+    CFLAGS="-O3 -fPIC" make -C src -j$(nproc)
+    make install
+else
+    echo "liburing already built. Skipping."
+fi
+
 # --- yaml-cpp ---
 # We can reuse the existing script but ensure it's called or just call it here.
 # The existing script handles its own checks.

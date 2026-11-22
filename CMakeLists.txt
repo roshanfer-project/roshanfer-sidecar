@@ -50,9 +50,12 @@ find_package(glog REQUIRED)
 set(GTest_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/googletest_install/lib/cmake/GTest)
 find_package(GTest REQUIRED)
 
-# find liburing
+# liburing, built statically by setup_deps.sh; BEFORE so its header wins over
+# the system's 2.5 copy
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBURING REQUIRED liburing)
+set(LIBURING_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/liburing_install)
+include_directories(BEFORE SYSTEM ${LIBURING_ROOT}/include)
+set(LIBURING_LIBRARIES ${LIBURING_ROOT}/lib/liburing.a)
 
 # yaml-cpp
 set(YAML_CPP_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/yaml-cpp)
@@ -108,3 +111,7 @@ gtest_discover_tests(metrics_test)
 # microbenchmark, run by hand: taskset -c 2 ./build/metrics_bench
 add_executable(metrics_bench tests/metrics_bench.cc src/metrics.cc)
 target_link_libraries(metrics_bench glog::glog)
+
+# cross-process futex-ring signalling delay, run by hand: ./build/futex_ring_bench [prod_cpu cons_cpu]
+add_executable(futex_ring_bench tests/futex_ring_bench.cc)
+target_link_libraries(futex_ring_bench glog::glog ${LIBURING_LIBRARIES})
