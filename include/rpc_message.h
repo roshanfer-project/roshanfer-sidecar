@@ -18,8 +18,6 @@
 
 const size_t MAX_HEADER_FIELD_SIZE = 60;
 
-extern int64_t local_id_counter;
-
 class HeaderField {
 public:
   HeaderField();

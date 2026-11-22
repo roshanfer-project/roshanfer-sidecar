@@ -13,7 +13,9 @@
 #include <sys/types.h>
 #include <vector>
 
-RPCID local_id_counter = 1;
+// Per thread: each thread owns its id_map and credit socket, so ids need only
+// be unique within a thread.
+static thread_local RPCID local_id_counter = 1;
 
 static inline RPCID get_new_local_id(RPCID parent) {
   local_id_counter++;

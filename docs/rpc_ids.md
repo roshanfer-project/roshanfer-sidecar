@@ -22,9 +22,9 @@ It is generated once at the Ingress. It is propagated with `rpc-id` at both INGR
 
 ## `local_id`
 
-In Ingress it is the same as `global_id`. This is fine because there is no fan-out at Ingress.
+In Ingress it is `get_new_local_id(0)` (parent lane 0). It is unique only within one ingress thread, which suffices: each thread owns its `id_map` and its UDP credit socket, so ids never cross threads. There is no fan-out at Ingress.
 
-For meth sidecars, it is generated at INGRESS-side and propagated to EGRESS-side with `rpc-local-id` header.
+For mesh sidecars, it is generated at INGRESS-side and propagated to EGRESS-side with `rpc-local-id` header.
 EGRESS-side reads it and uses it to generate EGRESS-side local id using the mechanism described below.
 
 **`rpc-local-id` is only used to inform EGRESS-side about the id of the INGRESS-side. Thus, it is not set for EGRESS-requests.**
@@ -34,7 +34,7 @@ EGRESS-side reads it and uses it to generate EGRESS-side local id using the mech
 One 64-bit `local_id` holds:
 
 - **High 32 bits:** `uint32_t(parent)` — for EGRESS-side mesh requests, `parent == P` from `rpc-local-id` (`P > 0`).
-- **Low 32 bits:** `uint32_t(local_id_counter)` — monotonic branch suffix; counter increment is global; low lane is masked so it never ORs into the parent lane.
+- **Low 32 bits:** `uint32_t(local_id_counter)` — monotonic branch suffix; the counter is `thread_local`, one per sidecar thread; low lane is masked so it never ORs into the parent lane.
 
 Decode (unsigned): `parent = (uint64_t)local_id >> 32`, `branch = (uint32_t)local_id`.
 
@@ -55,7 +55,7 @@ So the **high 32 bits** of the EGRESS `local_id` **must equal** the key under wh
 1. **Mesh EGRESS:** `rpc-local-id` → `P` with `1 ≤ P ≤ UINT32_MAX`; `local_id = get_new_local_id(P)`.
 2. **Lookup:** EGRESS composite `id` → ingress row keyed by `(uint32_t)((uint64_t)id >> 32)`.
 3. **Parent 0** is invalid for mesh composites; `get_ingress_rpc` enforces nonzero high half.
-4. **Branch lane** wraps modulo \(2^{32}\); avoid relying on uniqueness across extreme lifetime without resetting or widening.
+4. **Branch lane** wraps modulo \(2^{32}\), per thread; avoid relying on uniqueness across extreme lifetime without resetting or widening.
 
 ## Code pointers
 
