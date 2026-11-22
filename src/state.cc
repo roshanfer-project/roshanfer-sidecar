@@ -1031,23 +1031,19 @@ float State::cal_local_service_time(std::string_view us_service) {
   }
 }
 
-float State::get_theo_term(std::string_view service, bool sequential) {
+float State::get_theo_term(std::string_view service,
+                           const std::vector<std::string> &downstreams,
+                           bool sequential) {
+  // Only this endpoint's downstreams count (paper Eq. 2), not every one the pod
+  // calls.
   float theo_term = stats.ema_us_sidecar_rtt_us.get(service).get_value();
-  if (sequential) {
-    stats.ema_ds_sidecar_rtt_us.for_each_occupied_index([&](size_t i) {
-      theo_term += stats.ema_ds_sidecar_rtt_us.by_index(i).get_value();
-    });
-  } else {
-    float max_rtt = 0.0F;
-    stats.ema_ds_sidecar_rtt_us.for_each_occupied_index([&](size_t i) {
-      float v = stats.ema_ds_sidecar_rtt_us.by_index(i).get_value();
-      if (v > max_rtt)
-        max_rtt = v;
-    });
-    theo_term += max_rtt;
+  float ds_term = 0.0F;
+  for (auto &ds_service : downstreams) {
+    float v = stats.ema_ds_sidecar_rtt_us.get(ds_service).get_value();
+    ds_term = sequential ? ds_term + v : std::max(ds_term, v);
   }
 
-  return theo_term;
+  return theo_term + ds_term;
 }
 
 void State::update_limits(int32_t rtt, std::string_view service) {
@@ -1067,7 +1063,8 @@ void State::update_limits(int32_t rtt, std::string_view service) {
     }
     bool sequential = !it->second.pfanout.value_or(false) &&
                       !it->second.dfanout.value_or(false);
-    float theo_term = get_theo_term(service, sequential);
+    float theo_term =
+        get_theo_term(service, it->second.downstreams, sequential);
     float ratio = theo_term / local_rt;
     // The cast is UB for local_rt <= 0 or a ratio past int32; x86 gave 1.
     int32_t mult = (local_rt > 0 && ratio < (float)INT32_MAX)

@@ -143,7 +143,8 @@ private:
   credit_post_process(const std::unique_ptr<Buffer> &);
   bool check_credit_available(std::string_view);
   void check_credit_transmission();
-  float get_theo_term(std::string_view, bool);
+  float get_theo_term(std::string_view, const std::vector<std::string> &,
+                      bool);
   void update_limits(int32_t, std::string_view);
   void fanout_req_management(RPCID, const std::string &, FanOutType,
                              const std::unique_ptr<Buffer> &);
