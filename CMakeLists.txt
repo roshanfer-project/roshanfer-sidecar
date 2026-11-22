@@ -97,6 +97,10 @@ add_executable(config_test tests/config_test.cc src/config.cc)
 target_link_libraries(config_test GTest::gtest_main glog::glog yaml-cpp)
 gtest_discover_tests(config_test)
 
+add_executable(rpc_message_test tests/rpc_message_test.cc src/rpc_message.cc src/config.cc)
+target_link_libraries(rpc_message_test GTest::gtest_main glog::glog yaml-cpp)
+gtest_discover_tests(rpc_message_test)
+
 add_executable(metrics_test tests/metrics_test.cc src/metrics.cc)
 target_link_libraries(metrics_test GTest::gtest_main glog::glog)
 gtest_discover_tests(metrics_test)

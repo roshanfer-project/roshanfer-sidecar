@@ -30,7 +30,7 @@ static inline RPCID get_new_local_id(RPCID parent) {
 
 RPCMessage::RPCMessage()
     : ds_stream_id(0), ds_fd(-1), us_stream_id(0), us_fd(-1), local_id(-1),
-      global_id(-1), credit_return_queue() {}
+      global_id(-1), priority(-1), credit_return_queue() {}
 
 RPCMessage::~RPCMessage() {
   LOG(FATAL) << "RPC Message deconstructor (should not be called)";
@@ -242,6 +242,7 @@ void gRPCMessage::clear() {
   }
   dfanout_service = nullptr;
   deadline = 0;
+  priority = -1;
 }
 
 gRPCMessage::~gRPCMessage() {
@@ -434,6 +435,7 @@ void HTTPMessage::clear() {
     header->value_len = 0;
   }
   res_header_count = 0;
+  path.clear();
   msg.clear();
   minor = 0;
   status = 0;
@@ -449,6 +451,7 @@ void HTTPMessage::clear() {
   }
   dfanout_service = nullptr;
   deadline = 0;
+  priority = -1;
 }
 
 HTTPMessage::~HTTPMessage() {

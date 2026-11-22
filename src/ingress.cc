@@ -45,7 +45,7 @@ Ingress::Ingress(int index_arg, std::string &ingress_service_ref,
                  << ingress_service_ref;
     } else {
       priority = config.routing.at(ingress_service_ref).priority.value();
-      if (priority < 0 || priority > 3) {
+      if (priority < 0 || priority > 2) { // credit_queue has 3 levels
         LOG(FATAL) << "Invalid priority configured for ingress service: "
                    << ingress_service_ref;
       }
